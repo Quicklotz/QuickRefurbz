@@ -3,8 +3,10 @@
  * QuickRefurbz CLI
  * Refurbishment tracking with QLID identity
  *
+ * Part of QuickWMS - Works seamlessly with QuickIntakez
+ *
  * QLID: Globally unique identifier for every unit
- * Barcode: {PalletID}-QLID{SERIES}{10-digit}
+ * Barcode: {PalletID}-{QLID} (e.g., P1BBY-QLID000000001)
  */
 
 import { Command } from 'commander';
@@ -15,13 +17,16 @@ import {
 } from './database.js';
 import {
   receiveItem,
+  scanItem,
   getItem,
   listItems,
   advanceStage,
   getStageHistory,
-  getItemStats,
-  getRetailerFromPalletId
+  getItemStats
 } from './itemManager.js';
+import {
+  getRetailerFromPalletId
+} from './types.js';
 import {
   addTechnician,
   listTechnicians,
@@ -208,10 +213,50 @@ palletCmd
 
 const itemCmd = program.command('item').description('Item management');
 
+// Primary workflow: Scan barcode from QuickIntakez
+itemCmd
+  .command('scan <barcode>')
+  .description('Scan item barcode from QuickIntakez to start refurbishment (P1BBY-QLID000000001)')
+  .requiredOption('-e, --employee <id>', 'Employee ID')
+  .requiredOption('-w, --warehouse <id>', 'Warehouse ID')
+  .action(async (barcode, opts) => {
+    try {
+      const result = await scanItem({
+        barcode,
+        employeeId: opts.employee,
+        warehouseId: opts.warehouse
+      });
+
+      const item = result.item;
+      const retailer = getRetailerFromPalletId(item.palletId);
+
+      if (result.isNew) {
+        console.log(chalk.green(`\n✓ Item scanned and added to refurb: ${item.qlid}`));
+        console.log(chalk.dim(`  (Imported from QuickIntakez)`));
+      } else {
+        console.log(chalk.green(`\n✓ Item found: ${item.qlid}`));
+        console.log(chalk.dim(`  (Already in refurb tracking)`));
+      }
+
+      console.log(`  Barcode: ${chalk.cyan(item.barcodeValue)}`);
+      console.log(`  Pallet: ${item.palletId} (${RETAILER_DISPLAY[retailer] || retailer})`);
+      console.log(`  ${item.manufacturer} ${item.model}`);
+      console.log(`  Category: ${item.category ? CATEGORY_DISPLAY[item.category] : 'Uncategorized'}`);
+      console.log(`  Stage: ${STAGE_DISPLAY[item.currentStage]}`);
+
+      console.log(`\nAdvance with: ${chalk.cyan(`qr item advance ${item.qlid}`)}`);
+    } catch (error) {
+      console.error(chalk.red(`Error: ${(error as Error).message}`));
+    } finally {
+      await closePool();
+    }
+  });
+
+// Manual receive (for items not in QuickIntakez)
 itemCmd
   .command('receive')
-  .description('Receive a new item (allocates QLID)')
-  .requiredOption('-p, --pallet <palletId>', 'Pallet ID (e.g., P1BBY)')
+  .description('Manually receive a new item (allocates QLID) - use "scan" for QuickIntakez items')
+  .requiredOption('-p, --pallet <palletId>', 'Internal Pallet ID (e.g., P1BBY)')
   .requiredOption('-m, --manufacturer <name>', 'Manufacturer')
   .requiredOption('-o, --model <name>', 'Model')
   .requiredOption('-c, --category <cat>', 'Category (PHONE, TABLET, LAPTOP, etc.)')
@@ -239,7 +284,7 @@ itemCmd
 
       console.log(chalk.green(`\n✓ Item received: ${item.qlid}`));
       console.log(`  Barcode: ${chalk.cyan(item.barcodeValue)}`);
-      console.log(`  Pallet: ${item.palletId} (${RETAILER_CODE_DISPLAY[retailer]})`);
+      console.log(`  Pallet: ${item.palletId} (${RETAILER_DISPLAY[retailer] || retailer})`);
       console.log(`  ${item.manufacturer} ${item.model}`);
       console.log(`  Category: ${item.category ? CATEGORY_DISPLAY[item.category] : 'Uncategorized'}`);
       console.log(`  Stage: ${STAGE_DISPLAY[item.currentStage]}`);
@@ -270,7 +315,7 @@ itemCmd
 
       console.log(chalk.bold(`\nItem: ${item.qlid}\n`));
       console.log(`  Barcode: ${chalk.cyan(item.barcodeValue)}`);
-      console.log(`  Pallet: ${item.palletId} (${RETAILER_CODE_DISPLAY[retailer]})`);
+      console.log(`  Pallet: ${item.palletId} (${RETAILER_DISPLAY[retailer]})`);
       console.log(`  Product: ${item.manufacturer} ${item.model}`);
       console.log(`  Category: ${item.category ? CATEGORY_DISPLAY[item.category] : 'Uncategorized'}`);
       console.log(`  Stage: ${STAGE_DISPLAY[item.currentStage]}`);

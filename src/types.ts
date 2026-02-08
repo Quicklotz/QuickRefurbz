@@ -2,15 +2,18 @@
  * QuickRefurbz - Type Definitions
  * Refurbishment tracking system with QLID identity
  *
+ * Part of QuickWMS - Works seamlessly with QuickIntakez and other modules
+ *
  * QLID is the globally unique identifier for every unit
- * Format: QLID{SERIES}{10-digit} (e.g., QLID0000000001, QLIDA0000000000)
- * Barcode: {PalletID}-QLID{SERIES}{10-digit} (e.g., P1BBY-QLID0000000001)
+ * Format: QLID{9-digit} (e.g., QLID000000001)
+ * Barcode: {InternalPalletId}-{QLID} (e.g., P1BBY-QLID000000001)
  */
 
 // ==================== RETAILERS ====================
 
 /**
  * Retailer - Original store where products came from
+ * Matches QuickIntakez retailer definitions
  */
 export type Retailer =
   | 'BESTBUY'
@@ -21,6 +24,7 @@ export type Retailer =
   | 'KOHLS'
   | 'HOMEDEPOT'
   | 'LOWES'
+  | 'SAMSCLUB'
   | 'OTHER';
 
 export const RETAILER_DISPLAY: Record<Retailer, string> = {
@@ -32,32 +36,48 @@ export const RETAILER_DISPLAY: Record<Retailer, string> = {
   KOHLS: "Kohl's",
   HOMEDEPOT: 'Home Depot',
   LOWES: "Lowe's",
+  SAMSCLUB: "Sam's Club",
   OTHER: 'Other'
 };
 
 /**
- * Retailer codes for legacy PalletID suffix (backwards compatibility)
+ * Retailer codes for internal PalletID (P1BBY, P2TGT, etc.)
+ * Matches QuickIntakez format exactly
  */
-export type RetailerCode =
-  | 'BBY'   // Best Buy
-  | 'AMZ'   // Amazon
-  | 'TGT'   // Target
-  | 'CST'   // Costco
-  | 'WMT'   // Walmart
-  | 'KHL'   // Kohl's
-  | 'HD'    // Home Depot
-  | 'LOW'   // Lowe's
-  | 'OTH';  // Other
+export const RETAILER_CODE: Record<Retailer, string> = {
+  BESTBUY: 'BBY',
+  TARGET: 'TGT',
+  AMAZON: 'AMZ',
+  COSTCO: 'CST',
+  WALMART: 'WMT',
+  KOHLS: 'KHL',
+  HOMEDEPOT: 'HDP',
+  LOWES: 'LOW',
+  SAMSCLUB: 'SAM',
+  OTHER: 'OTH'
+};
+
+/**
+ * Reverse lookup: code -> retailer
+ */
+export const CODE_TO_RETAILER: Record<string, Retailer> = Object.entries(RETAILER_CODE)
+  .reduce((acc, [retailer, code]) => ({ ...acc, [code]: retailer as Retailer }), {} as Record<string, Retailer>);
+
+/**
+ * Legacy type for backwards compatibility
+ */
+export type RetailerCode = 'BBY' | 'TGT' | 'AMZ' | 'CST' | 'WMT' | 'KHL' | 'HDP' | 'LOW' | 'SAM' | 'OTH';
 
 export const RETAILER_CODE_DISPLAY: Record<RetailerCode, string> = {
   BBY: 'Best Buy',
-  AMZ: 'Amazon',
   TGT: 'Target',
+  AMZ: 'Amazon',
   CST: 'Costco',
   WMT: 'Walmart',
   KHL: "Kohl's",
-  HD: 'Home Depot',
+  HDP: 'Home Depot',
   LOW: "Lowe's",
+  SAM: "Sam's Club",
   OTH: 'Other'
 };
 
@@ -445,21 +465,93 @@ export interface LabelData {
 // ==================== HELPER FUNCTIONS ====================
 
 /**
+ * Extract Retailer from internal PalletID
+ * P1BBY → BESTBUY
+ */
+export function getRetailerFromPalletId(palletId: string): Retailer {
+  const match = palletId.match(/^P\d+([A-Z]{3})$/);
+  if (match && match[1] in CODE_TO_RETAILER) {
+    return CODE_TO_RETAILER[match[1]];
+  }
+  return 'OTHER';
+}
+
+/**
  * Extract Retailer Code from PalletID
  * P1BBY → BBY
  */
-export function getRetailerFromPalletId(palletId: string): RetailerCode {
-  const match = palletId.match(/^P\d+([A-Z]+)$/);
-  if (match && match[1] in RETAILER_DISPLAY) {
+export function getRetailerCodeFromPalletId(palletId: string): RetailerCode {
+  const match = palletId.match(/^P\d+([A-Z]{3})$/);
+  if (match && match[1] in CODE_TO_RETAILER) {
     return match[1] as RetailerCode;
   }
   return 'OTH';
 }
 
 /**
- * Validate PalletID format
- * Valid: P1BBY, P23AMZ
+ * Validate internal PalletID format (from QuickIntakez)
+ * Valid: P1BBY, P23TGT, P100AMZ
+ */
+export function isValidInternalPalletId(palletId: string): boolean {
+  return /^P\d+[A-Z]{3}$/.test(palletId);
+}
+
+/**
+ * Validate PalletID format (accepts QuickIntakez format)
+ * Valid: P1BBY, P23TGT (QuickIntakez format)
  */
 export function isValidPalletId(palletId: string): boolean {
-  return /^P\d+[A-Z]{2,3}$/.test(palletId);
+  return isValidInternalPalletId(palletId);
+}
+
+/**
+ * Parse internal pallet ID to extract components
+ * P1BBY → { sequence: 1, retailerCode: 'BBY' }
+ */
+export function parseInternalPalletId(palletId: string): { sequence: number; retailerCode: string } | null {
+  const match = palletId.match(/^P(\d+)([A-Z]{3})$/);
+  if (!match) return null;
+  return {
+    sequence: parseInt(match[1], 10),
+    retailerCode: match[2]
+  };
+}
+
+/**
+ * Validate QLID format
+ * Valid: QLID000000001 (9 digits)
+ */
+export function isValidQLID(qlid: string): boolean {
+  return /^QLID\d{9}$/.test(qlid);
+}
+
+/**
+ * Parse QLID to extract sequence number
+ * QLID000000001 → { sequence: 1 }
+ */
+export function parseQLID(qlid: string): { sequence: number } | null {
+  const match = qlid.match(/^QLID(\d{9})$/);
+  if (!match) return null;
+  return { sequence: parseInt(match[1], 10) };
+}
+
+/**
+ * Build label/barcode from pallet ID and QLID
+ * (P1BBY, QLID000000001) → P1BBY-QLID000000001
+ */
+export function buildLabelId(internalPalletId: string, qlid: string): string {
+  return `${internalPalletId}-${qlid}`;
+}
+
+/**
+ * Parse a scanned barcode into components
+ * P1BBY-QLID000000001 → { palletId: 'P1BBY', qlid: 'QLID000000001' }
+ */
+export function parseBarcode(barcode: string): { palletId: string; qlid: string } | null {
+  const match = barcode.match(/^(P\d+[A-Z]{3})-(QLID\d{9})$/);
+  if (!match) return null;
+  return {
+    palletId: match[1],
+    qlid: match[2]
+  };
 }

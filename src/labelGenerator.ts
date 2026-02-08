@@ -8,7 +8,7 @@
 
 import bwipjs from 'bwip-js';
 import type { LabelData } from './types.js';
-import { getRetailerFromPalletId, RETAILER_CODE_DISPLAY } from './types.js';
+import { getRetailerFromPalletId, RETAILER_DISPLAY } from './types.js';
 
 export interface LabelOptions {
   width?: number;      // Label width in mm (default: 50)
@@ -65,7 +65,7 @@ export async function generateLabel(
  */
 function generateZPL(labelData: LabelData, widthDots: number, heightDots: number): string {
   const retailer = getRetailerFromPalletId(labelData.palletId);
-  const retailerName = RETAILER_CODE_DISPLAY[retailer];
+  const retailerName = RETAILER_DISPLAY[retailer];
   const timestamp = labelData.timestamp.toISOString().replace('T', ' ').slice(0, 19);
 
   // ZPL template for 2" x 1" label at 203 DPI
@@ -86,7 +86,7 @@ ${labelData.manufacturer ? `^FO10,140^A0N,14,14^FD${labelData.manufacturer} ${la
  */
 export function formatLabelText(labelData: LabelData): string {
   const retailer = getRetailerFromPalletId(labelData.palletId);
-  const retailerName = RETAILER_CODE_DISPLAY[retailer];
+  const retailerName = RETAILER_DISPLAY[retailer];
   const timestamp = labelData.timestamp.toISOString().replace('T', ' ').slice(0, 19);
 
   const lines = [

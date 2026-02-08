@@ -9,10 +9,8 @@ import type {
   PartCategory,
   ProductCategory
 } from './types.js';
-import { getPool, parseIdentifier, generateUUID } from './database.js';
+import { getPool, parseIdentifier, generateUUID, nowFn, isPostgres } from './database.js';
 import { getItem } from './itemManager.js';
-
-const isPostgres = () => (process.env.DB_TYPE || 'sqlite') === 'postgres';
 
 // ==================== CREATE ====================
 
@@ -153,7 +151,7 @@ export async function updatePart(
   if (!part) return null;
 
   const db = getPool();
-  const setClause: string[] = ['updated_at = now()'];
+  const setClause: string[] = [`updated_at = ${nowFn()}`];
   const params: unknown[] = [];
   let paramIndex = 1;
 

@@ -15,10 +15,12 @@ import {
   getItem,
   listItems,
   advanceStage,
-  getItemStats,
-  getRetailerFromPalletId,
-  RETAILER_CODE_DISPLAY
+  getItemStats
 } from './itemManager.js';
+import {
+  getRetailerFromPalletId,
+  RETAILER_DISPLAY
+} from './types.js';
 import {
   addTechnician,
   listTechnicians,
@@ -430,7 +432,7 @@ async function showItemMenu(): Promise<void> {
 
     console.log(chalk.bold(`\nItem: ${item.qlid}\n`));
     console.log(`  Barcode: ${chalk.cyan(item.barcodeValue)}`);
-    console.log(`  Pallet: ${item.palletId} (${RETAILER_CODE_DISPLAY[retailer]})`);
+    console.log(`  Pallet: ${item.palletId} (${RETAILER_DISPLAY[retailer]})`);
     console.log(`  Product: ${item.manufacturer} ${item.model}`);
     console.log(`  Category: ${CATEGORY_DISPLAY[item.category]}`);
     console.log(`  Stage: ${STAGE_DISPLAY[item.currentStage]}`);

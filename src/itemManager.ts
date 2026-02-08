@@ -1,6 +1,12 @@
 /**
  * QuickRefurbz - Item Manager
  * Manages items through the refurbishment workflow using QLID identity
+ *
+ * Part of QuickWMS - Works seamlessly with QuickIntakez
+ *
+ * Items enter refurbishment in two ways:
+ * 1. SCAN: Scan barcode from QuickIntakez (P1BBY-QLID000000001) - looks up existing item
+ * 2. RECEIVE: Manual entry for items not yet in the system
  */
 
 import type {
@@ -10,13 +16,18 @@ import type {
   ProductCategory,
   JobPriority,
   FinalGrade,
-  LabelData
+  LabelData,
+  Retailer
 } from './types.js';
 import {
   STAGE_ORDER,
   isValidPalletId,
+  isValidInternalPalletId,
+  isValidQLID,
+  parseBarcode,
   getRetailerFromPalletId,
-  RETAILER_CODE_DISPLAY
+  RETAILER_CODE_DISPLAY,
+  CODE_TO_RETAILER
 } from './types.js';
 import {
   getPool,
@@ -24,8 +35,11 @@ import {
   generateUUID,
   buildBarcode,
   parseIdentifier,
-  isValidQlid
+  isValidQlid,
+  isValidBarcode,
+  nowFn
 } from './database.js';
+import { incrementReceivedItems, incrementCompletedItems } from './palletManager.js';
 
 // ==================== RECEIVE ITEM (INTAKE) ====================
 
@@ -49,13 +63,14 @@ export interface ReceiveItemResult {
 }
 
 /**
- * Receive an item into QuickRefurbz
- * Allocates a new QLID atomically from Postgres
+ * Receive an item into QuickRefurbz (manual entry)
+ * Use this for items NOT already in QuickIntakez
+ * For items from QuickIntakez, use scanItem() instead
  */
 export async function receiveItem(options: ReceiveItemOptions): Promise<ReceiveItemResult> {
-  // Validate PalletID format
-  if (!isValidPalletId(options.palletId)) {
-    throw new Error(`Invalid PalletID format: ${options.palletId}. Expected format: P1BBY`);
+  // Validate PalletID format (must be QuickIntakez format: P1BBY)
+  if (!isValidInternalPalletId(options.palletId)) {
+    throw new Error(`Invalid PalletID format: ${options.palletId}. Expected format: P1BBY (e.g., P1BBY, P2TGT)`);
   }
 
   const db = getPool();
@@ -64,7 +79,7 @@ export async function receiveItem(options: ReceiveItemOptions): Promise<ReceiveI
   const { tick, qlid } = await generateQlid();
   const barcodeValue = buildBarcode(options.palletId, qlid);
 
-  // Insert item (include id and barcode_value for SQLite compatibility)
+  // Insert item into refurb tracking
   const id = generateUUID();
   const result = await db.query<{
     id: string;
@@ -132,6 +147,129 @@ export async function receiveItem(options: ReceiveItemOptions): Promise<ReceiveI
   };
 
   return { item, labelData };
+}
+
+// ==================== SCAN FROM QUICKINTAKEZ ====================
+
+export interface ScanItemOptions {
+  barcode: string;                     // P1BBY-QLID000000001 (scanned from label)
+  employeeId: string;                  // Who is starting refurb
+  warehouseId: string;                 // Where
+}
+
+export interface ScanItemResult {
+  item: RefurbItem;
+  isNew: boolean;                      // True if item was just added to refurb tracking
+  source: 'intake' | 'existing';       // Where item came from
+}
+
+/**
+ * Scan an item barcode to start refurbishment
+ * This is the primary entry point for items coming from QuickIntakez
+ *
+ * Flow:
+ * 1. Parse barcode (P1BBY-QLID000000001)
+ * 2. Check if already in refurb tracking
+ * 3. If not, look up from shared database and add to refurb
+ * 4. Return item ready for refurbishment
+ */
+export async function scanItem(options: ScanItemOptions): Promise<ScanItemResult> {
+  const { barcode, employeeId, warehouseId } = options;
+
+  // Validate barcode format
+  if (!isValidBarcode(barcode)) {
+    throw new Error(`Invalid barcode format: ${barcode}. Expected: P1BBY-QLID000000001`);
+  }
+
+  // Parse the barcode
+  const parsed = parseBarcode(barcode);
+  if (!parsed) {
+    throw new Error(`Could not parse barcode: ${barcode}`);
+  }
+
+  const { palletId, qlid } = parsed;
+  const db = getPool();
+
+  // Check if item already exists in refurb tracking
+  const existingResult = await db.query(`
+    SELECT * FROM refurb_items WHERE qlid = $1
+  `, [qlid]);
+
+  if (existingResult.rows.length > 0) {
+    // Item already in refurb - return it
+    return {
+      item: rowToItem(existingResult.rows[0]),
+      isNew: false,
+      source: 'existing'
+    };
+  }
+
+  // Item not in refurb yet - look up from shared database or create entry
+  // For now, we create a placeholder entry (in production, this would query QuickIntakez data)
+  const dbType = process.env.DB_TYPE || 'sqlite';
+
+  let manufacturer = 'Unknown';
+  let model = 'Unknown';
+  let category: ProductCategory = 'OTHER';
+
+  if (dbType === 'postgres') {
+    // Try to look up item from shared items table
+    try {
+      const sharedResult = await db.query(`
+        SELECT brand, model, category FROM public.items WHERE qlid = $1
+      `, [qlid]);
+
+      if (sharedResult.rows.length > 0) {
+        const sharedItem = sharedResult.rows[0] as { brand?: string; model?: string; category?: string };
+        manufacturer = sharedItem.brand || 'Unknown';
+        model = sharedItem.model || 'Unknown';
+        category = (sharedItem.category?.toUpperCase() as ProductCategory) || 'OTHER';
+      }
+    } catch {
+      // Shared table might not exist - use defaults
+    }
+  }
+
+  // Parse QLID to get tick
+  const qlidMatch = qlid.match(/^QLID(\d{9})$/);
+  const tick = qlidMatch ? BigInt(parseInt(qlidMatch[1], 10)) : BigInt(0);
+
+  // Create refurb entry
+  const id = generateUUID();
+  const result = await db.query(`
+    INSERT INTO refurb_items (
+      id, qlid_tick, qlid, pallet_id, barcode_value,
+      intake_employee_id, warehouse_id,
+      manufacturer, model, category,
+      priority, notes
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    RETURNING *
+  `, [
+    id,
+    tick.toString(),
+    qlid,
+    palletId,
+    barcode,
+    employeeId,
+    warehouseId,
+    manufacturer,
+    model,
+    category,
+    'NORMAL',
+    'Scanned from QuickIntakez'
+  ]);
+
+  const row = result.rows[0];
+  const item = rowToItem(row);
+
+  // Log initial stage transition
+  await logStageTransition(qlid, null, 'INTAKE', undefined, undefined, 'Scanned from QuickIntakez barcode');
+
+  return {
+    item,
+    isNew: true,
+    source: 'intake'
+  };
 }
 
 // ==================== READ ====================
@@ -318,7 +456,7 @@ export async function advanceStage(
   }
 
   // Build update query
-  const updates: string[] = ['current_stage = $1', 'updated_at = now()'];
+  const updates: string[] = ['current_stage = $1', `updated_at = ${nowFn()}`];
   const params: unknown[] = [nextStage];
   let paramIndex = 2;
 
@@ -333,7 +471,7 @@ export async function advanceStage(
   }
 
   if (nextStage === 'COMPLETE') {
-    updates.push('completed_at = now()');
+    updates.push(`completed_at = ${nowFn()}`);
     if (options.finalGrade) {
       updates.push(`final_grade = $${paramIndex++}`);
       params.push(options.finalGrade);
@@ -365,7 +503,22 @@ export async function advanceStage(
     durationMinutes
   );
 
-  return rowToItem(result.rows[0]);
+  // Increment pallet completed items if stage is COMPLETE and using QR pallet
+  if (nextStage === 'COMPLETE' && item.qrPalletId) {
+    await incrementCompletedItems(item.qrPalletId);
+  }
+
+  // Handle case where RETURNING doesn't return rows (SQLite compatibility)
+  if (result.rows[0]) {
+    return rowToItem(result.rows[0]);
+  } else {
+    // Fallback: fetch the updated item
+    const updatedItem = await getItem(item.qlid);
+    if (!updatedItem) {
+      throw new Error(`Failed to fetch updated item: ${item.qlid}`);
+    }
+    return updatedItem;
+  }
 }
 
 export async function setStage(
@@ -396,7 +549,7 @@ export async function setStage(
     }
   }
 
-  const updates: string[] = ['current_stage = $1', 'updated_at = now()'];
+  const updates: string[] = ['current_stage = $1', `updated_at = ${nowFn()}`];
   const params: unknown[] = [stage];
   let paramIndex = 2;
 
@@ -406,7 +559,7 @@ export async function setStage(
   }
 
   if (stage === 'COMPLETE') {
-    updates.push('completed_at = now()');
+    updates.push(`completed_at = ${nowFn()}`);
     if (options.finalGrade) {
       updates.push(`final_grade = $${paramIndex++}`);
       params.push(options.finalGrade);
@@ -436,7 +589,21 @@ export async function setStage(
     options.notes
   );
 
-  return rowToItem(result.rows[0]);
+  // Increment pallet completed items if stage is COMPLETE and using QR pallet
+  if (stage === 'COMPLETE' && item.qrPalletId) {
+    await incrementCompletedItems(item.qrPalletId);
+  }
+
+  // Handle case where RETURNING doesn't return rows (SQLite compatibility)
+  if (result.rows[0]) {
+    return rowToItem(result.rows[0]);
+  } else {
+    const updatedItem = await getItem(item.qlid);
+    if (!updatedItem) {
+      throw new Error(`Failed to fetch updated item: ${item.qlid}`);
+    }
+    return updatedItem;
+  }
 }
 
 // ==================== ASSIGNMENT ====================
@@ -461,12 +628,21 @@ export async function assignTechnician(identifier: string, technicianId: string)
 
   const result = await db.query(`
     UPDATE refurb_items
-    SET assigned_technician_id = $1, updated_at = now()
+    SET assigned_technician_id = $1, updated_at = ${nowFn()}
     WHERE qlid = $2
     RETURNING *
   `, [techResult.rows[0].id, item.qlid]);
 
-  return rowToItem(result.rows[0]);
+  // Handle case where RETURNING doesn't return rows (SQLite compatibility)
+  if (result.rows[0]) {
+    return rowToItem(result.rows[0]);
+  } else {
+    const updatedItem = await getItem(item.qlid);
+    if (!updatedItem) {
+      throw new Error(`Failed to fetch updated item: ${item.qlid}`);
+    }
+    return updatedItem;
+  }
 }
 
 // ==================== HISTORY ====================
@@ -629,6 +805,7 @@ function rowToItem(row: Record<string, unknown>): RefurbItem {
     id: row.id as string,
     qlidTick: BigInt(row.qlid_tick as string),
     qlid: row.qlid as string,
+    qrPalletId: row.qr_pallet_id as string | undefined,
     palletId: row.pallet_id as string,
     barcodeValue: row.barcode_value as string,
     intakeEmployeeId: row.intake_employee_id as string,
@@ -651,5 +828,3 @@ function rowToItem(row: Record<string, unknown>): RefurbItem {
   };
 }
 
-// Re-export for convenience
-export { getRetailerFromPalletId, RETAILER_CODE_DISPLAY };

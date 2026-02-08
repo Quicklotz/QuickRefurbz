@@ -8,7 +8,7 @@ import type {
   TicketStatus,
   IssueSeverity
 } from './types.js';
-import { getPool, getNextTicketNumber, parseIdentifier, generateUUID } from './database.js';
+import { getPool, getNextTicketNumber, parseIdentifier, generateUUID, nowFn } from './database.js';
 import { getItem } from './itemManager.js';
 
 // ==================== CREATE ====================
@@ -166,7 +166,7 @@ export async function updateTicket(
   if (!ticket) return null;
 
   const db = getPool();
-  const setClause: string[] = ['updated_at = now()'];
+  const setClause: string[] = [`updated_at = ${nowFn()}`];
   const params: unknown[] = [];
   let paramIndex = 1;
 
