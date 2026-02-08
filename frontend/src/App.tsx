@@ -7,6 +7,8 @@ import { Kanban } from './pages/Kanban';
 import { Items } from './pages/Items';
 import { Pallets } from './pages/Pallets';
 import { Scan } from './pages/Scan';
+import { WorkflowStation } from './pages/WorkflowStation';
+import { JobQueue } from './pages/JobQueue';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -39,6 +41,8 @@ function AppRoutes() {
         }
       >
         <Route index element={<Dashboard />} />
+        <Route path="workflow" element={<WorkflowStation />} />
+        <Route path="queue" element={<JobQueue />} />
         <Route path="kanban" element={<Kanban />} />
         <Route path="items" element={<Items />} />
         <Route path="pallets" element={<Pallets />} />

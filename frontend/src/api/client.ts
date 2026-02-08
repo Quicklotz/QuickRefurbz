@@ -216,6 +216,96 @@ class ApiClient {
   async getTechnicianWorkload(id: string) {
     return this.request<any>(`/technicians/${id}/workload`);
   }
+
+  // ==================== WORKFLOW API ====================
+
+  // Jobs
+  async createJob(data: { qlid: string; palletId?: string; category?: string; priority?: string }) {
+    return this.request<any>('/workflow/jobs', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getJobs(params?: Record<string, string>) {
+    const query = params ? '?' + new URLSearchParams(params).toString() : '';
+    return this.request<any[]>(`/workflow/jobs${query}`);
+  }
+
+  async getJob(qlid: string) {
+    return this.request<any>(`/workflow/jobs/${qlid}`);
+  }
+
+  async getJobPrompt(qlid: string) {
+    return this.request<any>(`/workflow/jobs/${qlid}/prompt`);
+  }
+
+  async completeStep(qlid: string, stepCode: string, data: any) {
+    return this.request<any>(`/workflow/jobs/${qlid}/steps/${stepCode}/complete`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async transitionJob(qlid: string, action: string, data?: any) {
+    return this.request<any>(`/workflow/jobs/${qlid}/transition`, {
+      method: 'POST',
+      body: JSON.stringify({ action, ...data }),
+    });
+  }
+
+  async assignJob(qlid: string, technicianId: string, technicianName?: string) {
+    return this.request<any>(`/workflow/jobs/${qlid}/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ technicianId, technicianName }),
+    });
+  }
+
+  async addDiagnosis(qlid: string, data: any) {
+    return this.request<any>(`/workflow/jobs/${qlid}/diagnose`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getJobDiagnoses(qlid: string) {
+    return this.request<any[]>(`/workflow/jobs/${qlid}/diagnoses`);
+  }
+
+  async certifyJob(qlid: string, data: { finalGrade: string; warrantyEligible: boolean; notes?: string }) {
+    return this.request<any>(`/workflow/jobs/${qlid}/certify`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getJobHistory(qlid: string) {
+    return this.request<any>(`/workflow/jobs/${qlid}/history`);
+  }
+
+  // SOPs
+  async getSOPs() {
+    return this.request<any[]>('/workflow/sops');
+  }
+
+  async getSOP(category: string) {
+    return this.request<any>(`/workflow/sops/${category}`);
+  }
+
+  // Defect Codes
+  async getDefectCodes(category?: string) {
+    const query = category ? `?category=${category}` : '';
+    return this.request<any[]>(`/workflow/defect-codes${query}`);
+  }
+
+  // Stats & Queue
+  async getWorkflowStats() {
+    return this.request<any>('/workflow/stats');
+  }
+
+  async getWorkflowQueue() {
+    return this.request<Record<string, { count: number; jobs: any[] }>>('/workflow/queue');
+  }
 }
 
 export const api = new ApiClient();

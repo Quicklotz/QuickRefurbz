@@ -98,7 +98,7 @@ palletCmd
   .command('create')
   .description('Create a new pallet')
   .requiredOption('-r, --retailer <retailer>', 'Retailer (BESTBUY, TARGET, AMAZON, WALMART, etc.)')
-  .requiredOption('-s, --source <source>', 'Liquidation source (TECHLIQUIDATORS, BSTOCK, DIRECTLIQUIDATION, etc.)')
+  .requiredOption('-s, --source <source>', 'Liquidation source (QUICKLOTZ, BSTOCK, DIRECTLIQUIDATION, etc.)')
   .option('-i, --source-id <id>', 'Source pallet ID (e.g., PTRF70336)')
   .option('-o, --order-id <id>', 'Source order/invoice ID')
   .option('-c, --cogs <amount>', 'Total COGS for pallet')

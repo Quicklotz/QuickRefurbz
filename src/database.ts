@@ -369,6 +369,68 @@ async function initializePostgres(db: DatabaseAdapter): Promise<void> {
   // Ensure shared sequences exist
   await ensureSequences();
 
+  // Create pallets table
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS pallets (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      pallet_id TEXT UNIQUE NOT NULL,
+      retailer TEXT NOT NULL,
+      liquidation_source TEXT NOT NULL,
+      source_pallet_id TEXT,
+      source_order_id TEXT,
+      source_manifest_url TEXT,
+      purchase_date TIMESTAMPTZ,
+      total_cogs NUMERIC NOT NULL DEFAULT 0,
+      expected_items INTEGER NOT NULL DEFAULT 0,
+      received_items INTEGER NOT NULL DEFAULT 0,
+      completed_items INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'RECEIVING',
+      warehouse_id TEXT,
+      notes TEXT,
+      received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      completed_at TIMESTAMPTZ
+    )
+  `);
+
+  // Create refurb_items table
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS refurb_items (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      qlid_tick BIGINT UNIQUE NOT NULL,
+      qlid TEXT UNIQUE NOT NULL,
+      qr_pallet_id TEXT REFERENCES pallets(pallet_id),
+      pallet_id TEXT NOT NULL,
+      barcode_value TEXT,
+      intake_employee_id TEXT NOT NULL,
+      warehouse_id TEXT NOT NULL,
+      intake_ts TIMESTAMPTZ NOT NULL DEFAULT now(),
+      manufacturer TEXT NOT NULL,
+      model TEXT NOT NULL,
+      category TEXT NOT NULL,
+      unit_cogs NUMERIC,
+      serial_number TEXT,
+      current_stage TEXT NOT NULL DEFAULT 'INTAKE',
+      priority TEXT NOT NULL DEFAULT 'NORMAL',
+      assigned_technician_id TEXT,
+      final_grade TEXT,
+      estimated_value NUMERIC,
+      next_workflow TEXT,
+      completed_at TIMESTAMPTZ,
+      notes TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_refurb_items_qlid ON refurb_items(qlid)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_refurb_items_stage ON refurb_items(current_stage)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_refurb_items_pallet ON refurb_items(pallet_id)`);
+
+  // Create pallet sequence
+  await db.query(`CREATE SEQUENCE IF NOT EXISTS pallet_sequence START 1`);
+
   // Create refurb-specific tables
   await db.query(`
     CREATE TABLE IF NOT EXISTS stage_history (
@@ -474,6 +536,144 @@ async function initializePostgres(db: DatabaseAdapter): Promise<void> {
   `);
 
   await db.query(`CREATE SEQUENCE IF NOT EXISTS ticket_sequence START 1`);
+
+  // ==================== WORKFLOW TABLES ====================
+
+  // Refurb jobs - main workflow tracking
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS refurb_jobs (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      qlid TEXT UNIQUE NOT NULL,
+      pallet_id TEXT NOT NULL,
+      category TEXT NOT NULL,
+      manufacturer TEXT,
+      model TEXT,
+      current_state TEXT NOT NULL DEFAULT 'REFURBZ_QUEUED',
+      current_step_index INTEGER NOT NULL DEFAULT 0,
+      assigned_technician_id UUID,
+      assigned_technician_name TEXT,
+      assigned_at TIMESTAMPTZ,
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      max_attempts INTEGER NOT NULL DEFAULT 2,
+      final_grade TEXT,
+      warranty_eligible BOOLEAN,
+      disposition TEXT,
+      priority TEXT NOT NULL DEFAULT 'NORMAL',
+      started_at TIMESTAMPTZ,
+      completed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_refurb_jobs_qlid ON refurb_jobs(qlid)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_refurb_jobs_state ON refurb_jobs(current_state)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_refurb_jobs_technician ON refurb_jobs(assigned_technician_id)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_refurb_jobs_category ON refurb_jobs(category)`);
+
+  // Step completions - audit trail for completed steps
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS refurb_step_completions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      job_id UUID NOT NULL REFERENCES refurb_jobs(id) ON DELETE CASCADE,
+      state_code TEXT NOT NULL,
+      step_code TEXT NOT NULL,
+      checklist_results JSONB,
+      input_values JSONB,
+      measurements JSONB,
+      notes TEXT,
+      photo_urls TEXT[],
+      photo_types TEXT[],
+      completed_by UUID,
+      completed_by_name TEXT,
+      duration_seconds INTEGER,
+      completed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE(job_id, state_code, step_code)
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_step_completions_job ON refurb_step_completions(job_id)`);
+
+  // Job diagnoses - defect codes and repair tracking
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS job_diagnoses (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      job_id UUID NOT NULL REFERENCES refurb_jobs(id) ON DELETE CASCADE,
+      defect_code TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      measurements JSONB,
+      notes TEXT,
+      photo_urls TEXT[],
+      repair_action TEXT,
+      parts_required JSONB,
+      estimated_minutes INTEGER,
+      repair_status TEXT NOT NULL DEFAULT 'PENDING',
+      repaired_at TIMESTAMPTZ,
+      repaired_by UUID,
+      repair_notes TEXT,
+      parts_used JSONB,
+      diagnosed_by UUID NOT NULL,
+      diagnosed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_job_diagnoses_job ON job_diagnoses(job_id)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_job_diagnoses_status ON job_diagnoses(repair_status)`);
+
+  // Defect codes - master list
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS defect_codes (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      code TEXT UNIQUE NOT NULL,
+      category TEXT NOT NULL,
+      component TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      description TEXT NOT NULL,
+      repair_sop TEXT,
+      estimated_minutes INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_defect_codes_category ON defect_codes(category)`);
+
+  // Category SOP overrides - customization per category
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS category_sop_overrides (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      category TEXT NOT NULL,
+      state_code TEXT NOT NULL,
+      step_code TEXT NOT NULL,
+      is_applicable BOOLEAN NOT NULL DEFAULT true,
+      override_prompt TEXT,
+      override_help_text TEXT,
+      override_checklist JSONB,
+      override_input_schema JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE(category, step_code)
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_sop_overrides_category ON category_sop_overrides(category)`);
+
+  // Workflow state transitions - audit log
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS workflow_transitions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      job_id UUID NOT NULL REFERENCES refurb_jobs(id) ON DELETE CASCADE,
+      from_state TEXT,
+      to_state TEXT NOT NULL,
+      action TEXT NOT NULL,
+      technician_id UUID,
+      technician_name TEXT,
+      reason TEXT,
+      notes TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_workflow_transitions_job ON workflow_transitions(job_id)`);
 }
 
 async function initializeSQLite(db: DatabaseAdapter): Promise<void> {
@@ -652,6 +852,141 @@ async function initializeSQLite(db: DatabaseAdapter): Promise<void> {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
   `);
+
+  // ==================== WORKFLOW TABLES (SQLite) ====================
+
+  // Refurb jobs
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS refurb_jobs (
+      id TEXT PRIMARY KEY,
+      qlid TEXT UNIQUE NOT NULL,
+      pallet_id TEXT NOT NULL,
+      category TEXT NOT NULL,
+      manufacturer TEXT,
+      model TEXT,
+      current_state TEXT NOT NULL DEFAULT 'REFURBZ_QUEUED',
+      current_step_index INTEGER NOT NULL DEFAULT 0,
+      assigned_technician_id TEXT,
+      assigned_technician_name TEXT,
+      assigned_at TEXT,
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      max_attempts INTEGER NOT NULL DEFAULT 2,
+      final_grade TEXT,
+      warranty_eligible INTEGER,
+      disposition TEXT,
+      priority TEXT NOT NULL DEFAULT 'NORMAL',
+      started_at TEXT,
+      completed_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_refurb_jobs_qlid ON refurb_jobs(qlid)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_refurb_jobs_state ON refurb_jobs(current_state)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_refurb_jobs_technician ON refurb_jobs(assigned_technician_id)`);
+
+  // Step completions
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS refurb_step_completions (
+      id TEXT PRIMARY KEY,
+      job_id TEXT NOT NULL,
+      state_code TEXT NOT NULL,
+      step_code TEXT NOT NULL,
+      checklist_results TEXT,
+      input_values TEXT,
+      measurements TEXT,
+      notes TEXT,
+      photo_urls TEXT,
+      photo_types TEXT,
+      completed_by TEXT,
+      completed_by_name TEXT,
+      duration_seconds INTEGER,
+      completed_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(job_id, state_code, step_code),
+      FOREIGN KEY (job_id) REFERENCES refurb_jobs(id)
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_step_completions_job ON refurb_step_completions(job_id)`);
+
+  // Job diagnoses
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS job_diagnoses (
+      id TEXT PRIMARY KEY,
+      job_id TEXT NOT NULL,
+      defect_code TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      measurements TEXT,
+      notes TEXT,
+      photo_urls TEXT,
+      repair_action TEXT,
+      parts_required TEXT,
+      estimated_minutes INTEGER,
+      repair_status TEXT NOT NULL DEFAULT 'PENDING',
+      repaired_at TEXT,
+      repaired_by TEXT,
+      repair_notes TEXT,
+      parts_used TEXT,
+      diagnosed_by TEXT NOT NULL,
+      diagnosed_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (job_id) REFERENCES refurb_jobs(id)
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_job_diagnoses_job ON job_diagnoses(job_id)`);
+
+  // Defect codes
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS defect_codes (
+      id TEXT PRIMARY KEY,
+      code TEXT UNIQUE NOT NULL,
+      category TEXT NOT NULL,
+      component TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      description TEXT NOT NULL,
+      repair_sop TEXT,
+      estimated_minutes INTEGER,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+
+  // Category SOP overrides
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS category_sop_overrides (
+      id TEXT PRIMARY KEY,
+      category TEXT NOT NULL,
+      state_code TEXT NOT NULL,
+      step_code TEXT NOT NULL,
+      is_applicable INTEGER NOT NULL DEFAULT 1,
+      override_prompt TEXT,
+      override_help_text TEXT,
+      override_checklist TEXT,
+      override_input_schema TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(category, step_code)
+    )
+  `);
+
+  // Workflow transitions
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS workflow_transitions (
+      id TEXT PRIMARY KEY,
+      job_id TEXT NOT NULL,
+      from_state TEXT,
+      to_state TEXT NOT NULL,
+      action TEXT NOT NULL,
+      technician_id TEXT,
+      technician_name TEXT,
+      reason TEXT,
+      notes TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (job_id) REFERENCES refurb_jobs(id)
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_workflow_transitions_job ON workflow_transitions(job_id)`);
 }
 
 // ==================== SHARED ITEM MODEL ACCESS ====================

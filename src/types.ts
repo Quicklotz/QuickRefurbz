@@ -87,19 +87,19 @@ export const RETAILER_CODE_DISPLAY: Record<RetailerCode, string> = {
  * LiquidationSource - Where pallets are purchased from
  */
 export type LiquidationSource =
-  | 'TECHLIQUIDATORS'
+  | 'QUICKLOTZ'
   | 'DIRECTLIQUIDATION'
   | 'BSTOCK'
   | 'BULQ'
-  | 'QUICKLOTZ'
+  | 'LIQUIDATION_COM'
   | 'OTHER';
 
 export const SOURCE_DISPLAY: Record<LiquidationSource, string> = {
-  TECHLIQUIDATORS: 'TechLiquidators',
+  QUICKLOTZ: 'QuickLotz',
   DIRECTLIQUIDATION: 'DirectLiquidation',
   BSTOCK: 'B-Stock',
   BULQ: 'BULQ',
-  QUICKLOTZ: 'QuickLotz',
+  LIQUIDATION_COM: 'Liquidation.com',
   OTHER: 'Other'
 };
 
@@ -554,4 +554,323 @@ export function parseBarcode(barcode: string): { palletId: string; qlid: string 
     palletId: match[1],
     qlid: match[2]
   };
+}
+
+// ==================== WORKFLOW STATE MACHINE ====================
+
+/**
+ * RefurbState - 15-state workflow for refurbishment
+ * Normal flow: QUEUED → ASSIGNED → IN_PROGRESS → SECURITY_PREP_COMPLETE → DIAGNOSED
+ *   → REPAIR_IN_PROGRESS → REPAIR_COMPLETE → FINAL_TEST_IN_PROGRESS
+ *   → FINAL_TEST_PASSED → CERTIFIED → COMPLETE
+ * Escape routes: BLOCKED, ESCALATED, FINAL_TEST_FAILED, FAILED_DISPOSITION
+ */
+export type RefurbState =
+  // Normal flow
+  | 'REFURBZ_QUEUED'
+  | 'REFURBZ_ASSIGNED'
+  | 'REFURBZ_IN_PROGRESS'
+  | 'SECURITY_PREP_COMPLETE'
+  | 'DIAGNOSED'
+  | 'REPAIR_IN_PROGRESS'
+  | 'REPAIR_COMPLETE'
+  | 'FINAL_TEST_IN_PROGRESS'
+  | 'FINAL_TEST_PASSED'
+  | 'CERTIFIED'
+  | 'REFURBZ_COMPLETE'
+  // Escape routes
+  | 'REFURBZ_BLOCKED'
+  | 'REFURBZ_ESCALATED'
+  | 'FINAL_TEST_FAILED'
+  | 'REFURBZ_FAILED_DISPOSITION';
+
+export const REFURB_STATE_ORDER: RefurbState[] = [
+  'REFURBZ_QUEUED',
+  'REFURBZ_ASSIGNED',
+  'REFURBZ_IN_PROGRESS',
+  'SECURITY_PREP_COMPLETE',
+  'DIAGNOSED',
+  'REPAIR_IN_PROGRESS',
+  'REPAIR_COMPLETE',
+  'FINAL_TEST_IN_PROGRESS',
+  'FINAL_TEST_PASSED',
+  'CERTIFIED',
+  'REFURBZ_COMPLETE'
+];
+
+export const REFURB_STATE_DISPLAY: Record<RefurbState, string> = {
+  REFURBZ_QUEUED: 'Queued',
+  REFURBZ_ASSIGNED: 'Assigned',
+  REFURBZ_IN_PROGRESS: 'In Progress',
+  SECURITY_PREP_COMPLETE: 'Security Prep Complete',
+  DIAGNOSED: 'Diagnosed',
+  REPAIR_IN_PROGRESS: 'Repair In Progress',
+  REPAIR_COMPLETE: 'Repair Complete',
+  FINAL_TEST_IN_PROGRESS: 'Final Test In Progress',
+  FINAL_TEST_PASSED: 'Final Test Passed',
+  CERTIFIED: 'Certified',
+  REFURBZ_COMPLETE: 'Complete',
+  REFURBZ_BLOCKED: 'Blocked',
+  REFURBZ_ESCALATED: 'Escalated',
+  FINAL_TEST_FAILED: 'Final Test Failed',
+  REFURBZ_FAILED_DISPOSITION: 'Failed - Disposition Required'
+};
+
+export type StateType = 'NORMAL' | 'ESCAPE' | 'TERMINAL';
+
+export const REFURB_STATE_TYPE: Record<RefurbState, StateType> = {
+  REFURBZ_QUEUED: 'NORMAL',
+  REFURBZ_ASSIGNED: 'NORMAL',
+  REFURBZ_IN_PROGRESS: 'NORMAL',
+  SECURITY_PREP_COMPLETE: 'NORMAL',
+  DIAGNOSED: 'NORMAL',
+  REPAIR_IN_PROGRESS: 'NORMAL',
+  REPAIR_COMPLETE: 'NORMAL',
+  FINAL_TEST_IN_PROGRESS: 'NORMAL',
+  FINAL_TEST_PASSED: 'NORMAL',
+  CERTIFIED: 'NORMAL',
+  REFURBZ_COMPLETE: 'TERMINAL',
+  REFURBZ_BLOCKED: 'ESCAPE',
+  REFURBZ_ESCALATED: 'ESCAPE',
+  FINAL_TEST_FAILED: 'ESCAPE',
+  REFURBZ_FAILED_DISPOSITION: 'TERMINAL'
+};
+
+/**
+ * TransitionAction - Actions that trigger state transitions
+ */
+export type TransitionAction = 'ADVANCE' | 'BLOCK' | 'ESCALATE' | 'FAIL' | 'RESOLVE' | 'RETRY';
+
+// ==================== WORKFLOW STEPS ====================
+
+/**
+ * StepType - Types of workflow steps
+ */
+export type StepType = 'CHECKLIST' | 'INPUT' | 'MEASUREMENT' | 'PHOTO' | 'CONFIRMATION';
+
+/**
+ * WorkflowStep - Definition of a step/prompt in the workflow
+ */
+export interface WorkflowStep {
+  id: string;
+  code: string;                    // PHONE_FACTORY_RESET, LAPTOP_BIOS_RESET
+  name: string;                    // Human-readable name
+  type: StepType;
+  prompt: string;                  // Main prompt text
+  helpText?: string;               // SOP instructions
+  required: boolean;
+  order: number;                   // Order within the state
+
+  // Type-specific configuration
+  checklistItems?: string[];       // For CHECKLIST type
+  inputSchema?: Record<string, unknown>;  // JSON Schema for INPUT/MEASUREMENT types
+  photoConfig?: {
+    required: boolean;
+    maxPhotos: number;
+    photoTypes: ('BEFORE' | 'AFTER' | 'DEFECT' | 'SERIAL')[];
+  };
+}
+
+/**
+ * StateConfig - Configuration for a workflow state
+ */
+export interface StateConfig {
+  code: RefurbState;
+  name: string;
+  type: StateType;
+  order: number;
+  steps: WorkflowStep[];
+  allowedTransitions: {
+    action: TransitionAction;
+    toState: RefurbState;
+  }[];
+}
+
+// ==================== REFURB JOB ====================
+
+/**
+ * RefurbJob - Main job entity for workflow tracking
+ */
+export interface RefurbJob {
+  id: string;
+  qlid: string;                    // P1BBY-QLID000000001
+  palletId: string;                // P1BBY
+  category: ProductCategory;
+  manufacturer?: string;
+  model?: string;
+
+  // Current workflow position
+  currentState: RefurbState;
+  currentStepIndex: number;        // Index within current state's steps
+
+  // Assignment
+  assignedTechnicianId?: string;
+  assignedTechnicianName?: string;
+  assignedAt?: Date;
+
+  // Attempts tracking (for retest loop)
+  attemptCount: number;
+  maxAttempts: number;             // Default 2
+
+  // Final outcome
+  finalGrade?: FinalGrade;
+  warrantyEligible?: boolean;
+  disposition?: string;            // LISTING, SALVAGE, RECYCLE
+
+  // Priority
+  priority: JobPriority;
+
+  // Timestamps
+  startedAt?: Date;
+  completedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * StepCompletion - Audit trail for completed steps
+ */
+export interface StepCompletion {
+  id: string;
+  jobId: string;
+  stateCode: RefurbState;
+  stepCode: string;
+
+  // Captured data
+  checklistResults?: Record<string, boolean>;
+  inputValues?: Record<string, unknown>;
+  measurements?: Record<string, number>;
+  notes?: string;
+  photoUrls?: string[];
+  photoTypes?: string[];
+
+  // Completion info
+  completedBy: string;             // Technician ID
+  completedByName?: string;
+  durationSeconds?: number;
+  completedAt: Date;
+}
+
+/**
+ * JobDiagnosis - Diagnosis record with defect codes
+ */
+export interface JobDiagnosis {
+  id: string;
+  jobId: string;
+  defectCode: string;              // SCR001, BAT002
+  severity: IssueSeverity;
+
+  // Assessment data
+  measurements?: Record<string, number>;
+  notes?: string;
+  photoUrls?: string[];
+
+  // Repair plan
+  repairAction?: 'REPLACE' | 'REPAIR' | 'CLEAN' | 'SKIP';
+  partsRequired?: { partId: string; quantity: number }[];
+  estimatedMinutes?: number;
+
+  // Repair tracking
+  repairStatus: 'PENDING' | 'IN_PROGRESS' | 'COMPLETE' | 'SKIPPED';
+  repairedAt?: Date;
+  repairedBy?: string;
+  repairNotes?: string;
+  partsUsed?: { partId: string; partNumber: string; quantity: number }[];
+
+  // Timestamps
+  diagnosedBy: string;
+  diagnosedAt: Date;
+}
+
+/**
+ * DefectCode - Master list of defect codes
+ */
+export interface DefectCode {
+  id: string;
+  code: string;                    // SCR001, BAT002
+  category: ProductCategory | 'ALL';
+  component: string;               // SCREEN, BATTERY, KEYBOARD
+  severity: IssueSeverity;
+  description: string;
+  repairSop?: string;              // Reference to repair procedure
+  estimatedMinutes?: number;
+}
+
+// ==================== CATEGORY SOP ====================
+
+/**
+ * CategorySOP - Category-specific SOP configuration
+ */
+export interface CategorySOP {
+  category: ProductCategory;
+  stateSteps: Map<RefurbState, WorkflowStep[]>;
+}
+
+/**
+ * SOPOverride - Database override for category SOPs
+ */
+export interface SOPOverride {
+  id: string;
+  category: ProductCategory;
+  stateCode: RefurbState;
+  stepCode: string;
+  isApplicable: boolean;           // false = skip this step
+  overridePrompt?: string;
+  overrideHelpText?: string;
+  overrideChecklist?: string[];
+  overrideInputSchema?: Record<string, unknown>;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// ==================== WORKFLOW PROMPT ====================
+
+/**
+ * WorkflowPrompt - Current prompt state returned by API
+ */
+export interface WorkflowPrompt {
+  job: RefurbJob;
+  state: RefurbState;
+  stateName: string;
+
+  // Current step
+  totalSteps: number;
+  currentStepIndex: number;
+  currentStep?: WorkflowStep;
+  completedSteps: StepCompletion[];
+
+  // Progress
+  progress: {
+    statesCompleted: number;
+    totalStates: number;
+    overallPercent: number;
+  };
+
+  // Available actions
+  canAdvance: boolean;
+  canBlock: boolean;
+  canEscalate: boolean;
+  canRetry: boolean;
+}
+
+/**
+ * StepCompletionData - Data submitted when completing a step
+ */
+export interface StepCompletionData {
+  checklistResults?: Record<string, boolean>;
+  inputValues?: Record<string, unknown>;
+  measurements?: Record<string, number>;
+  notes?: string;
+  photos?: { url: string; type: string }[];
+}
+
+/**
+ * TransitionData - Data submitted with state transition
+ */
+export interface TransitionData {
+  reason?: string;
+  notes?: string;
+  finalGrade?: FinalGrade;
+  warrantyEligible?: boolean;
+  disposition?: string;
 }

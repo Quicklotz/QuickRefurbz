@@ -6,7 +6,9 @@ import {
   Package,
   Boxes,
   ScanLine,
-  LogOut
+  LogOut,
+  Workflow,
+  ListTodo
 } from 'lucide-react';
 
 export function Layout() {
@@ -21,6 +23,14 @@ export function Layout() {
           <NavLink to="/" end className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
             <LayoutDashboard size={20} />
             Dashboard
+          </NavLink>
+          <NavLink to="/workflow" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+            <Workflow size={20} />
+            Workflow Station
+          </NavLink>
+          <NavLink to="/queue" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+            <ListTodo size={20} />
+            Job Queue
           </NavLink>
           <NavLink to="/kanban" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
             <Columns3 size={20} />

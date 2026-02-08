@@ -16,11 +16,11 @@ const RETAILERS = [
 ];
 
 const SOURCES = [
-  { value: 'TECHLIQUIDATORS', label: 'TechLiquidators' },
+  { value: 'QUICKLOTZ', label: 'QuickLotz' },
   { value: 'DIRECTLIQUIDATION', label: 'DirectLiquidation' },
   { value: 'BSTOCK', label: 'B-Stock' },
   { value: 'BULQ', label: 'BULQ' },
-  { value: 'QUICKLOTZ', label: 'QuickLotz' },
+  { value: 'LIQUIDATION_COM', label: 'Liquidation.com' },
   { value: 'OTHER', label: 'Other' }
 ];
 
@@ -31,7 +31,7 @@ export function Pallets() {
   const [selectedPallet, setSelectedPallet] = useState<any>(null);
   const [formData, setFormData] = useState({
     retailer: 'BESTBUY',
-    liquidationSource: 'TECHLIQUIDATORS',
+    liquidationSource: 'QUICKLOTZ',
     sourcePalletId: '',
     sourceOrderId: '',
     totalCogs: '',
@@ -62,7 +62,7 @@ export function Pallets() {
       setShowModal(false);
       setFormData({
         retailer: 'BESTBUY',
-        liquidationSource: 'TECHLIQUIDATORS',
+        liquidationSource: 'QUICKLOTZ',
         sourcePalletId: '',
         sourceOrderId: '',
         totalCogs: '',

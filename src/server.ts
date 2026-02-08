@@ -16,6 +16,7 @@ import * as ticketManager from './ticketManager.js';
 import * as partsInventory from './partsInventory.js';
 import * as technicianManager from './technicianManager.js';
 import type { Retailer, LiquidationSource, ProductCategory, JobPriority, RefurbStage } from './types.js';
+import workflowRoutes from './workflow/api.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -522,6 +523,10 @@ app.get('/api/kanban', authMiddleware, async (_req: Request, res: Response) => {
     res.status(500).json({ error: 'Failed to fetch kanban data' });
   }
 });
+
+// ==================== WORKFLOW API ====================
+
+app.use('/api/workflow', authMiddleware, workflowRoutes);
 
 // ==================== CATCH-ALL FOR REACT ====================
 
