@@ -306,6 +306,112 @@ class ApiClient {
   async getWorkflowQueue() {
     return this.request<Record<string, { count: number; jobs: any[] }>>('/workflow/queue');
   }
+
+  // ==================== SETTINGS API ====================
+
+  async getSettings() {
+    return this.request<any>('/settings');
+  }
+
+  async updateSettings(settings: any) {
+    return this.request<any>('/settings', {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    });
+  }
+
+  // ==================== DATA WIPE API ====================
+
+  async getDataWipeReports(params?: Record<string, string>) {
+    const query = params ? '?' + new URLSearchParams(params).toString() : '';
+    return this.request<any[]>(`/datawipe/reports${query}`);
+  }
+
+  async getDataWipeReport(qlid: string) {
+    return this.request<any>(`/datawipe/reports/${qlid}`);
+  }
+
+  async startDataWipe(data: { qlid: string; jobId?: string; deviceInfo: any; wipeMethod: string }) {
+    return this.request<any>('/datawipe/start', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async completeDataWipe(id: string, data: { verificationMethod: string; notes?: string }) {
+    return this.request<any>(`/datawipe/${id}/complete`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getDataWipeCertificate(qlid: string) {
+    return this.request<any>(`/datawipe/${qlid}/certificate`);
+  }
+
+  // ==================== PARTS INVENTORY API ====================
+
+  async getPart(id: string) {
+    return this.request<any>(`/parts/${id}`);
+  }
+
+  async updatePart(id: string, data: any) {
+    return this.request<any>(`/parts/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deletePart(id: string) {
+    return this.request<any>(`/parts/${id}`, { method: 'DELETE' });
+  }
+
+  async getPartsCategories() {
+    return this.request<string[]>('/parts/categories');
+  }
+
+  async importParts(data: { source: string; parts: any[] }) {
+    return this.request<any>('/parts/import', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async syncPartsSupplier(supplierId: string) {
+    return this.request<any>(`/parts/sync/${supplierId}`, {
+      method: 'POST',
+    });
+  }
+
+  async getPartsSuppliers() {
+    return this.request<any[]>('/parts/suppliers');
+  }
+
+  async addPartsSupplier(data: { name: string; apiUrl?: string; apiKey?: string; syncType: string }) {
+    return this.request<any>('/parts/suppliers', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // ==================== WORK SESSION API ====================
+
+  async getSession() {
+    return this.request<{ session: any; requiresSession: boolean }>('/session');
+  }
+
+  async startSession(data: { employeeId: string; workstationId: string; warehouseId: string }) {
+    return this.request<any>('/session/start', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async endSession() {
+    return this.request<any>('/session/end', {
+      method: 'POST',
+    });
+  }
 }
 
 export const api = new ApiClient();

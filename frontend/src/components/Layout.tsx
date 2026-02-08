@@ -1,23 +1,40 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { useSession } from '../App';
 import {
   LayoutDashboard,
   Columns3,
   Package,
-  Boxes,
   ScanLine,
   LogOut,
   Workflow,
-  ListTodo
+  ListTodo,
+  Settings,
+  ShieldCheck,
+  Wrench,
+  Clock
 } from 'lucide-react';
 
 export function Layout() {
   const { user, logout } = useAuth();
+  const { session, endSession } = useSession();
+
+  const handleLogout = async () => {
+    await endSession();
+    logout();
+  };
 
   return (
     <div className="app-layout">
       <aside className="sidebar">
         <div className="sidebar-logo">QuickRefurbz</div>
+
+        {session && (
+          <div className="session-info">
+            <Clock size={14} />
+            <span>{session.employee_id} | {session.workstation_id}</span>
+          </div>
+        )}
 
         <nav className="sidebar-nav">
           <NavLink to="/" end className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
@@ -40,13 +57,21 @@ export function Layout() {
             <Package size={20} />
             Items
           </NavLink>
-          <NavLink to="/pallets" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            <Boxes size={20} />
-            Pallets
-          </NavLink>
           <NavLink to="/scan" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
             <ScanLine size={20} />
             Scan Item
+          </NavLink>
+          <NavLink to="/datawipe" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+            <ShieldCheck size={20} />
+            Data Wipe
+          </NavLink>
+          <NavLink to="/parts" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+            <Wrench size={20} />
+            Parts
+          </NavLink>
+          <NavLink to="/settings" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+            <Settings size={20} />
+            Settings
           </NavLink>
         </nav>
 
@@ -59,7 +84,7 @@ export function Layout() {
             <div className="user-role">{user?.role}</div>
           </div>
           <button
-            onClick={logout}
+            onClick={handleLogout}
             className="btn btn-secondary"
             style={{ padding: '0.5rem' }}
             title="Logout"

@@ -528,6 +528,429 @@ app.get('/api/kanban', authMiddleware, async (_req: Request, res: Response) => {
 
 app.use('/api/workflow', authMiddleware, workflowRoutes);
 
+// ==================== SETTINGS API ====================
+
+import { getPool, generateUUID } from './database.js';
+
+app.get('/api/settings', authMiddleware, async (_req: Request, res: Response) => {
+  try {
+    const db = getPool();
+    const result = await db.query<{ key: string; value: any }>('SELECT key, value FROM app_settings');
+
+    const settings: Record<string, any> = {};
+    for (const row of result.rows) {
+      settings[row.key] = typeof row.value === 'string' ? JSON.parse(row.value) : row.value;
+    }
+
+    res.json(settings);
+  } catch (error) {
+    console.error('Get settings error:', error);
+    res.status(500).json({ error: 'Failed to get settings' });
+  }
+});
+
+app.put('/api/settings', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const db = getPool();
+    const settings = req.body;
+    const dbType = process.env.DB_TYPE || 'sqlite';
+
+    for (const [key, value] of Object.entries(settings)) {
+      const jsonValue = JSON.stringify(value);
+
+      if (dbType === 'postgres') {
+        await db.query(
+          `INSERT INTO app_settings (key, value, updated_at)
+           VALUES ($1, $2, now())
+           ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = now()`,
+          [key, jsonValue]
+        );
+      } else {
+        await db.query(
+          `INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ($1, $2, datetime('now'))`,
+          [key, jsonValue]
+        );
+      }
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Update settings error:', error);
+    res.status(500).json({ error: 'Failed to update settings' });
+  }
+});
+
+// ==================== DATA WIPE API ====================
+
+// Get all wipe reports for a job/qlid
+app.get('/api/datawipe/reports', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const db = getPool();
+    const qlid = queryString(req.query.qlid);
+
+    let query = 'SELECT * FROM data_wipe_reports ORDER BY created_at DESC';
+    const params: any[] = [];
+
+    if (qlid) {
+      query = 'SELECT * FROM data_wipe_reports WHERE qlid = $1 ORDER BY created_at DESC';
+      params.push(qlid);
+    }
+
+    const result = await db.query(query, params);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Get wipe reports error:', error);
+    res.status(500).json({ error: 'Failed to get wipe reports' });
+  }
+});
+
+// Get specific wipe report by QLID (public endpoint for certificates)
+app.get('/api/datawipe/reports/:qlid', async (req: Request, res: Response) => {
+  try {
+    const db = getPool();
+    const qlid = req.params.qlid as string;
+
+    const result = await db.query(
+      'SELECT * FROM data_wipe_reports WHERE qlid = $1 ORDER BY created_at DESC LIMIT 1',
+      [qlid]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: 'Wipe report not found' });
+      return;
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Get wipe report error:', error);
+    res.status(500).json({ error: 'Failed to get wipe report' });
+  }
+});
+
+// Start a data wipe process
+app.post('/api/datawipe/start', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getPool();
+    const { qlid, jobId, deviceInfo, wipeMethod, notes } = req.body;
+
+    if (!qlid || !wipeMethod) {
+      res.status(400).json({ error: 'QLID and wipe method required' });
+      return;
+    }
+
+    const id = generateUUID();
+    const dbType = process.env.DB_TYPE || 'sqlite';
+    const deviceInfoJson = deviceInfo ? JSON.stringify(deviceInfo) : null;
+
+    if (dbType === 'postgres') {
+      await db.query(
+        `INSERT INTO data_wipe_reports (id, qlid, job_id, device_info, wipe_method, wipe_status, started_at, notes)
+         VALUES ($1, $2, $3, $4, $5, 'IN_PROGRESS', now(), $6)`,
+        [id, qlid, jobId || null, deviceInfoJson, wipeMethod, notes || null]
+      );
+    } else {
+      await db.query(
+        `INSERT INTO data_wipe_reports (id, qlid, job_id, device_info, wipe_method, wipe_status, started_at, notes)
+         VALUES ($1, $2, $3, $4, $5, 'IN_PROGRESS', datetime('now'), $6)`,
+        [id, qlid, jobId || null, deviceInfoJson, wipeMethod, notes || null]
+      );
+    }
+
+    const result = await db.query('SELECT * FROM data_wipe_reports WHERE id = $1', [id]);
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error('Start wipe error:', error);
+    res.status(500).json({ error: 'Failed to start data wipe' });
+  }
+});
+
+// Complete a data wipe process
+app.post('/api/datawipe/:id/complete', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getPool();
+    const id = req.params.id as string;
+    const { status, verificationMethod, certificateData, notes } = req.body;
+    const dbType = process.env.DB_TYPE || 'sqlite';
+
+    const certDataJson = certificateData ? JSON.stringify(certificateData) : null;
+
+    if (dbType === 'postgres') {
+      await db.query(
+        `UPDATE data_wipe_reports
+         SET wipe_status = $1, completed_at = now(), verified_at = now(),
+             verified_by = $2, verification_method = $3, certificate_data = $4, notes = COALESCE($5, notes)
+         WHERE id = $6`,
+        [status || 'COMPLETED', req.user?.id, verificationMethod, certDataJson, notes, id]
+      );
+    } else {
+      await db.query(
+        `UPDATE data_wipe_reports
+         SET wipe_status = $1, completed_at = datetime('now'), verified_at = datetime('now'),
+             verified_by = $2, verification_method = $3, certificate_data = $4, notes = COALESCE($5, notes)
+         WHERE id = $6`,
+        [status || 'COMPLETED', req.user?.id, verificationMethod, certDataJson, notes, id]
+      );
+    }
+
+    const result = await db.query('SELECT * FROM data_wipe_reports WHERE id = $1', [id]);
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Complete wipe error:', error);
+    res.status(500).json({ error: 'Failed to complete data wipe' });
+  }
+});
+
+// Generate wipe certificate/report PDF data
+app.get('/api/datawipe/:qlid/certificate', async (req: Request, res: Response) => {
+  try {
+    const db = getPool();
+    const qlid = req.params.qlid as string;
+
+    const result = await db.query(
+      'SELECT * FROM data_wipe_reports WHERE qlid = $1 AND wipe_status = $2 ORDER BY completed_at DESC LIMIT 1',
+      [qlid, 'COMPLETED']
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: 'No completed wipe report found for this QLID' });
+      return;
+    }
+
+    const report = result.rows[0];
+    const deviceInfo = typeof report.device_info === 'string' ? JSON.parse(report.device_info) : report.device_info;
+    const certData = typeof report.certificate_data === 'string' ? JSON.parse(report.certificate_data) : report.certificate_data;
+
+    // Return certificate data in a format suitable for PDF generation
+    res.json({
+      certificateId: report.id,
+      qlid: report.qlid,
+      deviceInfo,
+      wipeMethod: report.wipe_method,
+      startedAt: report.started_at,
+      completedAt: report.completed_at,
+      verifiedAt: report.verified_at,
+      verificationMethod: report.verification_method,
+      status: report.wipe_status,
+      certificateData: certData,
+      notes: report.notes,
+      generatedAt: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Get certificate error:', error);
+    res.status(500).json({ error: 'Failed to get certificate' });
+  }
+});
+
+// ==================== PARTS SUPPLIERS API ====================
+
+app.get('/api/parts/suppliers', authMiddleware, async (_req: Request, res: Response) => {
+  try {
+    const db = getPool();
+    const result = await db.query('SELECT * FROM parts_suppliers ORDER BY name');
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Get suppliers error:', error);
+    res.status(500).json({ error: 'Failed to get suppliers' });
+  }
+});
+
+app.post('/api/parts/suppliers', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const db = getPool();
+    const { name, apiUrl, apiKey, syncType } = req.body;
+    const id = generateUUID();
+    const dbType = process.env.DB_TYPE || 'sqlite';
+
+    if (dbType === 'postgres') {
+      await db.query(
+        `INSERT INTO parts_suppliers (id, name, api_url, api_key, sync_type, status, created_at)
+         VALUES ($1, $2, $3, $4, $5, 'ACTIVE', now())`,
+        [id, name, apiUrl || null, apiKey || null, syncType || 'MANUAL']
+      );
+    } else {
+      await db.query(
+        `INSERT INTO parts_suppliers (id, name, api_url, api_key, sync_type, status, created_at)
+         VALUES ($1, $2, $3, $4, $5, 'ACTIVE', datetime('now'))`,
+        [id, name, apiUrl || null, apiKey || null, syncType || 'MANUAL']
+      );
+    }
+
+    const result = await db.query('SELECT * FROM parts_suppliers WHERE id = $1', [id]);
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error('Add supplier error:', error);
+    res.status(500).json({ error: 'Failed to add supplier' });
+  }
+});
+
+app.post('/api/parts/sync/:supplierId', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const db = getPool();
+    const supplierId = req.params.supplierId;
+    const dbType = process.env.DB_TYPE || 'sqlite';
+
+    // Get supplier details
+    const supplierResult = await db.query('SELECT * FROM parts_suppliers WHERE id = $1', [supplierId]);
+    if (supplierResult.rows.length === 0) {
+      res.status(404).json({ error: 'Supplier not found' });
+      return;
+    }
+
+    const supplier = supplierResult.rows[0];
+
+    // TODO: Implement actual API sync logic based on supplier.api_url and supplier.api_key
+    // For now, just update last_sync timestamp
+
+    if (dbType === 'postgres') {
+      await db.query(
+        'UPDATE parts_suppliers SET last_sync = now() WHERE id = $1',
+        [supplierId]
+      );
+    } else {
+      await db.query(
+        'UPDATE parts_suppliers SET last_sync = datetime(\'now\') WHERE id = $1',
+        [supplierId]
+      );
+    }
+
+    res.json({ success: true, message: `Sync initiated for ${supplier.name}` });
+  } catch (error) {
+    console.error('Sync supplier error:', error);
+    res.status(500).json({ error: 'Failed to sync supplier' });
+  }
+});
+
+app.post('/api/parts/import', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { source, parts } = req.body;
+
+    if (!parts || !Array.isArray(parts)) {
+      res.status(400).json({ error: 'Parts array required' });
+      return;
+    }
+
+    const imported = [];
+    for (const partData of parts) {
+      try {
+        const part = await partsInventory.addPart({
+          ...partData,
+          source: source || 'SYNCED'
+        });
+        imported.push(part);
+      } catch (err) {
+        console.error('Failed to import part:', partData, err);
+      }
+    }
+
+    res.json({ success: true, imported: imported.length, total: parts.length });
+  } catch (error) {
+    console.error('Import parts error:', error);
+    res.status(500).json({ error: 'Failed to import parts' });
+  }
+});
+
+// ==================== WORK SESSION API ====================
+
+// Get current active session for user
+app.get('/api/session', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getPool();
+    const userId = req.user?.id;
+
+    const result = await db.query(
+      `SELECT * FROM work_sessions WHERE user_id = $1 AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1`,
+      [userId]
+    );
+
+    if (result.rows.length === 0) {
+      res.json({ session: null, requiresSession: true });
+      return;
+    }
+
+    res.json({ session: result.rows[0], requiresSession: false });
+  } catch (error) {
+    console.error('Get session error:', error);
+    res.status(500).json({ error: 'Failed to get session' });
+  }
+});
+
+// Start a new work session
+app.post('/api/session/start', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getPool();
+    const { employeeId, workstationId, warehouseId } = req.body;
+    const userId = req.user?.id;
+    const dbType = process.env.DB_TYPE || 'sqlite';
+
+    if (!employeeId || !workstationId || !warehouseId) {
+      res.status(400).json({ error: 'Employee ID, Workstation ID, and Warehouse ID are required' });
+      return;
+    }
+
+    // End any existing sessions for this user
+    if (dbType === 'postgres') {
+      await db.query(
+        'UPDATE work_sessions SET ended_at = now() WHERE user_id = $1 AND ended_at IS NULL',
+        [userId]
+      );
+    } else {
+      await db.query(
+        'UPDATE work_sessions SET ended_at = datetime(\'now\') WHERE user_id = $1 AND ended_at IS NULL',
+        [userId]
+      );
+    }
+
+    const id = generateUUID();
+    const sessionDate = new Date().toISOString().split('T')[0];
+
+    if (dbType === 'postgres') {
+      await db.query(
+        `INSERT INTO work_sessions (id, user_id, employee_id, workstation_id, warehouse_id, session_date, started_at)
+         VALUES ($1, $2, $3, $4, $5, $6, now())`,
+        [id, userId, employeeId, workstationId, warehouseId, sessionDate]
+      );
+    } else {
+      await db.query(
+        `INSERT INTO work_sessions (id, user_id, employee_id, workstation_id, warehouse_id, session_date, started_at)
+         VALUES ($1, $2, $3, $4, $5, $6, datetime('now'))`,
+        [id, userId, employeeId, workstationId, warehouseId, sessionDate]
+      );
+    }
+
+    const result = await db.query('SELECT * FROM work_sessions WHERE id = $1', [id]);
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error('Start session error:', error);
+    res.status(500).json({ error: 'Failed to start session' });
+  }
+});
+
+// End current work session
+app.post('/api/session/end', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getPool();
+    const userId = req.user?.id;
+    const dbType = process.env.DB_TYPE || 'sqlite';
+
+    if (dbType === 'postgres') {
+      await db.query(
+        'UPDATE work_sessions SET ended_at = now() WHERE user_id = $1 AND ended_at IS NULL',
+        [userId]
+      );
+    } else {
+      await db.query(
+        'UPDATE work_sessions SET ended_at = datetime(\'now\') WHERE user_id = $1 AND ended_at IS NULL',
+        [userId]
+      );
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('End session error:', error);
+    res.status(500).json({ error: 'Failed to end session' });
+  }
+});
+
 // ==================== CATCH-ALL FOR REACT ====================
 
 app.get('*', (_req: Request, res: Response) => {

@@ -674,6 +674,70 @@ async function initializePostgres(db: DatabaseAdapter): Promise<void> {
   `);
 
   await db.query(`CREATE INDEX IF NOT EXISTS idx_workflow_transitions_job ON workflow_transitions(job_id)`);
+
+  // App settings - key/value store
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  // Data wipe reports
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS data_wipe_reports (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      qlid TEXT NOT NULL,
+      job_id UUID REFERENCES refurb_jobs(id),
+      device_info JSONB,
+      wipe_method TEXT NOT NULL,
+      wipe_status TEXT NOT NULL DEFAULT 'PENDING',
+      started_at TIMESTAMPTZ,
+      completed_at TIMESTAMPTZ,
+      verified_at TIMESTAMPTZ,
+      verified_by UUID,
+      verification_method TEXT,
+      certificate_data JSONB,
+      notes TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_data_wipe_qlid ON data_wipe_reports(qlid)`);
+
+  // Parts suppliers
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS parts_suppliers (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      name TEXT NOT NULL,
+      api_url TEXT,
+      api_key TEXT,
+      sync_type TEXT NOT NULL DEFAULT 'MANUAL',
+      status TEXT NOT NULL DEFAULT 'ACTIVE',
+      last_sync TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  // Work sessions
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS work_sessions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id TEXT NOT NULL,
+      employee_id TEXT NOT NULL,
+      workstation_id TEXT NOT NULL,
+      warehouse_id TEXT NOT NULL,
+      session_date DATE NOT NULL,
+      started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      ended_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_work_sessions_user ON work_sessions(user_id)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_work_sessions_date ON work_sessions(session_date)`);
 }
 
 async function initializeSQLite(db: DatabaseAdapter): Promise<void> {
@@ -987,6 +1051,71 @@ async function initializeSQLite(db: DatabaseAdapter): Promise<void> {
   `);
 
   await db.query(`CREATE INDEX IF NOT EXISTS idx_workflow_transitions_job ON workflow_transitions(job_id)`);
+
+  // App settings - key/value store
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+
+  // Data wipe reports
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS data_wipe_reports (
+      id TEXT PRIMARY KEY,
+      qlid TEXT NOT NULL,
+      job_id TEXT,
+      device_info TEXT,
+      wipe_method TEXT NOT NULL,
+      wipe_status TEXT NOT NULL DEFAULT 'PENDING',
+      started_at TEXT,
+      completed_at TEXT,
+      verified_at TEXT,
+      verified_by TEXT,
+      verification_method TEXT,
+      certificate_data TEXT,
+      notes TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (job_id) REFERENCES refurb_jobs(id)
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_data_wipe_qlid ON data_wipe_reports(qlid)`);
+
+  // Parts suppliers
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS parts_suppliers (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      api_url TEXT,
+      api_key TEXT,
+      sync_type TEXT NOT NULL DEFAULT 'MANUAL',
+      status TEXT NOT NULL DEFAULT 'ACTIVE',
+      last_sync TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+
+  // Work sessions
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS work_sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      employee_id TEXT NOT NULL,
+      workstation_id TEXT NOT NULL,
+      warehouse_id TEXT NOT NULL,
+      session_date TEXT NOT NULL,
+      started_at TEXT NOT NULL DEFAULT (datetime('now')),
+      ended_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_work_sessions_user ON work_sessions(user_id)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_work_sessions_date ON work_sessions(session_date)`);
 }
 
 // ==================== SHARED ITEM MODEL ACCESS ====================
