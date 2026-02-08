@@ -9,7 +9,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { initDatabase, getPool } from './database.js';
+import { initializeDatabase, getPool } from './database.js';
 import * as palletManager from './palletManager.js';
 import * as itemManager from './itemManager.js';
 import * as ticketManager from './ticketManager.js';
@@ -398,8 +398,8 @@ app.post('/api/tickets/:id/resolve', authMiddleware, async (req: AuthRequest, re
 app.get('/api/parts', authMiddleware, async (req: Request, res: Response) => {
   try {
     const parts = await partsInventory.listParts({
-      category: req.query.category as string,
-      lowStock: req.query.lowStock === 'true'
+      category: req.query.category as any,
+      lowStockOnly: req.query.lowStock === 'true'
     });
     res.json(parts);
   } catch (error) {
@@ -421,7 +421,7 @@ app.post('/api/parts', authMiddleware, async (req: Request, res: Response) => {
 app.post('/api/parts/:id/adjust', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const { quantity, reason } = req.body;
-    const part = await partsInventory.adjustStock(
+    const part = await partsInventory.adjustInventory(
       req.params.id,
       quantity,
       reason,
@@ -495,7 +495,7 @@ app.get('*', (_req: Request, res: Response) => {
 
 async function start() {
   try {
-    await initDatabase();
+    await initializeDatabase();
     console.log('Database initialized');
 
     app.listen(PORT, () => {
