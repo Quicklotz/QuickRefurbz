@@ -9,13 +9,13 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { initializeDatabase, getPool } from './database.js';
+import { initializeDatabase } from './database.js';
 import * as palletManager from './palletManager.js';
 import * as itemManager from './itemManager.js';
 import * as ticketManager from './ticketManager.js';
 import * as partsInventory from './partsInventory.js';
 import * as technicianManager from './technicianManager.js';
-import type { Retailer, LiquidationSource, ProductCategory, JobPriority, RefurbStage, FinalGrade } from './types.js';
+import type { Retailer, LiquidationSource, ProductCategory, JobPriority, RefurbStage } from './types.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -42,6 +42,13 @@ interface AuthUser {
 
 interface AuthRequest extends Request {
   user?: AuthUser;
+}
+
+// Helper to get string from query param
+function queryString(val: unknown): string | undefined {
+  if (typeof val === 'string') return val;
+  if (Array.isArray(val) && typeof val[0] === 'string') return val[0];
+  return undefined;
 }
 
 // Hardcoded users (in production, use database)
@@ -142,10 +149,15 @@ app.get('/api/pallets', authMiddleware, async (req: Request, res: Response) => {
   try {
     const options: palletManager.ListPalletsOptions = {};
 
-    if (req.query.status) options.status = req.query.status as any;
-    if (req.query.retailer) options.retailer = req.query.retailer as Retailer;
-    if (req.query.source) options.source = req.query.source as LiquidationSource;
-    if (req.query.limit) options.limit = parseInt(req.query.limit as string);
+    const status = queryString(req.query.status);
+    const retailer = queryString(req.query.retailer);
+    const source = queryString(req.query.source);
+    const limit = queryString(req.query.limit);
+
+    if (status) options.status = status as any;
+    if (retailer) options.retailer = retailer as Retailer;
+    if (source) options.source = source as LiquidationSource;
+    if (limit) options.limit = parseInt(limit);
 
     const pallets = await palletManager.listPallets(options);
     res.json(pallets);
@@ -157,13 +169,14 @@ app.get('/api/pallets', authMiddleware, async (req: Request, res: Response) => {
 
 app.get('/api/pallets/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const pallet = await palletManager.getPalletById(req.params.id);
+    const id = req.params.id as string;
+    const pallet = await palletManager.getPalletById(id);
     if (!pallet) {
       res.status(404).json({ error: 'Pallet not found' });
       return;
     }
 
-    const items = await palletManager.getPalletItems(req.params.id);
+    const items = await palletManager.getPalletItems(id);
     res.json({ ...pallet, items });
   } catch (error) {
     console.error('Get pallet error:', error);
@@ -183,7 +196,8 @@ app.post('/api/pallets', authMiddleware, async (req: Request, res: Response) => 
 
 app.put('/api/pallets/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const pallet = await palletManager.updatePallet(req.params.id, req.body);
+    const id = req.params.id as string;
+    const pallet = await palletManager.updatePallet(id, req.body);
     if (!pallet) {
       res.status(404).json({ error: 'Pallet not found' });
       return;
@@ -197,7 +211,8 @@ app.put('/api/pallets/:id', authMiddleware, async (req: Request, res: Response) 
 
 app.delete('/api/pallets/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const deleted = await palletManager.deletePallet(req.params.id);
+    const id = req.params.id as string;
+    const deleted = await palletManager.deletePallet(id);
     if (!deleted) {
       res.status(404).json({ error: 'Pallet not found' });
       return;
@@ -215,12 +230,19 @@ app.get('/api/items', authMiddleware, async (req: Request, res: Response) => {
   try {
     const options: itemManager.ListItemsOptions = {};
 
-    if (req.query.palletId) options.palletId = req.query.palletId as string;
-    if (req.query.stage) options.stage = req.query.stage as RefurbStage;
-    if (req.query.category) options.category = req.query.category as ProductCategory;
-    if (req.query.technicianId) options.technicianId = req.query.technicianId as string;
-    if (req.query.priority) options.priority = req.query.priority as JobPriority;
-    if (req.query.limit) options.limit = parseInt(req.query.limit as string);
+    const palletId = queryString(req.query.palletId);
+    const stage = queryString(req.query.stage);
+    const category = queryString(req.query.category);
+    const technicianId = queryString(req.query.technicianId);
+    const priority = queryString(req.query.priority);
+    const limit = queryString(req.query.limit);
+
+    if (palletId) options.palletId = palletId;
+    if (stage) options.stage = stage as RefurbStage;
+    if (category) options.category = category as ProductCategory;
+    if (technicianId) options.technicianId = technicianId;
+    if (priority) options.priority = priority as JobPriority;
+    if (limit) options.limit = parseInt(limit);
 
     const items = await itemManager.listItems(options);
     res.json(items);
@@ -232,13 +254,14 @@ app.get('/api/items', authMiddleware, async (req: Request, res: Response) => {
 
 app.get('/api/items/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const item = await itemManager.getItem(req.params.id);
+    const id = req.params.id as string;
+    const item = await itemManager.getItem(id);
     if (!item) {
       res.status(404).json({ error: 'Item not found' });
       return;
     }
 
-    const history = await itemManager.getStageHistory(req.params.id);
+    const history = await itemManager.getStageHistory(id);
     res.json({ ...item, history });
   } catch (error) {
     console.error('Get item error:', error);
@@ -283,7 +306,8 @@ app.post('/api/items', authMiddleware, async (req: AuthRequest, res: Response) =
 
 app.post('/api/items/:id/advance', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const item = await itemManager.advanceStage(req.params.id, {
+    const id = req.params.id as string;
+    const item = await itemManager.advanceStage(id, {
       ...req.body,
       technicianId: req.body.technicianId || req.user?.id
     });
@@ -296,8 +320,9 @@ app.post('/api/items/:id/advance', authMiddleware, async (req: AuthRequest, res:
 
 app.post('/api/items/:id/stage', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
+    const id = req.params.id as string;
     const { stage, ...options } = req.body;
-    const item = await itemManager.setStage(req.params.id, stage, {
+    const item = await itemManager.setStage(id, stage, {
       ...options,
       technicianId: options.technicianId || req.user?.id
     });
@@ -310,8 +335,9 @@ app.post('/api/items/:id/stage', authMiddleware, async (req: AuthRequest, res: R
 
 app.post('/api/items/:id/assign', authMiddleware, async (req: Request, res: Response) => {
   try {
+    const id = req.params.id as string;
     const { technicianId } = req.body;
-    const item = await itemManager.assignTechnician(req.params.id, technicianId);
+    const item = await itemManager.assignTechnician(id, technicianId);
     res.json(item);
   } catch (error: any) {
     console.error('Assign technician error:', error);
@@ -321,7 +347,8 @@ app.post('/api/items/:id/assign', authMiddleware, async (req: Request, res: Resp
 
 app.delete('/api/items/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const deleted = await itemManager.deleteItem(req.params.id);
+    const id = req.params.id as string;
+    const deleted = await itemManager.deleteItem(id);
     if (!deleted) {
       res.status(404).json({ error: 'Item not found' });
       return;
@@ -339,11 +366,17 @@ app.get('/api/tickets', authMiddleware, async (req: Request, res: Response) => {
   try {
     const options: ticketManager.ListTicketsOptions = {};
 
-    if (req.query.status) options.status = req.query.status as any;
-    if (req.query.qlid) options.qlid = req.query.qlid as string;
-    if (req.query.technicianId) options.technicianId = req.query.technicianId as string;
-    if (req.query.severity) options.severity = req.query.severity as any;
-    if (req.query.limit) options.limit = parseInt(req.query.limit as string);
+    const status = queryString(req.query.status);
+    const qlid = queryString(req.query.qlid);
+    const technicianId = queryString(req.query.technicianId);
+    const severity = queryString(req.query.severity);
+    const limit = queryString(req.query.limit);
+
+    if (status) options.status = status as any;
+    if (qlid) options.qlid = qlid;
+    if (technicianId) options.technicianId = technicianId;
+    if (severity) options.severity = severity as any;
+    if (limit) options.limit = parseInt(limit);
 
     const tickets = await ticketManager.listTickets(options);
     res.json(tickets);
@@ -355,7 +388,8 @@ app.get('/api/tickets', authMiddleware, async (req: Request, res: Response) => {
 
 app.get('/api/tickets/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const ticket = await ticketManager.getTicketById(req.params.id);
+    const id = req.params.id as string;
+    const ticket = await ticketManager.getTicketById(id);
     if (!ticket) {
       res.status(404).json({ error: 'Ticket not found' });
       return;
@@ -382,7 +416,8 @@ app.post('/api/tickets', authMiddleware, async (req: AuthRequest, res: Response)
 
 app.post('/api/tickets/:id/resolve', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const ticket = await ticketManager.resolveTicket(req.params.id, {
+    const id = req.params.id as string;
+    const ticket = await ticketManager.resolveTicket(id, {
       ...req.body,
       technicianId: req.body.technicianId || req.user?.id
     });
@@ -397,9 +432,12 @@ app.post('/api/tickets/:id/resolve', authMiddleware, async (req: AuthRequest, re
 
 app.get('/api/parts', authMiddleware, async (req: Request, res: Response) => {
   try {
+    const category = queryString(req.query.category);
+    const lowStock = queryString(req.query.lowStock);
+
     const parts = await partsInventory.listParts({
-      category: req.query.category as any,
-      lowStockOnly: req.query.lowStock === 'true'
+      category: category as any,
+      lowStockOnly: lowStock === 'true'
     });
     res.json(parts);
   } catch (error) {
@@ -420,13 +458,12 @@ app.post('/api/parts', authMiddleware, async (req: Request, res: Response) => {
 
 app.post('/api/parts/:id/adjust', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
+    const id = req.params.id as string;
     const { quantity, reason } = req.body;
-    const part = await partsInventory.adjustInventory(
-      req.params.id,
-      quantity,
-      reason,
-      req.user?.id || 'system'
-    );
+    const part = await partsInventory.adjustInventory(id, {
+      adjustment: quantity,
+      reason: reason || 'Manual adjustment'
+    });
     res.json(part);
   } catch (error: any) {
     console.error('Adjust stock error:', error);
@@ -458,7 +495,8 @@ app.post('/api/technicians', authMiddleware, async (req: Request, res: Response)
 
 app.get('/api/technicians/:id/workload', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const workload = await technicianManager.getTechnicianWorkload(req.params.id);
+    const id = req.params.id as string;
+    const workload = await technicianManager.getTechnicianWorkload(id);
     res.json(workload);
   } catch (error) {
     console.error('Get workload error:', error);
