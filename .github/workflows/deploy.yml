@@ -108,13 +108,25 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.HETZNER_QL_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p 22 -H ${{ secrets.HETZNER_QL_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
           echo "StrictHostKeyChecking no" >> ~/.ssh/config
+          chmod 600 ~/.ssh/config
+
+      - name: Debug network connectivity
+        run: |
+          echo "Runner IP:"
+          curl -s ifconfig.me || true
+          echo ""
+          echo "Testing TCP connection to server port 22..."
+          timeout 10 nc -vz ${{ secrets.HETZNER_QL_HOST }} 22 2>&1 || echo "TCP connection test failed/timed out"
+          echo ""
+          echo "SSH keyscan attempt:"
+          timeout 15 ssh-keyscan -v -p 22 ${{ secrets.HETZNER_QL_HOST }} 2>&1 || echo "Keyscan failed/timed out"
 
       - name: Sync files to VPS
         run: |
           rsync -avz --delete \
-            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
+            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=30" \
+            --timeout=120 \
             --exclude='.git' \
             --exclude='node_modules' \
             --exclude='.env' \
