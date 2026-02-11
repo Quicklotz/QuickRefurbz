@@ -108,7 +108,8 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.HETZNER_QL_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p 22 ${{ secrets.HETZNER_QL_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+          ssh-keyscan -p 22 -H ${{ secrets.HETZNER_QL_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
+          echo "StrictHostKeyChecking no" >> ~/.ssh/config
 
       - name: Sync files to VPS
         run: |
