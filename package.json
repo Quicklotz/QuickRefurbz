@@ -30,8 +30,8 @@
   "author": "Upscaled",
   "license": "ISC",
   "dependencies": {
-    "@quickwms/api": "file:../packages/api",
-    "@quickwms/database": "file:../packages/database",
+    "@quickwms/api": "file:./packages/api",
+    "@quickwms/database": "file:./packages/database",
     "@sendgrid/mail": "^8.1.6",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^12.6.2",
