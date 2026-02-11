@@ -24,6 +24,26 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
+      - name: Build local packages
+        run: |
+          # Build @quickwms/database package
+          if [ -d "packages/database" ]; then
+            echo "Building @quickwms/database..."
+            cd packages/database
+            npm ci
+            npm run build
+            cd ../..
+          fi
+
+          # Build @quickwms/api package
+          if [ -d "packages/api" ]; then
+            echo "Building @quickwms/api..."
+            cd packages/api
+            npm ci
+            npm run build
+            cd ../..
+          fi
+
       - name: Install backend dependencies
         run: npm ci
 

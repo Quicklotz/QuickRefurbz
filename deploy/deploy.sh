@@ -44,6 +44,23 @@ else
 
   echo "Package manager: $PKG_MANAGER"
 
+  # Build local packages first if they exist
+  if [[ -d "packages/database" ]]; then
+    echo "Building @quickwms/database package..."
+    cd packages/database
+    npm ci --omit=dev
+    npm run build
+    cd ../..
+  fi
+
+  if [[ -d "packages/api" ]]; then
+    echo "Building @quickwms/api package..."
+    cd packages/api
+    npm ci --omit=dev
+    npm run build
+    cd ../..
+  fi
+
   # Install dependencies
   echo "Installing dependencies..."
   $INSTALL_CMD

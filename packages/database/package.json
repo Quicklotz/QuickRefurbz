@@ -1,0 +1,68 @@
+{
+  "name": "@quickwms/database",
+  "version": "1.0.0",
+  "description": "Shared PostgreSQL database library for QuickWMS modules",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js"
+    },
+    "./models": {
+      "types": "./dist/models/index.d.ts",
+      "import": "./dist/models/index.js",
+      "require": "./dist/models/index.js"
+    },
+    "./connection": {
+      "types": "./dist/connection.d.ts",
+      "import": "./dist/connection.js",
+      "require": "./dist/connection.js"
+    },
+    "./sequences": {
+      "types": "./dist/sequences.d.ts",
+      "import": "./dist/sequences.js",
+      "require": "./dist/sequences.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "import": "./dist/types.js",
+      "require": "./dist/types.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build",
+    "migrate": "tsx src/migrations/run.ts",
+    "migrate:create": "tsx src/migrations/create.ts"
+  },
+  "dependencies": {
+    "dotenv": "^16.3.1",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.12.0",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  },
+  "peerDependencies": {
+    "pg": "^8.0.0"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "keywords": [
+    "quickwms",
+    "database",
+    "postgresql",
+    "warehouse"
+  ],
+  "author": "Upscaled",
+  "license": "MIT"
+}
