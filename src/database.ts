@@ -459,8 +459,11 @@ async function initializePostgres(db: DatabaseAdapter): Promise<void> {
       manufacturer TEXT NOT NULL,
       model TEXT NOT NULL,
       category TEXT NOT NULL,
+      upc TEXT,
+      asin TEXT,
       unit_cogs NUMERIC,
       serial_number TEXT,
+      condition_notes TEXT,
       current_stage TEXT NOT NULL DEFAULT 'INTAKE',
       priority TEXT NOT NULL DEFAULT 'NORMAL',
       assigned_technician_id TEXT,
@@ -586,6 +589,10 @@ async function initializePostgres(db: DatabaseAdapter): Promise<void> {
   `);
 
   await db.query(`CREATE SEQUENCE IF NOT EXISTS ticket_sequence START 1`);
+
+  // RFB ID sequences (standalone QuickRefurbz IDs)
+  await db.query(`CREATE SEQUENCE IF NOT EXISTS rfb_id_sequence START 100001`);
+  await db.query(`CREATE SEQUENCE IF NOT EXISTS rfb_pallet_sequence START 1`);
 
   // ==================== WORKFLOW TABLES ====================
 
@@ -1028,6 +1035,226 @@ async function initializePostgres(db: DatabaseAdapter): Promise<void> {
   `);
 
   await db.query(`CREATE INDEX IF NOT EXISTS idx_test_plans_category ON test_plans(category)`);
+
+  // ==================== HARDWARE DIAGNOSTICS TABLES (Postgres) ====================
+
+  // Hardware instruments - registered test equipment
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS hardware_instruments (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      name TEXT NOT NULL,
+      type TEXT NOT NULL,
+      manufacturer TEXT NOT NULL,
+      model TEXT NOT NULL,
+      serial_number TEXT,
+      connection_type TEXT NOT NULL,
+      connection_path TEXT NOT NULL,
+      baud_rate INTEGER,
+      status TEXT NOT NULL DEFAULT 'DISCONNECTED',
+      last_seen_at TIMESTAMPTZ,
+      capabilities TEXT[] DEFAULT '{}',
+      firmware_version TEXT,
+      notes TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_hardware_instruments_type ON hardware_instruments(type)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_hardware_instruments_status ON hardware_instruments(status)`);
+
+  // Hardware captures - sigrok signal capture metadata
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS hardware_captures (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      instrument_id UUID REFERENCES hardware_instruments(id),
+      file_path TEXT NOT NULL,
+      driver TEXT NOT NULL,
+      sample_rate TEXT NOT NULL,
+      duration_ms INTEGER NOT NULL,
+      channels TEXT[] DEFAULT '{}',
+      trigger_condition TEXT,
+      file_size INTEGER,
+      captured_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_hardware_captures_instrument ON hardware_captures(instrument_id)`);
+
+  // Hardware test executions - tracks automated test plan runs
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS hardware_test_executions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      qlid TEXT NOT NULL,
+      plan_id TEXT NOT NULL,
+      category TEXT NOT NULL,
+      diagnostic_session_id UUID REFERENCES diagnostic_sessions(id),
+      status TEXT NOT NULL DEFAULT 'PENDING',
+      operator_id TEXT,
+      operator_name TEXT,
+      station_id TEXT,
+      started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      completed_at TIMESTAMPTZ,
+      total_steps INTEGER NOT NULL DEFAULT 0,
+      completed_steps INTEGER NOT NULL DEFAULT 0,
+      passed_steps INTEGER NOT NULL DEFAULT 0,
+      failed_steps INTEGER NOT NULL DEFAULT 0,
+      overall_result TEXT,
+      notes TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_hw_test_exec_qlid ON hardware_test_executions(qlid)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_hw_test_exec_status ON hardware_test_executions(status)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_hw_test_exec_session ON hardware_test_executions(diagnostic_session_id)`);
+
+  // Hardware test step results - individual step results linked to diagnostic_test_results
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS hardware_test_step_results (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      execution_id UUID NOT NULL REFERENCES hardware_test_executions(id) ON DELETE CASCADE,
+      step_number INTEGER NOT NULL,
+      test_code TEXT NOT NULL,
+      status TEXT NOT NULL,
+      measured_value NUMERIC,
+      measured_unit TEXT,
+      expected_min NUMERIC,
+      expected_max NUMERIC,
+      instrument_id UUID REFERENCES hardware_instruments(id),
+      scpi_command TEXT,
+      raw_response TEXT,
+      diagnostic_test_result_id UUID REFERENCES diagnostic_test_results(id),
+      error_message TEXT,
+      duration_ms INTEGER,
+      measured_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_hw_step_results_exec ON hardware_test_step_results(execution_id)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_hw_step_results_code ON hardware_test_step_results(test_code)`);
+
+  // ==================== QUICKTESTZ TABLES (Postgres) ====================
+
+  // Equipment catalog - recommended and custom test equipment
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS test_equipment_catalog (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      name TEXT NOT NULL,
+      category TEXT NOT NULL,
+      vendor TEXT NOT NULL,
+      model TEXT NOT NULL,
+      integration_type TEXT NOT NULL,
+      connection JSONB NOT NULL DEFAULT '[]',
+      capabilities JSONB NOT NULL DEFAULT '[]',
+      link_url TEXT,
+      required_for_categories JSONB NOT NULL DEFAULT '[]',
+      notes TEXT,
+      is_custom BOOLEAN NOT NULL DEFAULT false,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_equipment_catalog_type ON test_equipment_catalog(integration_type)`);
+
+  // Test stations - physical test bench stations
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS test_stations (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      name TEXT NOT NULL,
+      location TEXT,
+      controller_type TEXT NOT NULL,
+      controller_base_url_or_ip TEXT,
+      network_type TEXT,
+      safety_flags JSONB NOT NULL DEFAULT '{}',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_test_stations_name ON test_stations(name)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_test_stations_controller ON test_stations(controller_type)`);
+
+  // Test outlets - outlets/channels within stations
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS test_outlets (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      station_id UUID NOT NULL REFERENCES test_stations(id) ON DELETE CASCADE,
+      label TEXT NOT NULL,
+      controller_channel TEXT NOT NULL,
+      max_amps INTEGER,
+      supports_on_off BOOLEAN NOT NULL DEFAULT true,
+      supports_power_metering BOOLEAN NOT NULL DEFAULT true,
+      enabled BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_test_outlets_station ON test_outlets(station_id)`);
+  await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_test_outlets_station_channel ON test_outlets(station_id, controller_channel)`);
+
+  // Test profiles - category-specific test configurations
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS test_profiles (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      category TEXT NOT NULL,
+      name TEXT NOT NULL,
+      thresholds JSONB NOT NULL,
+      operator_checklist JSONB NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_test_profiles_category ON test_profiles(category)`);
+
+  // Test runs - actual test executions
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS test_runs (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      qlid TEXT NOT NULL,
+      pallet_id TEXT,
+      profile_id UUID NOT NULL REFERENCES test_profiles(id),
+      station_id UUID NOT NULL REFERENCES test_stations(id),
+      outlet_id UUID NOT NULL REFERENCES test_outlets(id),
+      operator_user_id UUID,
+      status TEXT NOT NULL DEFAULT 'CREATED',
+      started_at TIMESTAMPTZ,
+      ended_at TIMESTAMPTZ,
+      result TEXT,
+      score INTEGER,
+      anomalies JSONB NOT NULL DEFAULT '[]',
+      notes TEXT,
+      attachments JSONB NOT NULL DEFAULT '[]',
+      checklist_values JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_test_runs_qlid ON test_runs(qlid)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_test_runs_status ON test_runs(status)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_test_runs_started ON test_runs(started_at)`);
+
+  // Test readings - time-series power/sensor readings
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS test_readings (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      test_run_id UUID NOT NULL REFERENCES test_runs(id) ON DELETE CASCADE,
+      ts TIMESTAMPTZ NOT NULL,
+      watts NUMERIC,
+      volts NUMERIC,
+      amps NUMERIC,
+      temp_c NUMERIC,
+      pressure NUMERIC,
+      raw JSONB NOT NULL DEFAULT '{}'
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_test_readings_run_ts ON test_readings(test_run_id, ts)`);
 }
 
 async function initializeSQLite(db: DatabaseAdapter): Promise<void> {
@@ -1048,6 +1275,21 @@ async function initializeSQLite(db: DatabaseAdapter): Promise<void> {
 
   await db.query(`
     CREATE TABLE IF NOT EXISTS pallet_sequence (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      placeholder INTEGER
+    )
+  `);
+
+  // RFB ID sequences (standalone QuickRefurbz IDs)
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS rfb_id_sequence (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      placeholder INTEGER
+    )
+  `);
+
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS rfb_pallet_sequence (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       placeholder INTEGER
     )
@@ -1093,8 +1335,11 @@ async function initializeSQLite(db: DatabaseAdapter): Promise<void> {
       manufacturer TEXT NOT NULL,
       model TEXT NOT NULL,
       category TEXT NOT NULL,
+      upc TEXT,
+      asin TEXT,
       unit_cogs REAL,
       serial_number TEXT,
+      condition_notes TEXT,
       current_stage TEXT NOT NULL DEFAULT 'INTAKE',
       priority TEXT NOT NULL DEFAULT 'NORMAL',
       assigned_technician_id TEXT,
@@ -1667,6 +1912,232 @@ async function initializeSQLite(db: DatabaseAdapter): Promise<void> {
   `);
 
   await db.query(`CREATE INDEX IF NOT EXISTS idx_test_plans_category ON test_plans(category)`);
+
+  // ==================== HARDWARE DIAGNOSTICS TABLES (SQLite) ====================
+
+  // Hardware instruments
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS hardware_instruments (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL,
+      manufacturer TEXT NOT NULL,
+      model TEXT NOT NULL,
+      serial_number TEXT,
+      connection_type TEXT NOT NULL,
+      connection_path TEXT NOT NULL,
+      baud_rate INTEGER,
+      status TEXT NOT NULL DEFAULT 'DISCONNECTED',
+      last_seen_at TEXT,
+      capabilities TEXT DEFAULT '[]',
+      firmware_version TEXT,
+      notes TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_hardware_instruments_type ON hardware_instruments(type)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_hardware_instruments_status ON hardware_instruments(status)`);
+
+  // Hardware captures
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS hardware_captures (
+      id TEXT PRIMARY KEY,
+      instrument_id TEXT,
+      file_path TEXT NOT NULL,
+      driver TEXT NOT NULL,
+      sample_rate TEXT NOT NULL,
+      duration_ms INTEGER NOT NULL,
+      channels TEXT DEFAULT '[]',
+      trigger_condition TEXT,
+      file_size INTEGER,
+      captured_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (instrument_id) REFERENCES hardware_instruments(id)
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_hardware_captures_instrument ON hardware_captures(instrument_id)`);
+
+  // Hardware test executions
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS hardware_test_executions (
+      id TEXT PRIMARY KEY,
+      qlid TEXT NOT NULL,
+      plan_id TEXT NOT NULL,
+      category TEXT NOT NULL,
+      diagnostic_session_id TEXT,
+      status TEXT NOT NULL DEFAULT 'PENDING',
+      operator_id TEXT,
+      operator_name TEXT,
+      station_id TEXT,
+      started_at TEXT NOT NULL DEFAULT (datetime('now')),
+      completed_at TEXT,
+      total_steps INTEGER NOT NULL DEFAULT 0,
+      completed_steps INTEGER NOT NULL DEFAULT 0,
+      passed_steps INTEGER NOT NULL DEFAULT 0,
+      failed_steps INTEGER NOT NULL DEFAULT 0,
+      overall_result TEXT,
+      notes TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT,
+      FOREIGN KEY (diagnostic_session_id) REFERENCES diagnostic_sessions(id)
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_hw_test_exec_qlid ON hardware_test_executions(qlid)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_hw_test_exec_status ON hardware_test_executions(status)`);
+
+  // Hardware test step results
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS hardware_test_step_results (
+      id TEXT PRIMARY KEY,
+      execution_id TEXT NOT NULL,
+      step_number INTEGER NOT NULL,
+      test_code TEXT NOT NULL,
+      status TEXT NOT NULL,
+      measured_value REAL,
+      measured_unit TEXT,
+      expected_min REAL,
+      expected_max REAL,
+      instrument_id TEXT,
+      scpi_command TEXT,
+      raw_response TEXT,
+      diagnostic_test_result_id TEXT,
+      error_message TEXT,
+      duration_ms INTEGER,
+      measured_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (execution_id) REFERENCES hardware_test_executions(id) ON DELETE CASCADE,
+      FOREIGN KEY (instrument_id) REFERENCES hardware_instruments(id),
+      FOREIGN KEY (diagnostic_test_result_id) REFERENCES diagnostic_test_results(id)
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_hw_step_results_exec ON hardware_test_step_results(execution_id)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_hw_step_results_code ON hardware_test_step_results(test_code)`);
+
+  // ==================== QUICKTESTZ TABLES (SQLite) ====================
+
+  // Equipment catalog
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS test_equipment_catalog (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      category TEXT NOT NULL,
+      vendor TEXT NOT NULL,
+      model TEXT NOT NULL,
+      integration_type TEXT NOT NULL,
+      connection TEXT NOT NULL DEFAULT '[]',
+      capabilities TEXT NOT NULL DEFAULT '[]',
+      link_url TEXT,
+      required_for_categories TEXT NOT NULL DEFAULT '[]',
+      notes TEXT,
+      is_custom INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_equipment_catalog_type ON test_equipment_catalog(integration_type)`);
+
+  // Test stations
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS test_stations (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      location TEXT,
+      controller_type TEXT NOT NULL,
+      controller_base_url_or_ip TEXT,
+      network_type TEXT,
+      safety_flags TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_test_stations_name ON test_stations(name)`);
+
+  // Test outlets
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS test_outlets (
+      id TEXT PRIMARY KEY,
+      station_id TEXT NOT NULL,
+      label TEXT NOT NULL,
+      controller_channel TEXT NOT NULL,
+      max_amps INTEGER,
+      supports_on_off INTEGER NOT NULL DEFAULT 1,
+      supports_power_metering INTEGER NOT NULL DEFAULT 1,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (station_id) REFERENCES test_stations(id) ON DELETE CASCADE
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_test_outlets_station ON test_outlets(station_id)`);
+
+  // Test profiles
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS test_profiles (
+      id TEXT PRIMARY KEY,
+      category TEXT NOT NULL,
+      name TEXT NOT NULL,
+      thresholds TEXT NOT NULL,
+      operator_checklist TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_test_profiles_category ON test_profiles(category)`);
+
+  // Test runs
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS test_runs (
+      id TEXT PRIMARY KEY,
+      qlid TEXT NOT NULL,
+      pallet_id TEXT,
+      profile_id TEXT NOT NULL,
+      station_id TEXT NOT NULL,
+      outlet_id TEXT NOT NULL,
+      operator_user_id TEXT,
+      status TEXT NOT NULL DEFAULT 'CREATED',
+      started_at TEXT,
+      ended_at TEXT,
+      result TEXT,
+      score INTEGER,
+      anomalies TEXT NOT NULL DEFAULT '[]',
+      notes TEXT,
+      attachments TEXT NOT NULL DEFAULT '[]',
+      checklist_values TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (profile_id) REFERENCES test_profiles(id),
+      FOREIGN KEY (station_id) REFERENCES test_stations(id),
+      FOREIGN KEY (outlet_id) REFERENCES test_outlets(id)
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_test_runs_qlid ON test_runs(qlid)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_test_runs_status ON test_runs(status)`);
+
+  // Test readings
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS test_readings (
+      id TEXT PRIMARY KEY,
+      test_run_id TEXT NOT NULL,
+      ts TEXT NOT NULL,
+      watts REAL,
+      volts REAL,
+      amps REAL,
+      temp_c REAL,
+      pressure REAL,
+      raw TEXT NOT NULL DEFAULT '{}',
+      FOREIGN KEY (test_run_id) REFERENCES test_runs(id) ON DELETE CASCADE
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_test_readings_run_ts ON test_readings(test_run_id, ts)`);
 }
 
 // ==================== SHARED ITEM MODEL ACCESS ====================

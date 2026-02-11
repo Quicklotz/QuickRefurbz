@@ -281,17 +281,17 @@ export interface Pallet {
 
 /**
  * RefurbItem - Unit being refurbished
- * QLID is the globally unique identifier
+ * Supports both RFB IDs (standalone) and QLIDs (QuickIntakez)
  */
 export interface RefurbItem {
   id: string;
 
-  // Identity (QLID-based)
-  qlidTick: bigint;                    // Raw sequence number from Postgres
-  qlid: string;                        // QLID0000000001 (canonical identifier)
+  // Identity (RFB ID or QLID)
+  qlidTick: bigint;                    // Raw sequence number
+  qlid: string;                        // RFB100001 or QLID0000000001
   qrPalletId?: string;                 // QR0000001 (reference to Pallet)
-  palletId: string;                    // P1BBY (barcode prefix - legacy)
-  barcodeValue: string;                // P1BBY-QLID0000000001 (for scanning)
+  palletId: string;                    // RFB-P-0001 or P1BBY
+  barcodeValue: string;                // RFB-P-0001-RFB100001 (for scanning)
 
   // Cost tracking
   unitCogs?: number;                   // Cost attribution from pallet
@@ -301,11 +301,14 @@ export interface RefurbItem {
   warehouseId: string;                 // Where it was intaked
   intakeTs: Date;                      // When it was intaked
 
-  // Product info
+  // Product identification
   manufacturer: string;
   model: string;
   category: ProductCategory;
+  upc?: string;                        // UPC barcode
+  asin?: string;                       // Amazon ASIN
   serialNumber?: string;
+  conditionNotes?: string;             // Initial condition assessment
 
   // Workflow state
   currentStage: RefurbStage;
@@ -466,6 +469,25 @@ export interface LabelData {
   model?: string;
 }
 
+/**
+ * Refurbished item label data
+ * QSKU format: RFB-{QLID} (e.g., RFB-QLID000000001)
+ * Used for completed/certified items ready for sale
+ */
+export interface RefurbLabelData {
+  qsku: string;                        // RFB-QLID000000001 (barcode value)
+  qlid: string;                        // QLID000000001
+  manufacturer: string;
+  model: string;
+  category: ProductCategory;
+  finalGrade: FinalGrade;
+  warrantyEligible: boolean;
+  certificationId?: string;            // If certified
+  completedAt: Date;
+  retailer?: Retailer;                 // Original retailer
+  serialNumber?: string;
+}
+
 // ==================== HELPER FUNCTIONS ====================
 
 /**
@@ -558,6 +580,34 @@ export function parseBarcode(barcode: string): { palletId: string; qlid: string 
     palletId: match[1],
     qlid: match[2]
   };
+}
+
+// ==================== QSKU (REFURBISHED SKU) ====================
+
+/**
+ * Build QSKU from QLID
+ * QLID000000001 → RFB-QLID000000001
+ */
+export function buildQSKU(qlid: string): string {
+  return `RFB-${qlid}`;
+}
+
+/**
+ * Validate QSKU format
+ * Valid: RFB-QLID000000001
+ */
+export function isValidQSKU(qsku: string): boolean {
+  return /^RFB-QLID\d{9}$/.test(qsku);
+}
+
+/**
+ * Parse QSKU to extract QLID
+ * RFB-QLID000000001 → { qlid: 'QLID000000001' }
+ */
+export function parseQSKU(qsku: string): { qlid: string } | null {
+  const match = qsku.match(/^RFB-(QLID\d{9})$/);
+  if (!match) return null;
+  return { qlid: match[1] };
 }
 
 // ==================== WORKFLOW STATE MACHINE ====================

@@ -16,8 +16,10 @@ import * as itemManager from './itemManager.js';
 import * as ticketManager from './ticketManager.js';
 import * as partsInventory from './partsInventory.js';
 import * as technicianManager from './technicianManager.js';
-import type { Retailer, LiquidationSource, ProductCategory, JobPriority, RefurbStage } from './types.js';
+import type { Retailer, LiquidationSource, ProductCategory, JobPriority, RefurbStage, RefurbLabelData } from './types.js';
+import { buildQSKU, getRetailerFromPalletId } from './types.js';
 import workflowRoutes from './workflow/api.js';
+import quickTestzRoutes from './quicktestz/routes/api.js';
 import { sendInviteEmail, sendPasswordResetEmail, sendWelcomeEmail } from './email.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -694,6 +696,19 @@ app.get('/api/dashboard', authMiddleware, async (_req: Request, res: Response) =
 
 // ==================== PALLETS ====================
 
+import { generateRfbPalletId, generateRfbId, isValidRfbPalletId } from './rfbIdGenerator.js';
+
+// Generate a new RFB Pallet ID
+app.post('/api/pallets/generate-rfb-id', authMiddleware, async (_req: Request, res: Response) => {
+  try {
+    const palletId = await generateRfbPalletId();
+    res.json({ palletId });
+  } catch (error) {
+    console.error('Generate RFB pallet ID error:', error);
+    res.status(500).json({ error: 'Failed to generate pallet ID' });
+  }
+});
+
 app.get('/api/pallets', authMiddleware, async (req: Request, res: Response) => {
   try {
     const options: palletManager.ListPalletsOptions = {};
@@ -1075,6 +1090,10 @@ app.get('/api/kanban', authMiddleware, async (_req: Request, res: Response) => {
 // ==================== WORKFLOW API ====================
 
 app.use('/api/workflow', authMiddleware, workflowRoutes);
+
+// ==================== QUICKTESTZ API ====================
+
+app.use('/api/test', authMiddleware, quickTestzRoutes);
 
 // ==================== SETTINGS API ====================
 
@@ -1494,6 +1513,194 @@ app.post('/api/session/end', authMiddleware, async (req: AuthRequest, res: Respo
   } catch (error) {
     console.error('End session error:', error);
     res.status(500).json({ error: 'Failed to end session' });
+  }
+});
+
+// ==================== PALLET LABELS API ====================
+
+import * as labelGenerator from './labelGenerator.js';
+
+// Generate pallet-only label
+app.get('/api/labels/pallet/:palletId', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const palletId = req.params.palletId as string;
+    const format = queryString(req.query.format) || 'png';
+
+    // Get pallet from database
+    const pallet = await palletManager.getPalletById(palletId);
+    if (!pallet) {
+      res.status(404).json({ error: 'Pallet not found' });
+      return;
+    }
+
+    // Generate label
+    const labelData: labelGenerator.PalletLabelData = {
+      palletId: pallet.palletId,
+      retailer: pallet.retailer,
+      liquidationSource: pallet.liquidationSource,
+      receivedItems: pallet.receivedItems,
+      expectedItems: pallet.expectedItems,
+      warehouseId: pallet.warehouseId,
+    };
+
+    const label = await labelGenerator.generatePalletLabel(labelData);
+
+    if (format === 'zpl') {
+      res.setHeader('Content-Type', 'text/plain');
+      res.send(label.zpl);
+    } else {
+      res.setHeader('Content-Type', 'image/png');
+      res.send(label.png);
+    }
+  } catch (error: any) {
+    console.error('Generate pallet label error:', error);
+    res.status(500).json({ error: error.message || 'Failed to generate pallet label' });
+  }
+});
+
+// Print ZPL directly to Zebra printer
+app.post('/api/labels/print-zpl', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const { printerIp, palletId } = req.body;
+
+    if (!printerIp || !palletId) {
+      res.status(400).json({ error: 'Printer IP and pallet ID required' });
+      return;
+    }
+
+    // Get pallet and generate ZPL
+    const pallet = await palletManager.getPalletById(palletId);
+    if (!pallet) {
+      res.status(404).json({ error: 'Pallet not found' });
+      return;
+    }
+
+    const labelData: labelGenerator.PalletLabelData = {
+      palletId: pallet.palletId,
+      retailer: pallet.retailer,
+      liquidationSource: pallet.liquidationSource,
+      receivedItems: pallet.receivedItems,
+      expectedItems: pallet.expectedItems,
+      warehouseId: pallet.warehouseId,
+    };
+
+    const label = await labelGenerator.generatePalletLabel(labelData);
+
+    // Send ZPL to printer
+    await labelGenerator.sendZplToPrinter(printerIp, label.zpl);
+
+    res.json({ success: true, message: `Label sent to printer at ${printerIp}` });
+  } catch (error: any) {
+    console.error('Print ZPL error:', error);
+    res.status(500).json({ error: error.message || 'Failed to print label' });
+  }
+});
+
+// ==================== REFURBISHED ITEM LABELS ====================
+
+// Generate refurbished item label (RFB-QLID format)
+app.get('/api/labels/refurb/:qlid', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const qlid = req.params.qlid as string;
+    const format = queryString(req.query.format) || 'png';
+
+    // Get item from database
+    const item = await itemManager.getItem(qlid);
+    if (!item) {
+      res.status(404).json({ error: 'Item not found' });
+      return;
+    }
+
+    // Check if item is complete
+    if (item.currentStage !== 'COMPLETE') {
+      res.status(400).json({ error: 'Item has not completed refurbishment' });
+      return;
+    }
+
+    // Build QSKU (RFB-QLID format)
+    const qsku = buildQSKU(item.qlid);
+
+    // Get retailer from pallet ID
+    const retailer = getRetailerFromPalletId(item.palletId);
+
+    // Build refurb label data
+    const labelData: RefurbLabelData = {
+      qsku,
+      qlid: item.qlid,
+      manufacturer: item.manufacturer,
+      model: item.model,
+      category: item.category,
+      finalGrade: item.finalGrade || 'C',
+      warrantyEligible: false, // TODO: Get from certification
+      completedAt: item.completedAt || new Date(),
+      retailer,
+      serialNumber: item.serialNumber,
+    };
+
+    const label = await labelGenerator.generateRefurbLabel(labelData);
+
+    if (format === 'zpl') {
+      res.setHeader('Content-Type', 'text/plain');
+      res.send(label.zpl);
+    } else {
+      res.setHeader('Content-Type', 'image/png');
+      res.send(label.png);
+    }
+  } catch (error: any) {
+    console.error('Generate refurb label error:', error);
+    res.status(500).json({ error: error.message || 'Failed to generate refurb label' });
+  }
+});
+
+// Print refurb label directly to Zebra printer
+app.post('/api/labels/refurb/print-zpl', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const { printerIp, qlid } = req.body;
+
+    if (!printerIp || !qlid) {
+      res.status(400).json({ error: 'Printer IP and QLID required' });
+      return;
+    }
+
+    // Get item from database
+    const item = await itemManager.getItem(qlid);
+    if (!item) {
+      res.status(404).json({ error: 'Item not found' });
+      return;
+    }
+
+    // Check if item is complete
+    if (item.currentStage !== 'COMPLETE') {
+      res.status(400).json({ error: 'Item has not completed refurbishment' });
+      return;
+    }
+
+    // Build QSKU (RFB-QLID format)
+    const qsku = buildQSKU(item.qlid);
+    const retailer = getRetailerFromPalletId(item.palletId);
+
+    const labelData: RefurbLabelData = {
+      qsku,
+      qlid: item.qlid,
+      manufacturer: item.manufacturer,
+      model: item.model,
+      category: item.category,
+      finalGrade: item.finalGrade || 'C',
+      warrantyEligible: false,
+      completedAt: item.completedAt || new Date(),
+      retailer,
+      serialNumber: item.serialNumber,
+    };
+
+    const label = await labelGenerator.generateRefurbLabel(labelData);
+
+    // Send ZPL to printer
+    await labelGenerator.sendZplToPrinter(printerIp, label.zpl);
+
+    res.json({ success: true, message: `Refurb label sent to printer at ${printerIp}`, qsku });
+  } catch (error: any) {
+    console.error('Print refurb ZPL error:', error);
+    res.status(500).json({ error: error.message || 'Failed to print refurb label' });
   }
 });
 

@@ -5,7 +5,8 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "qr": "dist/index.js"
+    "qr": "dist/index.js",
+    "qr-enhanced": "dist/enhanced-cli.js"
   },
   "scripts": {
     "build": "tsc",
@@ -16,7 +17,8 @@
     "dev": "tsx src/index.ts",
     "dev:server": "tsx src/server.ts",
     "qr": "tsx src/index.ts",
-    "menu": "tsx src/menu.ts"
+    "menu": "tsx src/menu.ts",
+    "dev:enhanced": "tsx src/enhanced-cli.ts"
   },
   "keywords": [
     "refurbishment",
@@ -48,6 +50,8 @@
     "uuid": "^11.0.5",
     "pdfkit": "^0.15.0",
     "qrcode": "^1.5.4",
+    "serialport": "^12.0.0",
+    "@serialport/parser-readline": "^12.0.0",
     "sharp": "^0.33.5"
   },
   "devDependencies": {

@@ -1,0 +1,88 @@
+{
+  "id": "hw-plan-phone-v1",
+  "category": "PHONE",
+  "name": "Phone Hardware Test Plan",
+  "description": "Automated electrical measurements for phones: USB voltage, battery voltage, charging current, USB PD negotiation",
+  "version": "1.0.0",
+  "estimatedMinutes": 10,
+  "requiredInstruments": [
+    "SCPI_MULTIMETER",
+    "USB_PD_TESTER"
+  ],
+  "safetyWarnings": [
+    "Do NOT probe internal battery leads unless device is disassembled",
+    "Use only USB-C PD tester for inline measurements - do not splice cables",
+    "Check for battery swelling before applying any power"
+  ],
+  "steps": [
+    {
+      "stepNumber": 1,
+      "testCode": "HW-PHN-USB-001",
+      "name": "USB Port Voltage",
+      "description": "Measure VBUS voltage at the USB port to verify charging circuit. Should be 5V +/- 5% for standard USB.",
+      "measurementType": "DC_VOLTAGE",
+      "scpiCommand": "MEAS:VOLT:DC?",
+      "expectedUnit": "volts",
+      "expectedMin": 4.75,
+      "expectedMax": 5.25,
+      "tolerancePercent": 0,
+      "isCritical": true,
+      "setupInstructions": "Connect USB PD tester inline between charger and phone. Read VBUS voltage.",
+      "instrumentType": "USB_PD_TESTER",
+      "timeoutMs": 5000,
+      "retryCount": 2
+    },
+    {
+      "stepNumber": 2,
+      "testCode": "HW-PHN-CHG-001",
+      "name": "Charging Current",
+      "description": "Measure charging current during initial charge phase. Low current may indicate damaged charging IC.",
+      "measurementType": "DC_CURRENT",
+      "scpiCommand": "MEAS:CURR:DC?",
+      "expectedUnit": "amps",
+      "expectedMin": 0.3,
+      "expectedMax": 3,
+      "tolerancePercent": 20,
+      "isCritical": true,
+      "setupInstructions": "With phone at < 80% battery, connect through USB PD tester. Record current after 30 seconds of charging.",
+      "instrumentType": "USB_PD_TESTER",
+      "timeoutMs": 10000,
+      "retryCount": 2
+    },
+    {
+      "stepNumber": 3,
+      "testCode": "HW-PHN-BAT-001",
+      "name": "Battery Voltage",
+      "description": "Measure battery voltage to assess state of charge and battery health.",
+      "measurementType": "DC_VOLTAGE",
+      "scpiCommand": "MEAS:VOLT:DC?",
+      "expectedUnit": "volts",
+      "expectedMin": 3.0,
+      "expectedMax": 4.35,
+      "tolerancePercent": 0,
+      "isCritical": false,
+      "setupInstructions": "If battery is accessible (removable or device opened for repair), measure across battery terminals. For sealed devices, estimate from USB PD tester readings.",
+      "instrumentType": "SCPI_MULTIMETER",
+      "timeoutMs": 5000,
+      "retryCount": 2
+    },
+    {
+      "stepNumber": 4,
+      "testCode": "HW-PHN-PD-001",
+      "name": "USB PD Negotiation",
+      "description": "Verify USB Power Delivery negotiation succeeds and reports correct voltage/current capabilities.",
+      "measurementType": "DC_VOLTAGE",
+      "scpiCommand": "MEAS:VOLT:DC?",
+      "expectedUnit": "volts",
+      "expectedMin": 5,
+      "expectedMax": 20,
+      "tolerancePercent": 5,
+      "isCritical": false,
+      "setupInstructions": "Connect USB-C PD tester. Observe negotiated voltage profile. Record the voltage the phone requests from the charger.",
+      "instrumentType": "USB_PD_TESTER",
+      "timeoutMs": 10000,
+      "retryCount": 2
+    }
+  ],
+  "createdAt": "2026-02-10T00:00:00.000Z"
+}

@@ -1,12 +1,12 @@
 /**
  * QuickRefurbz - Item Manager
- * Manages items through the refurbishment workflow using QLID identity
+ * Manages items through the refurbishment workflow using RFB ID identity
  *
- * Part of QuickWMS - Works seamlessly with QuickIntakez
+ * Standalone system for QuickRefurbz - does not depend on QuickIntakez
  *
- * Items enter refurbishment in two ways:
- * 1. SCAN: Scan barcode from QuickIntakez (P1BBY-QLID000000001) - looks up existing item
- * 2. RECEIVE: Manual entry for items not yet in the system
+ * Items enter refurbishment via:
+ * 1. RECEIVE: Create new items with auto-generated RFB IDs
+ * 2. SCAN: Scan RFB barcode (RFB-P-0001-RFB100001) to look up existing items
  */
 
 import type {
@@ -39,18 +39,36 @@ import {
   isValidBarcode,
   nowFn
 } from './database.js';
+import {
+  generateRfbId,
+  generateRfbPalletId,
+  isValidRfbId,
+  isValidRfbPalletId,
+  isValidRfbBarcode,
+  buildRfbBarcode,
+  parseRfbBarcode
+} from './rfbIdGenerator.js';
 import { incrementReceivedItems, incrementCompletedItems } from './palletManager.js';
 
 // ==================== RECEIVE ITEM (INTAKE) ====================
 
 export interface ReceiveItemOptions {
-  palletId: string;                    // P1BBY
-  manufacturer: string;
-  model: string;
-  category: ProductCategory;
-  serialNumber?: string;
+  palletId: string;                    // RFB-P-0001 (QuickRefurbz pallet)
+
+  // Product identification (at least one required for identification)
+  manufacturer?: string;               // Brand name
+  model?: string;                      // Model number
+  category: ProductCategory;           // Product category (required)
+
+  // Additional identifiers (optional but helpful)
+  upc?: string;                        // UPC barcode
+  asin?: string;                       // Amazon ASIN
+  serialNumber?: string;               // Serial number
+
+  // Metadata
   priority?: JobPriority;
   notes?: string;
+  condition?: string;                  // Initial condition notes
 
   // Required intake metadata
   employeeId: string;                  // Who is intaking
@@ -63,21 +81,28 @@ export interface ReceiveItemResult {
 }
 
 /**
- * Receive an item into QuickRefurbz (manual entry)
- * Use this for items NOT already in QuickIntakez
- * For items from QuickIntakez, use scanItem() instead
+ * Receive an item into QuickRefurbz (standalone intake)
+ * Generates a new RFB ID for each item
  */
 export async function receiveItem(options: ReceiveItemOptions): Promise<ReceiveItemResult> {
-  // Validate PalletID format (must be QuickIntakez format: P1BBY)
-  if (!isValidInternalPalletId(options.palletId)) {
-    throw new Error(`Invalid PalletID format: ${options.palletId}. Expected format: P1BBY (e.g., P1BBY, P2TGT)`);
+  // Validate PalletID format - accept both RFB format and legacy QuickIntakez format
+  const isRfbPallet = isValidRfbPalletId(options.palletId);
+  const isLegacyPallet = isValidInternalPalletId(options.palletId);
+
+  if (!isRfbPallet && !isLegacyPallet) {
+    throw new Error(`Invalid PalletID format: ${options.palletId}. Expected format: RFB-P-0001`);
+  }
+
+  // Require at least some product identification
+  if (!options.manufacturer && !options.model && !options.upc && !options.asin && !options.serialNumber) {
+    throw new Error('At least one product identifier required (manufacturer, model, UPC, ASIN, or serial number)');
   }
 
   const db = getPool();
 
-  // Generate QLID atomically
-  const { tick, qlid } = await generateQlid();
-  const barcodeValue = buildBarcode(options.palletId, qlid);
+  // Generate RFB ID atomically
+  const { tick, rfbId } = await generateRfbId();
+  const barcodeValue = buildRfbBarcode(options.palletId, rfbId);
 
   // Insert item into refurb tracking
   const id = generateUUID();
@@ -93,7 +118,10 @@ export async function receiveItem(options: ReceiveItemOptions): Promise<ReceiveI
     manufacturer: string;
     model: string;
     category: string;
+    upc: string | null;
+    asin: string | null;
     serial_number: string | null;
+    condition_notes: string | null;
     current_stage: string;
     priority: string;
     assigned_technician_id: string | null;
@@ -109,21 +137,25 @@ export async function receiveItem(options: ReceiveItemOptions): Promise<ReceiveI
       id, qlid_tick, qlid, pallet_id, barcode_value,
       intake_employee_id, warehouse_id,
       manufacturer, model, category,
-      serial_number, priority, notes
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      upc, asin, serial_number, condition_notes,
+      priority, notes
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
     RETURNING *
   `, [
     id,
     tick.toString(),
-    qlid,
+    rfbId,  // Store RFB ID in qlid field
     options.palletId,
     barcodeValue,
     options.employeeId,
     options.warehouseId,
-    options.manufacturer,
-    options.model,
+    options.manufacturer || 'Unknown',
+    options.model || 'Unknown',
     options.category,
+    options.upc || null,
+    options.asin || null,
     options.serialNumber || null,
+    options.condition || null,
     options.priority || 'NORMAL',
     options.notes || null
   ]);
@@ -132,18 +164,18 @@ export async function receiveItem(options: ReceiveItemOptions): Promise<ReceiveI
   const item = rowToItem(row);
 
   // Log initial stage transition
-  await logStageTransition(qlid, null, 'INTAKE', undefined, undefined, 'Received into QuickRefurbz');
+  await logStageTransition(rfbId, null, 'INTAKE', undefined, undefined, 'Received into QuickRefurbz');
 
   // Prepare label data
   const labelData: LabelData = {
     barcodeValue,
-    qlid,
+    qlid: rfbId,  // Use RFB ID
     palletId: options.palletId,
     employeeId: options.employeeId,
     warehouseId: options.warehouseId,
     timestamp: item.intakeTs,
-    manufacturer: options.manufacturer,
-    model: options.model
+    manufacturer: options.manufacturer || 'Unknown',
+    model: options.model || 'Unknown'
   };
 
   return { item, labelData };
@@ -164,39 +196,46 @@ export interface ScanItemResult {
 }
 
 /**
- * Scan an item barcode to start refurbishment
- * This is the primary entry point for items coming from QuickIntakez
+ * Scan an item barcode to look up or start refurbishment
+ * Supports both RFB barcodes and legacy QuickIntakez barcodes
  *
  * Flow:
- * 1. Parse barcode (P1BBY-QLID000000001)
+ * 1. Parse barcode (RFB-P-0001-RFB100001 or P1BBY-QLID000000001)
  * 2. Check if already in refurb tracking
- * 3. If not, look up from shared database and add to refurb
- * 4. Return item ready for refurbishment
+ * 3. Return item if found
  */
 export async function scanItem(options: ScanItemOptions): Promise<ScanItemResult> {
   const { barcode, employeeId, warehouseId } = options;
 
-  // Validate barcode format
-  if (!isValidBarcode(barcode)) {
-    throw new Error(`Invalid barcode format: ${barcode}. Expected: P1BBY-QLID000000001`);
+  let palletId: string;
+  let itemId: string;
+
+  // Try RFB format first
+  const rfbParsed = parseRfbBarcode(barcode);
+  if (rfbParsed) {
+    palletId = rfbParsed.palletId;
+    itemId = rfbParsed.rfbId;
+  } else if (isValidBarcode(barcode)) {
+    // Try legacy QuickIntakez format
+    const legacyParsed = parseBarcode(barcode);
+    if (!legacyParsed) {
+      throw new Error(`Could not parse barcode: ${barcode}`);
+    }
+    palletId = legacyParsed.palletId;
+    itemId = legacyParsed.qlid;
+  } else {
+    throw new Error(`Invalid barcode format: ${barcode}. Expected: RFB-P-0001-RFB100001`);
   }
 
-  // Parse the barcode
-  const parsed = parseBarcode(barcode);
-  if (!parsed) {
-    throw new Error(`Could not parse barcode: ${barcode}`);
-  }
-
-  const { palletId, qlid } = parsed;
   const db = getPool();
 
-  // Check if item already exists in refurb tracking
+  // Check if item exists in refurb tracking
   const existingResult = await db.query(`
     SELECT * FROM refurb_items WHERE qlid = $1
-  `, [qlid]);
+  `, [itemId]);
 
   if (existingResult.rows.length > 0) {
-    // Item already in refurb - return it
+    // Item found - return it
     return {
       item: rowToItem(existingResult.rows[0]),
       isNew: false,
@@ -204,72 +243,8 @@ export async function scanItem(options: ScanItemOptions): Promise<ScanItemResult
     };
   }
 
-  // Item not in refurb yet - look up from shared database or create entry
-  // For now, we create a placeholder entry (in production, this would query QuickIntakez data)
-  const dbType = process.env.DB_TYPE || 'sqlite';
-
-  let manufacturer = 'Unknown';
-  let model = 'Unknown';
-  let category: ProductCategory = 'OTHER';
-
-  if (dbType === 'postgres') {
-    // Try to look up item from shared items table
-    try {
-      const sharedResult = await db.query(`
-        SELECT brand, model, category FROM public.items WHERE qlid = $1
-      `, [qlid]);
-
-      if (sharedResult.rows.length > 0) {
-        const sharedItem = sharedResult.rows[0] as { brand?: string; model?: string; category?: string };
-        manufacturer = sharedItem.brand || 'Unknown';
-        model = sharedItem.model || 'Unknown';
-        category = (sharedItem.category?.toUpperCase() as ProductCategory) || 'OTHER';
-      }
-    } catch {
-      // Shared table might not exist - use defaults
-    }
-  }
-
-  // Parse QLID to get tick
-  const qlidMatch = qlid.match(/^QLID(\d{9})$/);
-  const tick = qlidMatch ? BigInt(parseInt(qlidMatch[1], 10)) : BigInt(0);
-
-  // Create refurb entry
-  const id = generateUUID();
-  const result = await db.query(`
-    INSERT INTO refurb_items (
-      id, qlid_tick, qlid, pallet_id, barcode_value,
-      intake_employee_id, warehouse_id,
-      manufacturer, model, category,
-      priority, notes
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-    RETURNING *
-  `, [
-    id,
-    tick.toString(),
-    qlid,
-    palletId,
-    barcode,
-    employeeId,
-    warehouseId,
-    manufacturer,
-    model,
-    category,
-    'NORMAL',
-    'Scanned from QuickIntakez'
-  ]);
-
-  const row = result.rows[0];
-  const item = rowToItem(row);
-
-  // Log initial stage transition
-  await logStageTransition(qlid, null, 'INTAKE', undefined, undefined, 'Scanned from QuickIntakez barcode');
-
-  return {
-    item,
-    isNew: true,
-    source: 'intake'
-  };
+  // Item not found
+  throw new Error(`Item not found: ${itemId}. Use "Receive Item" to create new items.`);
 }
 
 // ==================== READ ====================
@@ -814,7 +789,10 @@ function rowToItem(row: Record<string, unknown>): RefurbItem {
     manufacturer: row.manufacturer as string,
     model: row.model as string,
     category: row.category as ProductCategory,
+    upc: row.upc as string | undefined,
+    asin: row.asin as string | undefined,
     serialNumber: row.serial_number as string | undefined,
+    conditionNotes: row.condition_notes as string | undefined,
     currentStage: row.current_stage as RefurbStage,
     priority: row.priority as JobPriority,
     assignedTechnicianId: row.assigned_technician_id as string | undefined,

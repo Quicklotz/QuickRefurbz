@@ -11,11 +11,13 @@ import {
   Award,
   ChevronRight,
   Ban,
-  RotateCcw
+  RotateCcw,
+  Printer
 } from 'lucide-react';
 import { api } from '@/api/client';
 import { ProgressIndicator } from '@/components/workflow/ProgressIndicator';
 import { StepPrompt } from '@/components/workflow/StepPrompt';
+import { RefurbLabelModal } from '@/components/workflow/RefurbLabelModal';
 import { SpotlightCard, Spotlight } from '@/components/aceternity/spotlight';
 import { Input } from '@/components/aceternity/input';
 import { Label } from '@/components/aceternity/label';
@@ -30,6 +32,8 @@ interface Job {
   qlid: string;
   palletId: string;
   category: string;
+  manufacturer?: string;
+  model?: string;
   currentState: string;
   currentStepIndex: number;
   assignedTechnicianId?: string;
@@ -70,6 +74,7 @@ export function WorkflowStation() {
   const [certifyData, setCertifyData] = useState({ finalGrade: 'B', warrantyEligible: true, notes: '' });
   const [showBlockModal, setShowBlockModal] = useState(false);
   const [showCertifyModal, setShowCertifyModal] = useState(false);
+  const [showRefurbLabelModal, setShowRefurbLabelModal] = useState(false);
 
   const loadPrompt = useCallback(async (qlid: string) => {
     setLoading(true);
@@ -195,6 +200,8 @@ export function WorkflowStation() {
       });
       setShowCertifyModal(false);
       await loadPrompt(prompt.job.qlid);
+      // Show the refurb label modal after certification completes
+      setShowRefurbLabelModal(true);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -274,11 +281,21 @@ export function WorkflowStation() {
             <h2 className="text-2xl font-bold text-white mb-2">Refurbishment Complete!</h2>
             <p className="text-zinc-400 mb-4">This item has been certified and is ready for the next stage.</p>
             {prompt.job.finalGrade && (
-              <div className="inline-flex items-center gap-2 px-4 py-2 bg-accent-green/10 rounded-lg">
+              <div className="inline-flex items-center gap-2 px-4 py-2 bg-accent-green/10 rounded-lg mb-4">
                 <Award className="w-5 h-5 text-accent-green" />
                 <span className="text-lg font-bold text-accent-green">Grade {prompt.job.finalGrade}</span>
               </div>
             )}
+            <div className="mt-4">
+              <Button
+                variant="primary"
+                onClick={() => setShowRefurbLabelModal(true)}
+                className="bg-accent-green hover:bg-accent-green/90"
+              >
+                <Printer size={16} />
+                Print RFB Label
+              </Button>
+            </div>
           </SpotlightCard>
         </motion.div>
       );
@@ -614,6 +631,17 @@ export function WorkflowStation() {
           </div>
         </div>
       </AnimatedModal>
+
+      {/* Refurb Label Modal (shows on completion) */}
+      <RefurbLabelModal
+        isOpen={showRefurbLabelModal}
+        onClose={() => setShowRefurbLabelModal(false)}
+        qlid={prompt?.job?.qlid || null}
+        manufacturer={prompt?.job?.manufacturer}
+        model={prompt?.job?.model}
+        finalGrade={prompt?.job?.finalGrade}
+        warrantyEligible={prompt?.job?.warrantyEligible}
+      />
     </div>
   );
 }

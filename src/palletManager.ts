@@ -9,7 +9,8 @@ import type {
   Retailer,
   LiquidationSource
 } from './types.js';
-import { getPool, getNextPalletId, generateUUID } from './database.js';
+import { getPool, generateUUID } from './database.js';
+import { generateRfbPalletId } from './rfbIdGenerator.js';
 
 const isPostgres = () => (process.env.DB_TYPE || 'sqlite') === 'postgres';
 
@@ -30,7 +31,7 @@ export interface CreatePalletOptions {
 
 export async function createPallet(options: CreatePalletOptions): Promise<Pallet> {
   const db = getPool();
-  const palletId = await getNextPalletId();
+  const palletId = await generateRfbPalletId();
   const id = generateUUID();
 
   const result = await db.query(`

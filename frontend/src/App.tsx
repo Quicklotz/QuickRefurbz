@@ -1,6 +1,7 @@
 import { useState, useEffect, createContext, useContext, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
+import { PalletSessionProvider } from './contexts/PalletSessionContext';
 import { AppLayout } from './components/layout/AppLayout';
 import { PageErrorBoundary } from './components/ErrorBoundary';
 import { Login } from './pages/Login';
@@ -10,6 +11,7 @@ import { ResetPassword } from './pages/ResetPassword';
 import { Dashboard } from './pages/Dashboard';
 import { Kanban } from './pages/Kanban';
 import { Items } from './pages/Items';
+import { Intake } from './pages/Intake';
 import { Scan } from './pages/Scan';
 import { WorkflowStation } from './pages/WorkflowStation';
 import { JobQueue } from './pages/JobQueue';
@@ -114,7 +116,9 @@ function SessionProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <SessionContext.Provider value={{ session, loading, refreshSession, endSession }}>
-      {children}
+      <PalletSessionProvider>
+        {children}
+      </PalletSessionProvider>
     </SessionContext.Provider>
   );
 }
@@ -158,6 +162,7 @@ function AppRoutes() {
         <Route path="queue" element={<JobQueue />} />
         <Route path="kanban" element={<Kanban />} />
         <Route path="items" element={<Items />} />
+        <Route path="intake" element={<Intake />} />
         <Route path="scan" element={<Scan />} />
         <Route path="datawipe" element={<DataWipePage />} />
         <Route path="parts" element={<PartsPage />} />

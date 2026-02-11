@@ -1,0 +1,33 @@
+[Unit]
+Description=QuickRefurbz - Refurbishment Tracking System
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=deploy
+Group=deploy
+WorkingDirectory=/var/www/quickrefurbz
+Environment=NODE_ENV=production
+EnvironmentFile=/var/www/quickrefurbz/.env
+ExecStart=/usr/bin/node /var/www/quickrefurbz/dist/server.js
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=quickrefurbz
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/www/quickrefurbz/data
+ReadOnlyPaths=/var/www/quickrefurbz
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+[Install]
+WantedBy=multi-user.target

@@ -11,12 +11,18 @@ import {
   Warehouse
 } from 'lucide-react';
 import { api } from '@/api/client';
+import { usePalletSession } from '@/contexts/PalletSessionContext';
 import { SpotlightCard, Spotlight } from '@/components/aceternity/spotlight';
 import { Input } from '@/components/aceternity/input';
 import { Label } from '@/components/aceternity/label';
 import { Button } from '@/components/aceternity/button';
 import { TextGenerateEffect } from '@/components/aceternity/text-generate-effect';
 import { Badge } from '@/components/shared/Badge';
+import { PalletSessionCard } from '@/components/pallet-session/PalletSessionCard';
+import { PalletMismatchModal } from '@/components/pallet-session/PalletMismatchModal';
+import { PalletLabelModal } from '@/components/pallet-session/PalletLabelModal';
+import { RefurbLabelModal } from '@/components/workflow/RefurbLabelModal';
+import type { ValidationResult } from '@/contexts/PalletSessionContext';
 
 const STAGE_VARIANTS: Record<string, 'info' | 'warning' | 'success' | 'danger'> = {
   INTAKE: 'info',
@@ -28,6 +34,8 @@ const STAGE_VARIANTS: Record<string, 'info' | 'warning' | 'success' | 'danger'> 
 };
 
 export function Scan() {
+  const { session, isActive, validateBarcode, startSession } = usePalletSession();
+
   const [barcode, setBarcode] = useState('');
   const [warehouseId, setWarehouseId] = useState('WH001');
   const [loading, setLoading] = useState(false);
@@ -36,20 +44,30 @@ export function Scan() {
   const [advancing, setAdvancing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Mismatch modal state
+  const [showMismatchModal, setShowMismatchModal] = useState(false);
+  const [mismatchData, setMismatchData] = useState<ValidationResult | null>(null);
+  const [pendingBarcode, setPendingBarcode] = useState('');
+  const [switchingPallet, setSwitchingPallet] = useState(false);
+
+  // Print label modal state
+  const [showPrintModal, setShowPrintModal] = useState(false);
+
+  // Refurb label modal state (shows when item reaches COMPLETE)
+  const [showRefurbLabelModal, setShowRefurbLabelModal] = useState(false);
+  const [completedItem, setCompletedItem] = useState<any>(null);
+
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
-  const handleScan = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!barcode.trim()) return;
-
+  const performScan = async (barcodeValue: string) => {
     setLoading(true);
     setError('');
     setResult(null);
 
     try {
-      const scanResult = await api.scanItem(barcode.trim(), warehouseId);
+      const scanResult = await api.scanItem(barcodeValue, warehouseId);
       setResult(scanResult);
       setBarcode('');
       inputRef.current?.focus();
@@ -60,12 +78,78 @@ export function Scan() {
     }
   };
 
+  const handleScan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!barcode.trim()) return;
+
+    const barcodeValue = barcode.trim();
+
+    // Validate against active pallet session
+    if (isActive) {
+      const validation = validateBarcode(barcodeValue);
+
+      if (!validation.valid) {
+        setError(validation.error || 'Invalid barcode format');
+        return;
+      }
+
+      if (!validation.palletMatch) {
+        // Show mismatch modal
+        setMismatchData(validation);
+        setPendingBarcode(barcodeValue);
+        setShowMismatchModal(true);
+        return;
+      }
+    }
+
+    // Proceed with scan
+    await performScan(barcodeValue);
+  };
+
+  const handleMismatchCancel = () => {
+    setShowMismatchModal(false);
+    setMismatchData(null);
+    setPendingBarcode('');
+    setBarcode('');
+    inputRef.current?.focus();
+  };
+
+  const handleMismatchSwitch = async () => {
+    if (!mismatchData) return;
+
+    setSwitchingPallet(true);
+    try {
+      await startSession(mismatchData.scannedPallet);
+      setShowMismatchModal(false);
+      await performScan(pendingBarcode);
+    } catch (err: any) {
+      setError(err.message || 'Failed to switch pallet');
+    } finally {
+      setSwitchingPallet(false);
+      setMismatchData(null);
+      setPendingBarcode('');
+    }
+  };
+
+  const handleMismatchScanAnyway = async () => {
+    setShowMismatchModal(false);
+    await performScan(pendingBarcode);
+    setMismatchData(null);
+    setPendingBarcode('');
+  };
+
   const handleAdvance = async () => {
     if (!result?.item) return;
     setAdvancing(true);
     try {
       const updated = await api.advanceItem(result.item.qlid);
       setResult({ ...result, item: updated });
+
+      // If item reached COMPLETE, show refurb label modal
+      if (updated.currentStage === 'COMPLETE') {
+        setCompletedItem(updated);
+        setShowRefurbLabelModal(true);
+      }
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -88,6 +172,9 @@ export function Scan() {
         />
       </motion.div>
 
+      {/* Pallet Session Card */}
+      <PalletSessionCard onPrintLabel={() => setShowPrintModal(true)} />
+
       {/* Scan Form */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -107,7 +194,7 @@ export function Scan() {
                     ref={inputRef}
                     id="barcode"
                     type="text"
-                    placeholder="Scan barcode (P1BBY-QLID000000001)"
+                    placeholder="Scan barcode (RFB-P-0001-RFB100001)"
                     value={barcode}
                     onChange={(e) => setBarcode(e.target.value)}
                     className="pl-10 font-mono"
@@ -119,6 +206,12 @@ export function Scan() {
                   Scan
                 </Button>
               </div>
+              {isActive && (
+                <p className="text-xs text-accent-green mt-2 flex items-center gap-1">
+                  <CheckCircle size={12} />
+                  Validating against pallet {session?.palletId}
+                </p>
+              )}
             </div>
 
             <div>
@@ -245,20 +338,65 @@ export function Scan() {
               <Package className="w-4 h-4 text-ql-yellow" />
             </div>
             <div>
-              <h3 className="font-semibold text-white mb-1">Barcode Format</h3>
+              <h3 className="font-semibold text-white mb-1">Barcode Formats</h3>
               <p className="text-sm text-zinc-400 mb-2">
-                Scan barcodes from QuickIntakez labels:
+                Supported barcode formats:
               </p>
-              <code className="block bg-dark-primary px-3 py-2 rounded font-mono text-sm text-ql-yellow">
-                P1BBY-QLID000000001
-              </code>
-              <p className="text-xs text-zinc-500 mt-2">
-                Format: [PalletID]-[QLID]
-              </p>
+              <div className="space-y-2">
+                <div>
+                  <code className="block bg-dark-primary px-3 py-2 rounded font-mono text-sm text-ql-yellow">
+                    RFB-P-0001-RFB100001
+                  </code>
+                  <p className="text-xs text-zinc-500 mt-1">
+                    QuickRefurbz format: [RFB PalletID]-[RFB ID]
+                  </p>
+                </div>
+                <div>
+                  <code className="block bg-dark-primary px-3 py-2 rounded font-mono text-sm text-zinc-400">
+                    P1BBY-QLID000000001
+                  </code>
+                  <p className="text-xs text-zinc-500 mt-1">
+                    Legacy QuickIntakez format: [PalletID]-[QLID]
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         </SpotlightCard>
       </motion.div>
+
+      {/* Pallet Mismatch Modal */}
+      <PalletMismatchModal
+        isOpen={showMismatchModal}
+        onClose={() => setShowMismatchModal(false)}
+        validation={mismatchData}
+        scannedBarcode={pendingBarcode}
+        onCancel={handleMismatchCancel}
+        onSwitchPallet={handleMismatchSwitch}
+        onScanAnyway={handleMismatchScanAnyway}
+        switchLoading={switchingPallet}
+      />
+
+      {/* Print Label Modal */}
+      <PalletLabelModal
+        isOpen={showPrintModal}
+        onClose={() => setShowPrintModal(false)}
+        session={session}
+      />
+
+      {/* Refurb Label Modal (shows on completion) */}
+      <RefurbLabelModal
+        isOpen={showRefurbLabelModal}
+        onClose={() => {
+          setShowRefurbLabelModal(false);
+          setCompletedItem(null);
+        }}
+        qlid={completedItem?.qlid || null}
+        manufacturer={completedItem?.manufacturer}
+        model={completedItem?.model}
+        finalGrade={completedItem?.finalGrade}
+        warrantyEligible={completedItem?.warrantyEligible}
+      />
     </div>
   );
 }
