@@ -20,6 +20,9 @@ import type { Retailer, LiquidationSource, ProductCategory, JobPriority, RefurbS
 import { buildQSKU, getRetailerFromPalletId } from './types.js';
 import workflowRoutes from './workflow/api.js';
 import quickTestzRoutes from './quicktestz/routes/api.js';
+import { seedEquipmentAndProfiles } from './quicktestz/seed/equipmentSeed.js';
+import * as readingsCollector from './quicktestz/services/readingsCollector.js';
+import * as safetyMonitor from './quicktestz/services/safetyMonitor.js';
 import { sendInviteEmail, sendPasswordResetEmail, sendWelcomeEmail } from './email.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -1720,15 +1723,34 @@ async function start() {
     // Seed initial admin user if no users exist
     await seedAdminUser();
 
+    // Seed QuickTestz equipment catalog and test profiles
+    const seedResult = await seedEquipmentAndProfiles();
+    if (seedResult.equipmentSeeded > 0 || seedResult.profilesSeeded > 0) {
+      console.log(`[QuickTestz] Seeded ${seedResult.equipmentSeeded} equipment items, ${seedResult.profilesSeeded} test profiles`);
+    }
+
     app.listen(PORT, () => {
       console.log(`QuickRefurbz API running on port ${PORT}`);
       console.log(`Frontend: http://localhost:${PORT}`);
+      console.log(`QuickTestz API: http://localhost:${PORT}/api/test`);
     });
   } catch (error) {
     console.error('Failed to start server:', error);
     process.exit(1);
   }
 }
+
+// Graceful shutdown: stop QuickTestz polling and monitoring
+process.on('SIGTERM', () => {
+  readingsCollector.stopAll();
+  safetyMonitor.stopAll();
+  process.exit(0);
+});
+process.on('SIGINT', () => {
+  readingsCollector.stopAll();
+  safetyMonitor.stopAll();
+  process.exit(0);
+});
 
 start();
 
