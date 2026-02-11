@@ -42,18 +42,31 @@ const PRIORITIES = [
   { value: 'URGENT', label: 'Urgent' },
 ];
 
+// Retailer options for pallet creation
+const RETAILERS = [
+  { value: 'BESTBUY', code: 'BBY', label: 'Best Buy' },
+  { value: 'TARGET', code: 'TGT', label: 'Target' },
+  { value: 'AMAZON', code: 'AMZ', label: 'Amazon' },
+  { value: 'WALMART', code: 'WMT', label: 'Walmart' },
+  { value: 'COSTCO', code: 'COS', label: 'Costco' },
+  { value: 'DIRECTLIQ', code: 'DLQ', label: 'Direct Liquidation' },
+  { value: 'TECHLIQ', code: 'TLQ', label: 'Tech Liquidators' },
+  { value: 'BSTOCK', code: 'BST', label: 'B-Stock' },
+  { value: 'OTHER', code: 'OTH', label: 'Other' },
+];
+
 interface IntakeResult {
   item: {
-    qlid: string;
-    palletId: string;
-    barcodeValue: string;
+    qlid: string;          // QLID000000001
+    palletId: string;      // P1BBY
+    barcodeValue: string;  // RFB-P1BBY-QLID000000001
     manufacturer?: string;
     model?: string;
     category: string;
   };
   labelData: {
     palletId: string;
-    rfbId: string;
+    qlid: string;
     barcodeValue: string;
     manufacturer?: string;
     model?: string;
@@ -70,6 +83,7 @@ export function Intake() {
   const [loadingPallets, setLoadingPallets] = useState(true);
   const [selectedPalletId, setSelectedPalletId] = useState('');
   const [creatingPallet, setCreatingPallet] = useState(false);
+  const [newPalletRetailer, setNewPalletRetailer] = useState('BESTBUY');
 
   // Form state
   const [formData, setFormData] = useState({
@@ -99,7 +113,8 @@ export function Intake() {
     setLoadingPallets(true);
     try {
       const data = await api.getPallets({ status: 'RECEIVING,IN_PROGRESS' });
-      setPallets(data.filter(p => p.palletId.startsWith('RFB-P-')));
+      // Filter for QuickIntakez-compatible pallet IDs (P{num}{code})
+      setPallets(data.filter(p => /^P\d+[A-Z]{3}$/.test(p.palletId)));
     } catch (err) {
       console.error('Failed to load pallets:', err);
     } finally {
@@ -110,15 +125,16 @@ export function Intake() {
   const handleCreatePallet = async () => {
     setCreatingPallet(true);
     try {
-      // Generate a new RFB pallet ID
-      const { palletId } = await api.generateRfbPalletId();
+      // Generate a new pallet ID with retailer code (e.g., P1BBY)
+      const { palletId } = await api.generateRfbPalletId(newPalletRetailer);
 
       // Create the pallet
       await api.createPallet({
-        retailer: 'OTHER',
-        liquidationSource: 'OTHER',
+        palletId,
+        retailer: newPalletRetailer,
+        liquidationSource: 'QUICKREFURBZ',
         sourcePalletId: '',
-        notes: 'RFB standalone pallet'
+        notes: `QuickRefurbz intake pallet (${newPalletRetailer})`
       });
 
       // Reload pallets and select the new one
@@ -251,15 +267,30 @@ export function Intake() {
                 ))}
               </select>
 
-              <Button
-                variant="secondary"
-                onClick={handleCreatePallet}
-                loading={creatingPallet}
-                className="w-full"
-              >
-                <Plus size={16} />
-                New RFB Pallet
-              </Button>
+              <div className="pt-2 border-t border-border">
+                <Label className="text-xs text-zinc-500 mb-1">Create New Pallet</Label>
+                <select
+                  className="w-full bg-dark-tertiary border border-border rounded-lg px-4 py-2 text-white text-sm focus:border-ql-yellow focus:outline-none mb-2"
+                  value={newPalletRetailer}
+                  onChange={(e) => setNewPalletRetailer(e.target.value)}
+                >
+                  {RETAILERS.map(r => (
+                    <option key={r.value} value={r.value}>
+                      {r.label} ({r.code})
+                    </option>
+                  ))}
+                </select>
+
+                <Button
+                  variant="secondary"
+                  onClick={handleCreatePallet}
+                  loading={creatingPallet}
+                  className="w-full"
+                >
+                  <Plus size={16} />
+                  New Pallet
+                </Button>
+              </div>
             </div>
 
             {/* Selected Pallet Info */}
@@ -481,23 +512,23 @@ export function Intake() {
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
                 <div>
-                  <span className="text-xs text-zinc-500 uppercase tracking-wide">RFB ID</span>
+                  <span className="text-xs text-zinc-500 uppercase tracking-wide">QLID</span>
                   <p className="font-mono font-semibold text-ql-yellow">{lastResult.item.qlid}</p>
                 </div>
                 <div>
                   <span className="text-xs text-zinc-500 uppercase tracking-wide">Pallet</span>
                   <p className="font-mono text-white">{lastResult.item.palletId}</p>
                 </div>
-                <div>
-                  <span className="text-xs text-zinc-500 uppercase tracking-wide">Barcode</span>
-                  <p className="font-mono text-sm text-zinc-300">{lastResult.item.barcodeValue}</p>
+                <div className="col-span-2">
+                  <span className="text-xs text-zinc-500 uppercase tracking-wide">Barcode (RFB-prefixed)</span>
+                  <p className="font-mono text-sm text-accent-green break-all">{lastResult.item.barcodeValue}</p>
                 </div>
-                <div>
-                  <span className="text-xs text-zinc-500 uppercase tracking-wide">Category</span>
-                  <Badge variant="info" size="sm" className="mt-1">
-                    {lastResult.item.category}
-                  </Badge>
-                </div>
+              </div>
+              <div className="mb-4">
+                <span className="text-xs text-zinc-500 uppercase tracking-wide">Category</span>
+                <Badge variant="info" size="sm" className="ml-2">
+                  {lastResult.item.category}
+                </Badge>
               </div>
 
               {(lastResult.item.manufacturer || lastResult.item.model) && (
@@ -542,12 +573,12 @@ export function Intake() {
               <Tag className="w-4 h-4 text-ql-yellow" />
             </div>
             <div>
-              <h3 className="font-semibold text-white mb-1">Quick Tips</h3>
+              <h3 className="font-semibold text-white mb-1">ID Format (QuickIntakez-compatible)</h3>
               <ul className="text-sm text-zinc-400 space-y-1">
-                <li>Scan UPC barcode for automatic product lookup</li>
-                <li>Press Enter after scanning UPC to quick-add item</li>
-                <li>At minimum, enter one identifier: UPC, ASIN, Brand, Model, or Serial</li>
-                <li>Items will receive a unique RFB ID (e.g., RFB100001)</li>
+                <li>Pallet: <span className="font-mono text-zinc-300">P1BBY</span> (P + number + retailer code)</li>
+                <li>QLID: <span className="font-mono text-zinc-300">QLID000000001</span> (same as QuickIntakez)</li>
+                <li>Barcode: <span className="font-mono text-accent-green">RFB-P1BBY-QLID000000001</span></li>
+                <li>The <span className="text-accent-green">RFB-</span> prefix marks items as QuickRefurbz origin for WMS reintegration</li>
               </ul>
             </div>
           </div>

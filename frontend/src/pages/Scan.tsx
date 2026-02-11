@@ -194,7 +194,7 @@ export function Scan() {
                     ref={inputRef}
                     id="barcode"
                     type="text"
-                    placeholder="Scan barcode (RFB-P-0001-RFB100001)"
+                    placeholder="Scan barcode (RFB-P1BBY-QLID000000001)"
                     value={barcode}
                     onChange={(e) => setBarcode(e.target.value)}
                     className="pl-10 font-mono"
@@ -338,17 +338,17 @@ export function Scan() {
               <Package className="w-4 h-4 text-ql-yellow" />
             </div>
             <div>
-              <h3 className="font-semibold text-white mb-1">Barcode Formats</h3>
+              <h3 className="font-semibold text-white mb-1">Barcode Formats (QuickIntakez-compatible)</h3>
               <p className="text-sm text-zinc-400 mb-2">
                 Supported barcode formats:
               </p>
               <div className="space-y-2">
                 <div>
-                  <code className="block bg-dark-primary px-3 py-2 rounded font-mono text-sm text-ql-yellow">
-                    RFB-P-0001-RFB100001
+                  <code className="block bg-dark-primary px-3 py-2 rounded font-mono text-sm text-accent-green">
+                    RFB-P1BBY-QLID000000001
                   </code>
                   <p className="text-xs text-zinc-500 mt-1">
-                    QuickRefurbz format: [RFB PalletID]-[RFB ID]
+                    QuickRefurbz origin: RFB-[PalletID]-[QLID]
                   </p>
                 </div>
                 <div>
@@ -356,10 +356,13 @@ export function Scan() {
                     P1BBY-QLID000000001
                   </code>
                   <p className="text-xs text-zinc-500 mt-1">
-                    Legacy QuickIntakez format: [PalletID]-[QLID]
+                    QuickIntakez origin: [PalletID]-[QLID]
                   </p>
                 </div>
               </div>
+              <p className="text-xs text-zinc-500 mt-3">
+                The <span className="text-accent-green">RFB-</span> prefix identifies items that originated in QuickRefurbz for easy WMS reintegration.
+              </p>
             </div>
           </div>
         </SpotlightCard>

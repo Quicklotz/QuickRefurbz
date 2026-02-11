@@ -699,12 +699,13 @@ app.get('/api/dashboard', authMiddleware, async (_req: Request, res: Response) =
 
 // ==================== PALLETS ====================
 
-import { generateRfbPalletId, generateRfbId, isValidRfbPalletId } from './rfbIdGenerator.js';
+import { generateRfbPalletId, generateRfbQlid, isValidRfbPalletId, isValidRfbQlid } from './rfbIdGenerator.js';
 
-// Generate a new RFB Pallet ID
-app.post('/api/pallets/generate-rfb-id', authMiddleware, async (_req: Request, res: Response) => {
+// Generate a new RFB Pallet ID (QuickIntakez-compatible: P1BBY format)
+app.post('/api/pallets/generate-rfb-id', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const palletId = await generateRfbPalletId();
+    const { retailer = 'OTHER' } = req.body;
+    const palletId = await generateRfbPalletId(retailer as Retailer);
     res.json({ palletId });
   } catch (error) {
     console.error('Generate RFB pallet ID error:', error);

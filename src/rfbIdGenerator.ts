@@ -1,51 +1,58 @@
 /**
  * QuickRefurbz - RFB ID Generator
  *
- * Standalone ID system for QuickRefurbz
- * Format: RFB{6 digits} starting at 100001
- * Examples: RFB100001, RFB100002, RFB100003...
+ * QuickIntakez-compatible ID system with RFB prefix for easy reintegration.
  *
- * This is a standalone system that doesn't depend on QuickIntakez
+ * Format:
+ *   Pallet ID: P{num}{RetailerCode} (e.g., P1BBY, P2TGT)
+ *   QLID: QLID{9 digits} (e.g., QLID000000001)
+ *   Barcode: RFB-{PalletID}-{QLID} (e.g., RFB-P1BBY-QLID000000001)
+ *
+ * The RFB- prefix indicates the item was intaked through QuickRefurbz
+ * rather than QuickIntakez, making it easy to identify origin and
+ * merge data when integrating with the full WMS.
  */
 
 import { getPool } from './database.js';
-
-const RFB_START = 100001;
+import type { Retailer, RetailerCode } from './types.js';
+import { RETAILER_CODE, CODE_TO_RETAILER } from './types.js';
 
 /**
- * Generate next RFB ID
- * Format: RFB{6 digits} (e.g., RFB100001)
- * Counter starts at 100001 and never resets
+ * Generate next QLID (QuickIntakez-compatible format)
+ * Format: QLID{9 digits} (e.g., QLID000000001)
+ * Global counter that never resets - same sequence as QuickIntakez
  */
-export async function generateRfbId(): Promise<{ tick: number; rfbId: string }> {
+export async function generateRfbQlid(): Promise<{ tick: bigint; qlid: string }> {
   const dbType = process.env.DB_TYPE || 'sqlite';
   const db = getPool();
 
-  let tick: number;
+  let tick: bigint;
 
   if (dbType === 'postgres') {
-    // Get next value from sequence
+    // Use shared QLID sequence (same as QuickIntakez)
     const result = await db.query<{ nextval: string }>(
-      "SELECT nextval('rfb_id_sequence') as nextval"
+      "SELECT nextval('qlid_sequence') as nextval"
     );
-    tick = parseInt(result.rows[0].nextval);
+    tick = BigInt(result.rows[0].nextval);
   } else {
     // SQLite: use local sequence
-    await db.query('INSERT INTO rfb_id_sequence (placeholder) VALUES (1)');
+    await db.query('INSERT INTO qlid_sequence (placeholder) VALUES (1)');
     const result = await db.query<{ id: number }>('SELECT last_insert_rowid() as id');
-    // Add offset to start at 100001
-    tick = result.rows[0].id + RFB_START - 1;
+    tick = BigInt(result.rows[0].id);
   }
 
-  const rfbId = `RFB${tick.toString().padStart(6, '0')}`;
-  return { tick, rfbId };
+  const qlid = `QLID${tick.toString().padStart(9, '0')}`;
+  return { tick, qlid };
 }
 
 /**
- * Generate next RFB Pallet ID
- * Format: RFB-P-{4 digits} (e.g., RFB-P-0001)
+ * Generate next RFB Pallet ID (QuickIntakez-compatible format)
+ * Format: P{sequence}{RetailerCode} (e.g., P1BBY, P23TGT)
+ *
+ * @param retailer - The retailer enum (BESTBUY, TARGET, etc.)
+ * @returns Pallet ID string
  */
-export async function generateRfbPalletId(): Promise<string> {
+export async function generateRfbPalletId(retailer: Retailer): Promise<string> {
   const dbType = process.env.DB_TYPE || 'sqlite';
   const db = getPool();
 
@@ -62,61 +69,153 @@ export async function generateRfbPalletId(): Promise<string> {
     num = result.rows[0].id;
   }
 
-  return `RFB-P-${num.toString().padStart(4, '0')}`;
+  const retailerCode = RETAILER_CODE[retailer] || 'OTH';
+  return `P${num}${retailerCode}`;
 }
 
 /**
- * Validate RFB ID format
- * Valid: RFB100001 through RFB999999
+ * Validate QLID format (QuickIntakez-compatible)
+ * Valid: QLID000000001 (QLID + 9 digits)
  */
-export function isValidRfbId(rfbId: string): boolean {
-  return /^RFB\d{6}$/.test(rfbId);
+export function isValidRfbQlid(qlid: string): boolean {
+  return /^QLID\d{9}$/.test(qlid);
 }
 
 /**
- * Validate RFB Pallet ID format
- * Valid: RFB-P-0001 through RFB-P-9999
+ * Validate Pallet ID format (QuickIntakez-compatible)
+ * Valid: P1BBY, P23TGT, P100AMZ (P + number + 3-letter retailer code)
  */
 export function isValidRfbPalletId(palletId: string): boolean {
-  return /^RFB-P-\d{4}$/.test(palletId);
+  return /^P\d+[A-Z]{3}$/.test(palletId);
 }
 
 /**
- * Parse RFB ID to get numeric tick
+ * Parse QLID to get numeric tick
+ * QLID000000001 → 1
  */
-export function parseRfbId(rfbId: string): number | null {
-  const match = rfbId.match(/^RFB(\d{6})$/);
+export function parseRfbQlid(qlid: string): bigint | null {
+  const match = qlid.match(/^QLID(\d{9})$/);
   if (!match) return null;
-  return parseInt(match[1], 10);
+  return BigInt(parseInt(match[1], 10));
 }
 
 /**
- * Build barcode value for label
- * Format: {palletId}-{rfbId}
- * Example: RFB-P-0001-RFB100001
+ * Parse Pallet ID to get components
+ * P1BBY → { sequence: 1, retailerCode: 'BBY', retailer: 'BESTBUY' }
  */
-export function buildRfbBarcode(palletId: string, rfbId: string): string {
-  return `${palletId}-${rfbId}`;
-}
-
-/**
- * Parse RFB barcode
- * Input: RFB-P-0001-RFB100001
- * Output: { palletId: 'RFB-P-0001', rfbId: 'RFB100001' }
- */
-export function parseRfbBarcode(barcode: string): { palletId: string; rfbId: string } | null {
-  // Format: RFB-P-XXXX-RFBXXXXXX
-  const match = barcode.match(/^(RFB-P-\d{4})-(RFB\d{6})$/);
+export function parseRfbPalletId(palletId: string): {
+  sequence: number;
+  retailerCode: RetailerCode;
+  retailer: Retailer;
+} | null {
+  const match = palletId.match(/^P(\d+)([A-Z]{3})$/);
   if (!match) return null;
+
+  const retailerCode = match[2] as RetailerCode;
+  const retailer = CODE_TO_RETAILER[retailerCode] || 'OTHER';
+
   return {
-    palletId: match[1],
-    rfbId: match[2]
+    sequence: parseInt(match[1], 10),
+    retailerCode,
+    retailer
   };
 }
 
 /**
+ * Build RFB barcode value for label
+ * Format: RFB-{palletId}-{qlid}
+ * Example: RFB-P1BBY-QLID000000001
+ *
+ * The RFB- prefix marks this as a QuickRefurbz-originated item
+ */
+export function buildRfbBarcode(palletId: string, qlid: string): string {
+  return `RFB-${palletId}-${qlid}`;
+}
+
+/**
+ * Parse RFB barcode to extract components
+ * Input: RFB-P1BBY-QLID000000001
+ * Output: { palletId: 'P1BBY', qlid: 'QLID000000001', retailerCode: 'BBY', isRfbOrigin: true }
+ */
+export function parseRfbBarcode(barcode: string): {
+  palletId: string;
+  qlid: string;
+  retailerCode: RetailerCode;
+  retailer: Retailer;
+  isRfbOrigin: boolean;
+} | null {
+  // RFB format: RFB-P{num}{code}-QLID{9digits}
+  const rfbMatch = barcode.match(/^RFB-(P\d+([A-Z]{3}))-(QLID\d{9})$/);
+  if (rfbMatch) {
+    const retailerCode = rfbMatch[2] as RetailerCode;
+    return {
+      palletId: rfbMatch[1],
+      qlid: rfbMatch[3],
+      retailerCode,
+      retailer: CODE_TO_RETAILER[retailerCode] || 'OTHER',
+      isRfbOrigin: true
+    };
+  }
+
+  // Also accept QuickIntakez format (without RFB prefix) for compatibility
+  const qiMatch = barcode.match(/^(P\d+([A-Z]{3}))-(QLID\d{9})$/);
+  if (qiMatch) {
+    const retailerCode = qiMatch[2] as RetailerCode;
+    return {
+      palletId: qiMatch[1],
+      qlid: qiMatch[3],
+      retailerCode,
+      retailer: CODE_TO_RETAILER[retailerCode] || 'OTHER',
+      isRfbOrigin: false
+    };
+  }
+
+  return null;
+}
+
+/**
  * Check if barcode is valid RFB format
+ * Valid: RFB-P1BBY-QLID000000001
  */
 export function isValidRfbBarcode(barcode: string): boolean {
-  return /^RFB-P-\d{4}-RFB\d{6}$/.test(barcode);
+  return /^RFB-P\d+[A-Z]{3}-QLID\d{9}$/.test(barcode);
 }
+
+/**
+ * Check if barcode is valid (accepts both RFB and QuickIntakez formats)
+ */
+export function isValidAnyBarcode(barcode: string): boolean {
+  // RFB format: RFB-P1BBY-QLID000000001
+  if (/^RFB-P\d+[A-Z]{3}-QLID\d{9}$/.test(barcode)) return true;
+  // QuickIntakez format: P1BBY-QLID000000001
+  if (/^P\d+[A-Z]{3}-QLID\d{9}$/.test(barcode)) return true;
+  return false;
+}
+
+/**
+ * Extract pallet ID from a barcode (works with both RFB and QuickIntakez formats)
+ */
+export function extractPalletFromBarcode(barcode: string): string | null {
+  const parsed = parseRfbBarcode(barcode);
+  return parsed?.palletId || null;
+}
+
+/**
+ * Extract QLID from a barcode (works with both RFB and QuickIntakez formats)
+ */
+export function extractQlidFromBarcode(barcode: string): string | null {
+  const parsed = parseRfbBarcode(barcode);
+  return parsed?.qlid || null;
+}
+
+/**
+ * Check if a barcode originated from QuickRefurbz
+ */
+export function isRfbOriginBarcode(barcode: string): boolean {
+  return barcode.startsWith('RFB-');
+}
+
+// Legacy exports for backward compatibility
+export { generateRfbQlid as generateRfbId };
+export { parseRfbQlid as parseRfbId };
+export { isValidRfbQlid as isValidRfbId };

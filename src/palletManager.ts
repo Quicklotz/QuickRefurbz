@@ -17,6 +17,7 @@ const isPostgres = () => (process.env.DB_TYPE || 'sqlite') === 'postgres';
 // ==================== CREATE ====================
 
 export interface CreatePalletOptions {
+  palletId?: string;  // Optional - will generate if not provided
   retailer: Retailer;
   liquidationSource: LiquidationSource;
   sourcePalletId?: string;
@@ -31,7 +32,8 @@ export interface CreatePalletOptions {
 
 export async function createPallet(options: CreatePalletOptions): Promise<Pallet> {
   const db = getPool();
-  const palletId = await generateRfbPalletId();
+  // Use provided palletId or generate one with retailer code
+  const palletId = options.palletId || await generateRfbPalletId(options.retailer);
   const id = generateUUID();
 
   const result = await db.query(`

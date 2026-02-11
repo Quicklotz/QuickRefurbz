@@ -1,12 +1,18 @@
 /**
  * QuickRefurbz - Item Manager
- * Manages items through the refurbishment workflow using RFB ID identity
+ * Manages items through the refurbishment workflow using QuickIntakez-compatible IDs
  *
- * Standalone system for QuickRefurbz - does not depend on QuickIntakez
+ * ID Format (QuickIntakez-compatible with RFB prefix):
+ *   Pallet ID: P{num}{RetailerCode} (e.g., P1BBY, P2TGT)
+ *   QLID: QLID{9 digits} (e.g., QLID000000001)
+ *   Barcode: RFB-{PalletID}-{QLID} (e.g., RFB-P1BBY-QLID000000001)
+ *
+ * The RFB- prefix marks items as originating from QuickRefurbz for easy
+ * identification when reintegrating with the full WMS.
  *
  * Items enter refurbishment via:
- * 1. RECEIVE: Create new items with auto-generated RFB IDs
- * 2. SCAN: Scan RFB barcode (RFB-P-0001-RFB100001) to look up existing items
+ * 1. RECEIVE: Create new items with auto-generated QLIDs (RFB-prefixed barcodes)
+ * 2. SCAN: Scan barcode to look up existing items (accepts RFB and legacy formats)
  */
 
 import type {
@@ -40,11 +46,12 @@ import {
   nowFn
 } from './database.js';
 import {
-  generateRfbId,
+  generateRfbQlid,
   generateRfbPalletId,
-  isValidRfbId,
+  isValidRfbQlid,
   isValidRfbPalletId,
   isValidRfbBarcode,
+  isValidAnyBarcode,
   buildRfbBarcode,
   parseRfbBarcode
 } from './rfbIdGenerator.js';
@@ -53,7 +60,7 @@ import { incrementReceivedItems, incrementCompletedItems } from './palletManager
 // ==================== RECEIVE ITEM (INTAKE) ====================
 
 export interface ReceiveItemOptions {
-  palletId: string;                    // RFB-P-0001 (QuickRefurbz pallet)
+  palletId: string;                    // P1BBY format (QuickIntakez-compatible)
 
   // Product identification (at least one required for identification)
   manufacturer?: string;               // Brand name
@@ -82,15 +89,15 @@ export interface ReceiveItemResult {
 
 /**
  * Receive an item into QuickRefurbz (standalone intake)
- * Generates a new RFB ID for each item
+ * Generates a new QLID with RFB-prefixed barcode for WMS reintegration
+ *
+ * Barcode format: RFB-{PalletID}-{QLID}
+ * Example: RFB-P1BBY-QLID000000001
  */
 export async function receiveItem(options: ReceiveItemOptions): Promise<ReceiveItemResult> {
-  // Validate PalletID format - accept both RFB format and legacy QuickIntakez format
-  const isRfbPallet = isValidRfbPalletId(options.palletId);
-  const isLegacyPallet = isValidInternalPalletId(options.palletId);
-
-  if (!isRfbPallet && !isLegacyPallet) {
-    throw new Error(`Invalid PalletID format: ${options.palletId}. Expected format: RFB-P-0001`);
+  // Validate PalletID format - must be QuickIntakez-compatible (P{num}{retailerCode})
+  if (!isValidRfbPalletId(options.palletId) && !isValidInternalPalletId(options.palletId)) {
+    throw new Error(`Invalid PalletID format: ${options.palletId}. Expected format: P1BBY (P + number + retailer code)`);
   }
 
   // Require at least some product identification
@@ -100,9 +107,10 @@ export async function receiveItem(options: ReceiveItemOptions): Promise<ReceiveI
 
   const db = getPool();
 
-  // Generate RFB ID atomically
-  const { tick, rfbId } = await generateRfbId();
-  const barcodeValue = buildRfbBarcode(options.palletId, rfbId);
+  // Generate QLID (QuickIntakez-compatible) atomically
+  const { tick, qlid } = await generateRfbQlid();
+  // Build RFB-prefixed barcode: RFB-P1BBY-QLID000000001
+  const barcodeValue = buildRfbBarcode(options.palletId, qlid);
 
   // Insert item into refurb tracking
   const id = generateUUID();
@@ -144,9 +152,9 @@ export async function receiveItem(options: ReceiveItemOptions): Promise<ReceiveI
   `, [
     id,
     tick.toString(),
-    rfbId,  // Store RFB ID in qlid field
+    qlid,  // Store QLID (QuickIntakez-compatible)
     options.palletId,
-    barcodeValue,
+    barcodeValue,  // RFB-P1BBY-QLID000000001
     options.employeeId,
     options.warehouseId,
     options.manufacturer || 'Unknown',
@@ -164,12 +172,12 @@ export async function receiveItem(options: ReceiveItemOptions): Promise<ReceiveI
   const item = rowToItem(row);
 
   // Log initial stage transition
-  await logStageTransition(rfbId, null, 'INTAKE', undefined, undefined, 'Received into QuickRefurbz');
+  await logStageTransition(qlid, null, 'INTAKE', undefined, undefined, 'Received into QuickRefurbz');
 
-  // Prepare label data
+  // Prepare label data for printing
   const labelData: LabelData = {
-    barcodeValue,
-    qlid: rfbId,  // Use RFB ID
+    barcodeValue,  // RFB-P1BBY-QLID000000001
+    qlid,          // QLID000000001 (QuickIntakez-compatible)
     palletId: options.palletId,
     employeeId: options.employeeId,
     warehouseId: options.warehouseId,
@@ -184,8 +192,8 @@ export async function receiveItem(options: ReceiveItemOptions): Promise<ReceiveI
 // ==================== SCAN FROM QUICKINTAKEZ ====================
 
 export interface ScanItemOptions {
-  barcode: string;                     // P1BBY-QLID000000001 (scanned from label)
-  employeeId: string;                  // Who is starting refurb
+  barcode: string;                     // RFB-P1BBY-QLID000000001 or P1BBY-QLID000000001
+  employeeId: string;                  // Who is scanning
   warehouseId: string;                 // Where
 }
 
@@ -193,58 +201,51 @@ export interface ScanItemResult {
   item: RefurbItem;
   isNew: boolean;                      // True if item was just added to refurb tracking
   source: 'intake' | 'existing';       // Where item came from
+  isRfbOrigin: boolean;                // True if item originated in QuickRefurbz
 }
 
 /**
  * Scan an item barcode to look up or start refurbishment
  * Supports both RFB barcodes and legacy QuickIntakez barcodes
  *
+ * Accepted formats:
+ *   - RFB-P1BBY-QLID000000001 (QuickRefurbz origin)
+ *   - P1BBY-QLID000000001 (QuickIntakez origin)
+ *
  * Flow:
- * 1. Parse barcode (RFB-P-0001-RFB100001 or P1BBY-QLID000000001)
- * 2. Check if already in refurb tracking
+ * 1. Parse barcode to extract QLID
+ * 2. Look up item in refurb tracking
  * 3. Return item if found
  */
 export async function scanItem(options: ScanItemOptions): Promise<ScanItemResult> {
-  const { barcode, employeeId, warehouseId } = options;
+  const { barcode } = options;
 
-  let palletId: string;
-  let itemId: string;
-
-  // Try RFB format first
-  const rfbParsed = parseRfbBarcode(barcode);
-  if (rfbParsed) {
-    palletId = rfbParsed.palletId;
-    itemId = rfbParsed.rfbId;
-  } else if (isValidBarcode(barcode)) {
-    // Try legacy QuickIntakez format
-    const legacyParsed = parseBarcode(barcode);
-    if (!legacyParsed) {
-      throw new Error(`Could not parse barcode: ${barcode}`);
-    }
-    palletId = legacyParsed.palletId;
-    itemId = legacyParsed.qlid;
-  } else {
-    throw new Error(`Invalid barcode format: ${barcode}. Expected: RFB-P-0001-RFB100001`);
+  // Parse barcode (handles both RFB and legacy formats)
+  const parsed = parseRfbBarcode(barcode);
+  if (!parsed) {
+    throw new Error(`Invalid barcode format: ${barcode}. Expected: RFB-P1BBY-QLID000000001 or P1BBY-QLID000000001`);
   }
 
+  const { palletId, qlid, isRfbOrigin } = parsed;
   const db = getPool();
 
   // Check if item exists in refurb tracking
   const existingResult = await db.query(`
     SELECT * FROM refurb_items WHERE qlid = $1
-  `, [itemId]);
+  `, [qlid]);
 
   if (existingResult.rows.length > 0) {
     // Item found - return it
     return {
       item: rowToItem(existingResult.rows[0]),
       isNew: false,
-      source: 'existing'
+      source: 'existing',
+      isRfbOrigin
     };
   }
 
   // Item not found
-  throw new Error(`Item not found: ${itemId}. Use "Receive Item" to create new items.`);
+  throw new Error(`Item not found: ${qlid}. Use "Receive Item" to create new items.`);
 }
 
 // ==================== READ ====================

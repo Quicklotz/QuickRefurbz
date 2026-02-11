@@ -188,9 +188,10 @@ class ApiClient {
     return this.request<any>(`/pallets/${id}`, { method: 'DELETE' });
   }
 
-  async generateRfbPalletId() {
+  async generateRfbPalletId(retailer?: string) {
     return this.request<{ palletId: string }>('/pallets/generate-rfb-id', {
       method: 'POST',
+      body: JSON.stringify({ retailer: retailer || 'OTHER' }),
     });
   }
 
