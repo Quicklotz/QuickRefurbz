@@ -150,6 +150,8 @@ export type ProductCategory =
   | 'AUDIO'
   | 'APPLIANCE_SMALL'
   | 'APPLIANCE_LARGE'
+  | 'ICE_MAKER'
+  | 'VACUUM'
   | 'GAMING'
   | 'WEARABLE'
   | 'OTHER';
@@ -164,6 +166,8 @@ export const CATEGORY_DISPLAY: Record<ProductCategory, string> = {
   AUDIO: 'Audio',
   APPLIANCE_SMALL: 'Small Appliance',
   APPLIANCE_LARGE: 'Large Appliance',
+  ICE_MAKER: 'Ice Maker',
+  VACUUM: 'Vacuum',
   GAMING: 'Gaming',
   WEARABLE: 'Wearable',
   OTHER: 'Other'

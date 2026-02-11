@@ -1,8 +1,12 @@
-import { useState, useEffect, createContext, useContext } from 'react';
+import { useState, useEffect, createContext, useContext, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
-import { Layout } from './components/Layout';
+import { AppLayout } from './components/layout/AppLayout';
+import { PageErrorBoundary } from './components/ErrorBoundary';
 import { Login } from './pages/Login';
+import { AcceptInvite } from './pages/AcceptInvite';
+import { ForgotPassword } from './pages/ForgotPassword';
+import { ResetPassword } from './pages/ResetPassword';
 import { Dashboard } from './pages/Dashboard';
 import { Kanban } from './pages/Kanban';
 import { Items } from './pages/Items';
@@ -12,7 +16,15 @@ import { JobQueue } from './pages/JobQueue';
 import { SettingsPage } from './pages/Settings';
 import { DataWipePage } from './pages/DataWipe';
 import { PartsPage } from './pages/Parts';
+import { UserManagement } from './pages/UserManagement';
+import { Diagnostics } from './pages/Diagnostics';
+import { Certifications } from './pages/Certifications';
+import { TestPlans } from './pages/TestPlans';
+import { DeviceDatabase } from './pages/DeviceDatabase';
+import { Verify } from './pages/Verify';
 import { SessionPrompt } from './components/SessionPrompt';
+import { Loader } from './components/aceternity/loader';
+import { ToastProvider } from './components/aceternity/toast';
 import { api } from './api/client';
 
 // Session Context
@@ -46,7 +58,7 @@ function SessionProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [requiresSession, setRequiresSession] = useState(false);
 
-  const refreshSession = async () => {
+  const refreshSession = useCallback(async () => {
     if (!user) {
       setSession(null);
       setRequiresSession(false);
@@ -65,9 +77,9 @@ function SessionProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
 
-  const endSession = async () => {
+  const endSession = useCallback(async () => {
     try {
       await api.endSession();
       setSession(null);
@@ -75,16 +87,16 @@ function SessionProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       console.error('Failed to end session:', err);
     }
-  };
+  }, []);
 
   useEffect(() => {
     refreshSession();
-  }, [user]);
+  }, [refreshSession]);
 
   if (loading) {
     return (
-      <div className="login-container">
-        <div>Loading...</div>
+      <div className="min-h-screen bg-dark-primary flex items-center justify-center">
+        <Loader size="xl" variant="bars" text="Loading session..." />
       </div>
     );
   }
@@ -112,8 +124,8 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
   if (loading) {
     return (
-      <div className="login-container">
-        <div>Loading...</div>
+      <div className="min-h-screen bg-dark-primary flex items-center justify-center">
+        <Loader size="xl" variant="dots" text="Authenticating..." />
       </div>
     );
   }
@@ -129,11 +141,15 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/accept-invite" element={<AcceptInvite />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/verify/:certificationId" element={<Verify />} />
       <Route
         path="/"
         element={
           <ProtectedRoute>
-            <Layout />
+            <AppLayout />
           </ProtectedRoute>
         }
       >
@@ -145,6 +161,11 @@ function AppRoutes() {
         <Route path="scan" element={<Scan />} />
         <Route path="datawipe" element={<DataWipePage />} />
         <Route path="parts" element={<PartsPage />} />
+        <Route path="diagnostics" element={<Diagnostics />} />
+        <Route path="certifications" element={<Certifications />} />
+        <Route path="test-plans" element={<TestPlans />} />
+        <Route path="device-database" element={<DeviceDatabase />} />
+        <Route path="users" element={<UserManagement />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>
     </Routes>
@@ -154,9 +175,13 @@ function AppRoutes() {
 export default function App() {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <AppRoutes />
-      </AuthProvider>
+      <ToastProvider>
+        <PageErrorBoundary>
+          <AuthProvider>
+            <AppRoutes />
+          </AuthProvider>
+        </PageErrorBoundary>
+      </ToastProvider>
     </BrowserRouter>
   );
 }

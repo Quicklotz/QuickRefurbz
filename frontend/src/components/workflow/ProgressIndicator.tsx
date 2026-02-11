@@ -1,3 +1,7 @@
+"use client";
+import { motion } from 'framer-motion';
+import { Check, AlertTriangle, Zap } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface ProgressIndicatorProps {
   currentState: string;
@@ -42,208 +46,105 @@ export function ProgressIndicator({ currentState, progress }: ProgressIndicatorP
   const isEscapeState = ['REFURBZ_BLOCKED', 'REFURBZ_ESCALATED', 'FINAL_TEST_FAILED', 'REFURBZ_FAILED_DISPOSITION'].includes(currentState);
 
   return (
-    <div className="progress-indicator">
-      <div className="progress-header">
-        <span className="progress-label">Progress</span>
-        <span className="progress-percent">{progress.overallPercent}%</span>
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="bg-dark-card border border-border rounded-xl p-5 mb-6"
+    >
+      {/* Header */}
+      <div className="flex justify-between items-center mb-4">
+        <div className="flex items-center gap-2">
+          <Zap className="w-4 h-4 text-ql-yellow" />
+          <span className="text-sm font-semibold text-zinc-400">Progress</span>
+        </div>
+        <motion.span
+          key={progress.overallPercent}
+          initial={{ scale: 1.2 }}
+          animate={{ scale: 1 }}
+          className="text-xl font-bold text-ql-yellow"
+        >
+          {progress.overallPercent}%
+        </motion.span>
       </div>
 
-      <div className="progress-bar-container">
-        <div
-          className="progress-bar-fill"
-          style={{ width: `${progress.overallPercent}%` }}
+      {/* Progress Bar */}
+      <div className="h-2 bg-dark-tertiary rounded-full overflow-hidden mb-5">
+        <motion.div
+          initial={{ width: 0 }}
+          animate={{ width: `${progress.overallPercent}%` }}
+          transition={{ duration: 0.5, ease: "easeOut" }}
+          className="h-full bg-gradient-to-r from-ql-yellow to-accent-green rounded-full"
         />
       </div>
 
-      <div className="progress-steps">
+      {/* Steps */}
+      <div className="flex justify-between relative">
+        {/* Connector Line */}
+        <div className="absolute top-3 left-6 right-6 h-0.5 bg-border" />
+
         {MAIN_STATES.map((state, index) => {
           const isCompleted = index < currentIndex;
           const isCurrent = state === currentState;
           const isPending = index > currentIndex;
 
           return (
-            <div
+            <motion.div
               key={state}
-              className={`progress-step ${isCompleted ? 'completed' : ''} ${isCurrent ? 'current' : ''} ${isPending ? 'pending' : ''}`}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.05 }}
+              className="flex flex-col items-center relative z-10"
             >
-              <div className="step-dot">
-                {isCompleted ? (
-                  <svg viewBox="0 0 20 20" fill="currentColor" className="check-icon">
-                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                  </svg>
-                ) : (
-                  <span className="step-number">{index + 1}</span>
+              <motion.div
+                whileHover={{ scale: 1.1 }}
+                className={cn(
+                  "w-6 h-6 rounded-full border-2 flex items-center justify-center mb-2 transition-all",
+                  isCompleted && "bg-accent-green border-accent-green",
+                  isCurrent && "bg-ql-yellow border-ql-yellow",
+                  isPending && "bg-dark-tertiary border-border"
                 )}
-              </div>
-              <span className="step-label">{STATE_LABELS[state]}</span>
-            </div>
+              >
+                {isCompleted ? (
+                  <Check className="w-3.5 h-3.5 text-white" />
+                ) : isCurrent ? (
+                  <motion.div
+                    animate={{ scale: [1, 1.2, 1] }}
+                    transition={{ repeat: Infinity, duration: 1.5 }}
+                    className="w-2 h-2 bg-dark-primary rounded-full"
+                  />
+                ) : (
+                  <span className="text-[10px] font-semibold text-zinc-500">{index + 1}</span>
+                )}
+              </motion.div>
+              <span className={cn(
+                "text-[10px] text-center max-w-[50px] leading-tight",
+                isCompleted && "text-accent-green",
+                isCurrent && "text-ql-yellow font-semibold",
+                isPending && "text-zinc-500"
+              )}>
+                {STATE_LABELS[state]}
+              </span>
+            </motion.div>
           );
         })}
       </div>
 
+      {/* Escape State Banner */}
       {isEscapeState && (
-        <div className={`escape-state-banner ${currentState.toLowerCase().replace('refurbz_', '').replace('final_test_', '')}`}>
+        <motion.div
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: 'auto' }}
+          className={cn(
+            "mt-4 px-4 py-3 rounded-lg flex items-center justify-center gap-2 font-semibold text-sm",
+            currentState === 'REFURBZ_BLOCKED' && "bg-ql-yellow/15 text-ql-yellow",
+            currentState === 'REFURBZ_ESCALATED' && "bg-accent-purple/15 text-accent-purple",
+            (currentState === 'FINAL_TEST_FAILED' || currentState === 'REFURBZ_FAILED_DISPOSITION') && "bg-accent-red/15 text-accent-red"
+          )}
+        >
+          <AlertTriangle className="w-4 h-4" />
           {STATE_LABELS[currentState]}
-        </div>
+        </motion.div>
       )}
-
-      <style>{`
-        .progress-indicator {
-          background: var(--bg-card);
-          border: 1px solid var(--border-color);
-          border-radius: 0.75rem;
-          padding: 1.25rem;
-          margin-bottom: 1.5rem;
-        }
-
-        .progress-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 0.75rem;
-        }
-
-        .progress-label {
-          font-size: 0.875rem;
-          font-weight: 600;
-          color: var(--text-secondary);
-        }
-
-        .progress-percent {
-          font-size: 1.25rem;
-          font-weight: 700;
-          color: var(--ql-yellow);
-        }
-
-        .progress-bar-container {
-          height: 8px;
-          background: var(--bg-tertiary);
-          border-radius: 9999px;
-          overflow: hidden;
-          margin-bottom: 1.25rem;
-        }
-
-        .progress-bar-fill {
-          height: 100%;
-          background: var(--ql-yellow);
-          border-radius: 9999px;
-          transition: width 0.3s ease;
-        }
-
-        .progress-steps {
-          display: flex;
-          justify-content: space-between;
-          position: relative;
-        }
-
-        .progress-steps::before {
-          content: '';
-          position: absolute;
-          top: 12px;
-          left: 20px;
-          right: 20px;
-          height: 2px;
-          background: var(--border-color);
-        }
-
-        .progress-step {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          position: relative;
-          z-index: 1;
-        }
-
-        .step-dot {
-          width: 24px;
-          height: 24px;
-          border-radius: 50%;
-          background: var(--bg-tertiary);
-          border: 2px solid var(--border-color);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          margin-bottom: 0.5rem;
-        }
-
-        .step-number {
-          font-size: 0.625rem;
-          font-weight: 600;
-          color: var(--text-muted);
-        }
-
-        .check-icon {
-          width: 14px;
-          height: 14px;
-        }
-
-        .step-label {
-          font-size: 0.625rem;
-          color: var(--text-muted);
-          text-align: center;
-          max-width: 60px;
-        }
-
-        .progress-step.completed .step-dot {
-          background: var(--accent-green);
-          border-color: var(--accent-green);
-          color: white;
-        }
-
-        .progress-step.completed .step-label {
-          color: var(--accent-green);
-        }
-
-        .progress-step.current .step-dot {
-          background: var(--ql-yellow);
-          border-color: var(--ql-yellow);
-          color: var(--ql-black);
-        }
-
-        .progress-step.current .step-label {
-          color: var(--ql-yellow);
-          font-weight: 600;
-        }
-
-        .escape-state-banner {
-          margin-top: 1rem;
-          padding: 0.75rem;
-          border-radius: 0.5rem;
-          text-align: center;
-          font-weight: 600;
-          font-size: 0.875rem;
-        }
-
-        .escape-state-banner.blocked {
-          background: rgba(241, 196, 15, 0.15);
-          color: var(--ql-yellow);
-        }
-
-        .escape-state-banner.escalated {
-          background: rgba(168, 85, 247, 0.15);
-          color: #a855f7;
-        }
-
-        .escape-state-banner.failed {
-          background: rgba(235, 61, 59, 0.15);
-          color: var(--accent-red);
-        }
-
-        @media (max-width: 768px) {
-          .progress-steps {
-            flex-wrap: wrap;
-            gap: 0.5rem;
-          }
-
-          .progress-steps::before {
-            display: none;
-          }
-
-          .progress-step {
-            flex: 0 0 calc(25% - 0.5rem);
-          }
-        }
-      `}</style>
-    </div>
+    </motion.div>
   );
 }

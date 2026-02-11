@@ -1,5 +1,30 @@
+"use client";
 import { useState, useEffect } from 'react';
-import { api } from '../api/client';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  Package,
+  RefreshCw,
+  Plus,
+  Search,
+  Filter,
+  Boxes,
+  Recycle,
+  ShoppingCart,
+  AlertTriangle,
+  Link2,
+  MapPin,
+  Upload,
+} from 'lucide-react';
+import { api } from '@/api/client';
+import { SpotlightCard } from '@/components/aceternity/spotlight';
+import { Button } from '@/components/aceternity/button';
+import { Input } from '@/components/aceternity/input';
+import { Label } from '@/components/aceternity/label';
+import { AnimatedModal } from '@/components/aceternity/animated-modal';
+import { TextGenerateEffect } from '@/components/aceternity/text-generate-effect';
+import { StatCard } from '@/components/shared/StatCard';
+import { Badge } from '@/components/shared/Badge';
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 
 interface Part {
   id: string;
@@ -29,29 +54,16 @@ interface Supplier {
 }
 
 const PART_CATEGORIES = [
-  'SCREEN',
-  'BATTERY',
-  'CHARGING_PORT',
-  'CAMERA',
-  'SPEAKER',
-  'MICROPHONE',
-  'BUTTON',
-  'HOUSING',
-  'LOGIC_BOARD',
-  'RAM',
-  'STORAGE',
-  'KEYBOARD',
-  'TRACKPAD',
-  'FAN',
-  'POWER_SUPPLY',
-  'OTHER',
+  'SCREEN', 'BATTERY', 'CHARGING_PORT', 'CAMERA', 'SPEAKER',
+  'MICROPHONE', 'BUTTON', 'HOUSING', 'LOGIC_BOARD', 'RAM',
+  'STORAGE', 'KEYBOARD', 'TRACKPAD', 'FAN', 'POWER_SUPPLY', 'OTHER',
 ];
 
-const SYNC_TYPES = [
-  { value: 'API', label: 'API Integration', description: 'Real-time sync via REST API' },
-  { value: 'XLSX', label: 'XLSX Import', description: 'Manual spreadsheet uploads' },
-  { value: 'MANUAL', label: 'Manual Entry', description: 'Direct data entry' },
-];
+const SOURCE_VARIANTS: Record<string, 'info' | 'warning' | 'success' | 'danger'> = {
+  HARVESTED: 'info',
+  PURCHASED: 'warning',
+  SYNCED: 'success',
+};
 
 export function PartsPage() {
   const [parts, setParts] = useState<Part[]>([]);
@@ -66,34 +78,17 @@ export function PartsPage() {
   const [showAdjustStock, setShowAdjustStock] = useState<Part | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // New part form state
   const [newPart, setNewPart] = useState({
-    sku: '',
-    name: '',
-    category: 'SCREEN',
-    compatible_devices: '',
-    quantity: 0,
-    min_quantity: 5,
-    cost: 0,
-    supplier: '',
+    sku: '', name: '', category: 'SCREEN', compatible_devices: '',
+    quantity: 0, min_quantity: 5, cost: 0, supplier: '',
     source: 'PURCHASED' as 'HARVESTED' | 'PURCHASED' | 'SYNCED',
-    location: '',
-    condition: 'NEW',
-    harvested_from_qlid: '',
+    location: '', condition: 'NEW', harvested_from_qlid: '',
   });
 
-  // Stock adjustment form
-  const [stockAdjust, setStockAdjust] = useState({
-    quantity: 0,
-    reason: '',
-  });
+  const [stockAdjust, setStockAdjust] = useState({ quantity: 0, reason: '' });
 
-  // New supplier form
   const [newSupplier, setNewSupplier] = useState({
-    name: '',
-    apiUrl: '',
-    apiKey: '',
-    syncType: 'MANUAL' as 'API' | 'XLSX' | 'MANUAL',
+    name: '', apiUrl: '', apiKey: '', syncType: 'MANUAL' as 'API' | 'XLSX' | 'MANUAL',
   });
 
   useEffect(() => {
@@ -116,8 +111,7 @@ export function PartsPage() {
   };
 
   const filteredParts = parts.filter((part) => {
-    const matchesSearch =
-      !searchQuery ||
+    const matchesSearch = !searchQuery ||
       part.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       part.sku.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesCategory = !categoryFilter || part.category === categoryFilter;
@@ -128,30 +122,17 @@ export function PartsPage() {
   const handleAddPart = async (e: React.FormEvent) => {
     e.preventDefault();
     setMessage(null);
-
     try {
       await api.createPart({
         ...newPart,
-        compatible_devices: newPart.compatible_devices
-          .split(',')
-          .map((d) => d.trim())
-          .filter(Boolean),
+        compatible_devices: newPart.compatible_devices.split(',').map((d) => d.trim()).filter(Boolean),
       });
       setMessage({ type: 'success', text: 'Part added successfully' });
       setShowAddPart(false);
       setNewPart({
-        sku: '',
-        name: '',
-        category: 'SCREEN',
-        compatible_devices: '',
-        quantity: 0,
-        min_quantity: 5,
-        cost: 0,
-        supplier: '',
-        source: 'PURCHASED',
-        location: '',
-        condition: 'NEW',
-        harvested_from_qlid: '',
+        sku: '', name: '', category: 'SCREEN', compatible_devices: '',
+        quantity: 0, min_quantity: 5, cost: 0, supplier: '',
+        source: 'PURCHASED', location: '', condition: 'NEW', harvested_from_qlid: '',
       });
       loadData();
     } catch (err: any) {
@@ -162,7 +143,6 @@ export function PartsPage() {
   const handleAdjustStock = async () => {
     if (!showAdjustStock) return;
     setMessage(null);
-
     try {
       await api.adjustPartStock(showAdjustStock.id, stockAdjust.quantity, stockAdjust.reason);
       setMessage({ type: 'success', text: 'Stock adjusted successfully' });
@@ -177,7 +157,6 @@ export function PartsPage() {
   const handleAddSupplier = async (e: React.FormEvent) => {
     e.preventDefault();
     setMessage(null);
-
     try {
       await api.addPartsSupplier(newSupplier);
       setMessage({ type: 'success', text: 'Supplier added successfully' });
@@ -200,1017 +179,549 @@ export function PartsPage() {
     }
   };
 
-  const getLowStockCount = () => {
-    return parts.filter((p) => p.quantity <= p.min_quantity).length;
-  };
-
-  const getSourceBadge = (source: string) => {
-    const config: Record<string, { color: string; label: string }> = {
-      HARVESTED: { color: 'purple', label: 'Harvested' },
-      PURCHASED: { color: 'blue', label: 'Purchased' },
-      SYNCED: { color: 'green', label: 'Synced' },
-    };
-    const c = config[source] || { color: 'gray', label: source };
-    return <span className={`source-badge source-${c.color}`}>{c.label}</span>;
-  };
+  const getLowStockCount = () => parts.filter((p) => p.quantity <= p.min_quantity).length;
+  const getHarvestedCount = () => parts.filter((p) => p.source === 'HARVESTED').length;
 
   if (loading) {
     return (
-      <div className="loading-state">
-        <div className="spin">Loading parts inventory...</div>
+      <div className="flex items-center justify-center min-h-[400px]">
+        <LoadingSpinner size="xl" text="Loading parts inventory..." />
       </div>
     );
   }
 
   return (
-    <div className="parts-page">
-      <div className="page-header">
-        <h1>Parts Inventory</h1>
-        <div className="header-stats">
-          <div className="stat">
-            <span className="stat-value">{parts.length}</span>
-            <span className="stat-label">Total Parts</span>
-          </div>
-          <div className="stat">
-            <span className="stat-value">{parts.filter((p) => p.source === 'HARVESTED').length}</span>
-            <span className="stat-label">Harvested</span>
-          </div>
-          {getLowStockCount() > 0 && (
-            <div className="stat stat-warning">
-              <span className="stat-value">{getLowStockCount()}</span>
-              <span className="stat-label">Low Stock</span>
-            </div>
-          )}
+    <div className="space-y-6">
+      {/* Header */}
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="flex justify-between items-center"
+      >
+        <div>
+          <h1 className="text-3xl font-bold text-white mb-2">Parts Inventory</h1>
+          <TextGenerateEffect
+            words="Manage parts, track stock levels, and sync with suppliers"
+            className="text-zinc-400 text-sm"
+            duration={0.3}
+          />
         </div>
-      </div>
+        <div className="flex gap-3">
+          <Button variant="secondary" onClick={loadData}>
+            <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
+            Refresh
+          </Button>
+          <Button variant="primary" onClick={() => setShowAddPart(true)}>
+            <Plus size={18} />
+            Add Part
+          </Button>
+        </div>
+      </motion.div>
 
-      {message && (
-        <div className={`alert alert-${message.type}`}>
-          {message.text}
-        </div>
-      )}
+      {/* Stats */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1 }}
+        className="grid grid-cols-1 md:grid-cols-4 gap-4"
+      >
+        <StatCard label="Total Parts" value={parts.length} icon={Boxes} color="yellow" />
+        <StatCard label="Harvested" value={getHarvestedCount()} icon={Recycle} color="purple" />
+        <StatCard label="Low Stock" value={getLowStockCount()} icon={AlertTriangle} color="red" />
+        <StatCard label="Suppliers" value={suppliers.length} icon={ShoppingCart} color="blue" />
+      </motion.div>
+
+      {/* Message */}
+      <AnimatePresence>
+        {message && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className={`p-4 rounded-lg border ${
+              message.type === 'success'
+                ? 'bg-accent-green/10 border-accent-green text-accent-green'
+                : 'bg-accent-red/10 border-accent-red text-accent-red'
+            }`}
+          >
+            {message.text}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Tabs */}
-      <div className="tabs">
-        <button
-          className={`tab ${activeTab === 'inventory' ? 'active' : ''}`}
-          onClick={() => setActiveTab('inventory')}
-        >
-          Inventory
-        </button>
-        <button
-          className={`tab ${activeTab === 'suppliers' ? 'active' : ''}`}
-          onClick={() => setActiveTab('suppliers')}
-        >
-          Suppliers & Sync
-        </button>
-      </div>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.2 }}
+        className="flex gap-2 border-b border-border pb-2"
+      >
+        {(['inventory', 'suppliers'] as const).map((tab) => (
+          <motion.button
+            key={tab}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => setActiveTab(tab)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              activeTab === tab
+                ? 'bg-ql-yellow text-black'
+                : 'text-zinc-400 hover:text-white hover:bg-dark-tertiary'
+            }`}
+          >
+            {tab === 'inventory' ? 'Inventory' : 'Suppliers & Sync'}
+          </motion.button>
+        ))}
+      </motion.div>
 
       {activeTab === 'inventory' && (
         <>
-          {/* Filters & Actions */}
-          <div className="filters-section">
-            <div className="filters">
-              <input
-                type="text"
-                className="form-input"
-                placeholder="Search parts..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
+          {/* Filters */}
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+          >
+            <SpotlightCard className="p-4">
+              <div className="flex items-center gap-4 flex-wrap">
+                <div className="flex items-center gap-2 text-zinc-400">
+                  <Filter size={18} />
+                  <span className="text-sm font-medium">Filters</span>
+                </div>
+                <div className="flex-1 relative">
+                  <Input
+                    type="text"
+                    placeholder="Search parts..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10"
+                  />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+                </div>
+                <select
+                  className="bg-dark-tertiary border border-border rounded-lg px-4 py-2.5 text-white focus:border-ql-yellow focus:outline-none text-sm"
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                >
+                  <option value="">All Categories</option>
+                  {PART_CATEGORIES.map((cat) => (
+                    <option key={cat} value={cat}>{cat.replace(/_/g, ' ')}</option>
+                  ))}
+                </select>
+                <select
+                  className="bg-dark-tertiary border border-border rounded-lg px-4 py-2.5 text-white focus:border-ql-yellow focus:outline-none text-sm"
+                  value={sourceFilter}
+                  onChange={(e) => setSourceFilter(e.target.value)}
+                >
+                  <option value="">All Sources</option>
+                  <option value="HARVESTED">Harvested</option>
+                  <option value="PURCHASED">Purchased</option>
+                  <option value="SYNCED">Synced</option>
+                </select>
+              </div>
+            </SpotlightCard>
+          </motion.div>
+
+          {/* Parts Table */}
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.4 }}
+          >
+            <SpotlightCard className="overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-border">
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">SKU</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Name</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Category</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Source</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Qty</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Cost</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Location</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <AnimatePresence>
+                      {filteredParts.length === 0 ? (
+                        <tr>
+                          <td colSpan={8} className="px-4 py-12 text-center text-zinc-500">
+                            <div className="flex flex-col items-center gap-2">
+                              <Package className="w-8 h-8 text-zinc-600" />
+                              <span>No parts found</span>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredParts.map((part, index) => (
+                          <motion.tr
+                            key={part.id}
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, x: -20 }}
+                            transition={{ delay: index * 0.02 }}
+                            className={`border-b border-border hover:bg-dark-tertiary/50 transition-colors ${
+                              part.quantity <= part.min_quantity ? 'bg-accent-red/5' : ''
+                            }`}
+                          >
+                            <td className="px-4 py-3">
+                              <span className="font-mono font-semibold text-ql-yellow">{part.sku}</span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className="text-white">{part.name}</span>
+                              {part.compatible_devices?.length > 0 && (
+                                <span className="block text-xs text-zinc-500">
+                                  {part.compatible_devices.slice(0, 2).join(', ')}
+                                  {part.compatible_devices.length > 2 && ` +${part.compatible_devices.length - 2}`}
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-zinc-300">{part.category.replace(/_/g, ' ')}</td>
+                            <td className="px-4 py-3">
+                              <Badge variant={SOURCE_VARIANTS[part.source]} size="sm">
+                                {part.source}
+                              </Badge>
+                              {part.harvested_from_qlid && (
+                                <span className="block text-xs text-zinc-500 mt-1">from {part.harvested_from_qlid}</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className={`font-semibold ${part.quantity <= part.min_quantity ? 'text-accent-red' : 'text-white'}`}>
+                                {part.quantity}
+                              </span>
+                              {part.quantity <= part.min_quantity && (
+                                <Badge variant="danger" size="sm" className="ml-2">Low</Badge>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-zinc-300">${part.cost.toFixed(2)}</td>
+                            <td className="px-4 py-3 text-zinc-400">{part.location || '-'}</td>
+                            <td className="px-4 py-3">
+                              <Button variant="secondary" size="sm" onClick={() => setShowAdjustStock(part)}>
+                                Adjust
+                              </Button>
+                            </td>
+                          </motion.tr>
+                        ))
+                      )}
+                    </AnimatePresence>
+                  </tbody>
+                </table>
+              </div>
+            </SpotlightCard>
+          </motion.div>
+        </>
+      )}
+
+      {activeTab === 'suppliers' && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="space-y-6"
+        >
+          <div className="flex justify-between items-center">
+            <h2 className="text-xl font-semibold text-ql-yellow">Third-Party Suppliers</h2>
+            <Button variant="primary" onClick={() => setShowAddSupplier(true)}>
+              <Plus size={18} />
+              Add Supplier
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {suppliers.length === 0 ? (
+              <SpotlightCard className="p-8 col-span-full text-center">
+                <Link2 className="w-12 h-12 text-zinc-600 mx-auto mb-4" />
+                <p className="text-zinc-400">No suppliers configured</p>
+                <p className="text-zinc-500 text-sm">Add a supplier to sync parts from external sources</p>
+              </SpotlightCard>
+            ) : (
+              suppliers.map((supplier) => (
+                <SpotlightCard key={supplier.id} className="p-4">
+                  <div className="flex justify-between items-start mb-3">
+                    <h3 className="font-semibold text-white">{supplier.name}</h3>
+                    <Badge
+                      variant={supplier.status === 'ACTIVE' ? 'success' : supplier.status === 'ERROR' ? 'danger' : 'warning'}
+                      size="sm"
+                    >
+                      {supplier.status}
+                    </Badge>
+                  </div>
+                  <div className="space-y-2 text-sm mb-4">
+                    <p className="text-zinc-400">
+                      <span className="text-zinc-500">Sync Type:</span> {supplier.sync_type}
+                    </p>
+                    {supplier.api_url && (
+                      <p className="text-zinc-400 truncate">
+                        <span className="text-zinc-500">API:</span> {supplier.api_url}
+                      </p>
+                    )}
+                    {supplier.last_sync && (
+                      <p className="text-zinc-400">
+                        <span className="text-zinc-500">Last Sync:</span> {new Date(supplier.last_sync).toLocaleString()}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    {supplier.sync_type === 'API' && (
+                      <Button variant="secondary" size="sm" onClick={() => handleSyncSupplier(supplier.id)}>
+                        Sync Now
+                      </Button>
+                    )}
+                    {supplier.sync_type === 'XLSX' && (
+                      <Button variant="secondary" size="sm">
+                        <Upload size={14} />
+                        Upload
+                      </Button>
+                    )}
+                  </div>
+                </SpotlightCard>
+              ))
+            )}
+          </div>
+
+          <SpotlightCard className="p-6">
+            <h3 className="text-lg font-semibold text-ql-yellow mb-2">Import Parts</h3>
+            <p className="text-zinc-400 text-sm mb-4">Import parts from an XLSX file or paste data directly.</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-dark-tertiary rounded-lg p-4">
+                <h4 className="font-medium text-white mb-2">XLSX Upload</h4>
+                <p className="text-xs text-zinc-500 mb-3">Upload spreadsheet with: SKU, Name, Category, Quantity, Cost</p>
+                <input type="file" accept=".xlsx,.xls,.csv" className="text-sm text-zinc-400 mb-2 w-full" />
+                <Button variant="secondary" size="sm">Upload</Button>
+              </div>
+              <div className="bg-dark-tertiary rounded-lg p-4">
+                <h4 className="font-medium text-white mb-2">API Data Feed</h4>
+                <p className="text-xs text-zinc-500 mb-3">Configure a supplier to automatically sync parts data</p>
+                <Button variant="secondary" size="sm" onClick={() => setShowAddSupplier(true)}>
+                  Configure Supplier
+                </Button>
+              </div>
+            </div>
+          </SpotlightCard>
+        </motion.div>
+      )}
+
+      {/* Add Part Modal */}
+      <AnimatedModal isOpen={showAddPart} onClose={() => setShowAddPart(false)} title="Add New Part">
+        <form onSubmit={handleAddPart} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="sku">SKU *</Label>
+              <Input id="sku" value={newPart.sku} onChange={(e) => setNewPart({ ...newPart, sku: e.target.value })} required />
+            </div>
+            <div>
+              <Label htmlFor="name">Name *</Label>
+              <Input id="name" value={newPart.name} onChange={(e) => setNewPart({ ...newPart, name: e.target.value })} required />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="category">Category *</Label>
               <select
-                className="form-select"
-                value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value)}
+                id="category"
+                className="w-full bg-dark-tertiary border border-border rounded-lg px-4 py-2.5 text-white focus:border-ql-yellow focus:outline-none"
+                value={newPart.category}
+                onChange={(e) => setNewPart({ ...newPart, category: e.target.value })}
               >
-                <option value="">All Categories</option>
                 {PART_CATEGORIES.map((cat) => (
-                  <option key={cat} value={cat}>
-                    {cat.replace(/_/g, ' ')}
-                  </option>
+                  <option key={cat} value={cat}>{cat.replace(/_/g, ' ')}</option>
                 ))}
               </select>
+            </div>
+            <div>
+              <Label htmlFor="source">Source *</Label>
               <select
-                className="form-select"
-                value={sourceFilter}
-                onChange={(e) => setSourceFilter(e.target.value)}
+                id="source"
+                className="w-full bg-dark-tertiary border border-border rounded-lg px-4 py-2.5 text-white focus:border-ql-yellow focus:outline-none"
+                value={newPart.source}
+                onChange={(e) => setNewPart({ ...newPart, source: e.target.value as any })}
               >
-                <option value="">All Sources</option>
                 <option value="HARVESTED">Harvested</option>
                 <option value="PURCHASED">Purchased</option>
                 <option value="SYNCED">Synced</option>
               </select>
             </div>
-            <button className="btn btn-primary" onClick={() => setShowAddPart(true)}>
-              + Add Part
-            </button>
           </div>
 
-          {/* Parts Table */}
-          <div className="table-container">
-            {filteredParts.length === 0 ? (
-              <div className="empty-state">
-                <p>No parts found</p>
-              </div>
-            ) : (
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>SKU</th>
-                    <th>Name</th>
-                    <th>Category</th>
-                    <th>Source</th>
-                    <th>Qty</th>
-                    <th>Cost</th>
-                    <th>Location</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredParts.map((part) => (
-                    <tr key={part.id} className={part.quantity <= part.min_quantity ? 'low-stock' : ''}>
-                      <td className="sku-cell">{part.sku}</td>
-                      <td>
-                        {part.name}
-                        {part.compatible_devices?.length > 0 && (
-                          <span className="compatible-hint">
-                            {part.compatible_devices.slice(0, 2).join(', ')}
-                            {part.compatible_devices.length > 2 && ` +${part.compatible_devices.length - 2}`}
-                          </span>
-                        )}
-                      </td>
-                      <td>{part.category.replace(/_/g, ' ')}</td>
-                      <td>
-                        {getSourceBadge(part.source)}
-                        {part.harvested_from_qlid && (
-                          <span className="harvested-from">from {part.harvested_from_qlid}</span>
-                        )}
-                      </td>
-                      <td className={part.quantity <= part.min_quantity ? 'qty-warning' : ''}>
-                        {part.quantity}
-                        {part.quantity <= part.min_quantity && (
-                          <span className="low-stock-badge">Low</span>
-                        )}
-                      </td>
-                      <td>${part.cost.toFixed(2)}</td>
-                      <td>{part.location || '-'}</td>
-                      <td className="actions-cell">
-                        <button
-                          className="btn btn-sm btn-outline"
-                          onClick={() => setShowAdjustStock(part)}
-                        >
-                          Adjust
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </>
-      )}
+          {newPart.source === 'HARVESTED' && (
+            <div>
+              <Label htmlFor="harvestedFrom">Harvested From QLID</Label>
+              <Input
+                id="harvestedFrom"
+                value={newPart.harvested_from_qlid}
+                onChange={(e) => setNewPart({ ...newPart, harvested_from_qlid: e.target.value })}
+                placeholder="e.g., QLID000000001"
+              />
+            </div>
+          )}
 
-      {activeTab === 'suppliers' && (
-        <>
-          <div className="suppliers-header">
-            <h2>Third-Party Suppliers</h2>
-            <button className="btn btn-primary" onClick={() => setShowAddSupplier(true)}>
-              + Add Supplier
-            </button>
-          </div>
-
-          <div className="suppliers-grid">
-            {suppliers.length === 0 ? (
-              <div className="empty-state">
-                <p>No suppliers configured</p>
-                <p className="hint">Add a supplier to sync parts from external sources</p>
-              </div>
-            ) : (
-              suppliers.map((supplier) => (
-                <div key={supplier.id} className="supplier-card">
-                  <div className="supplier-header">
-                    <h3>{supplier.name}</h3>
-                    <span className={`status-badge status-${supplier.status.toLowerCase()}`}>
-                      {supplier.status}
-                    </span>
-                  </div>
-                  <div className="supplier-details">
-                    <p><strong>Sync Type:</strong> {supplier.sync_type}</p>
-                    {supplier.api_url && <p><strong>API URL:</strong> {supplier.api_url}</p>}
-                    {supplier.last_sync && (
-                      <p><strong>Last Sync:</strong> {new Date(supplier.last_sync).toLocaleString()}</p>
-                    )}
-                  </div>
-                  <div className="supplier-actions">
-                    {supplier.sync_type === 'API' && (
-                      <button
-                        className="btn btn-sm btn-secondary"
-                        onClick={() => handleSyncSupplier(supplier.id)}
-                      >
-                        Sync Now
-                      </button>
-                    )}
-                    {supplier.sync_type === 'XLSX' && (
-                      <button className="btn btn-sm btn-secondary">
-                        Upload XLSX
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-
-          <div className="import-section">
-            <h3>Import Parts</h3>
-            <p>Import parts from an XLSX file or paste data directly.</p>
-            <div className="import-options">
-              <div className="import-option">
-                <h4>XLSX Upload</h4>
-                <p>Upload a spreadsheet with columns: SKU, Name, Category, Quantity, Cost</p>
-                <input type="file" accept=".xlsx,.xls,.csv" className="file-input" />
-                <button className="btn btn-secondary">Upload</button>
-              </div>
-              <div className="import-option">
-                <h4>API Data Feed</h4>
-                <p>Configure a supplier to automatically sync parts data</p>
-                <button className="btn btn-secondary" onClick={() => setShowAddSupplier(true)}>
-                  Configure Supplier
-                </button>
-              </div>
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <Label htmlFor="qty">Quantity *</Label>
+              <Input id="qty" type="number" min={0} value={newPart.quantity} onChange={(e) => setNewPart({ ...newPart, quantity: parseInt(e.target.value) || 0 })} required />
+            </div>
+            <div>
+              <Label htmlFor="minQty">Min Quantity</Label>
+              <Input id="minQty" type="number" min={0} value={newPart.min_quantity} onChange={(e) => setNewPart({ ...newPart, min_quantity: parseInt(e.target.value) || 0 })} />
+            </div>
+            <div>
+              <Label htmlFor="cost">Cost ($)</Label>
+              <Input id="cost" type="number" min={0} step={0.01} value={newPart.cost} onChange={(e) => setNewPart({ ...newPart, cost: parseFloat(e.target.value) || 0 })} />
             </div>
           </div>
-        </>
-      )}
 
-      {/* Add Part Modal */}
-      {showAddPart && (
-        <div className="modal-overlay">
-          <div className="modal modal-lg">
-            <div className="modal-header">
-              <h2>Add New Part</h2>
-              <button className="modal-close" onClick={() => setShowAddPart(false)}>&times;</button>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="location">Location</Label>
+              <div className="relative">
+                <Input id="location" value={newPart.location} onChange={(e) => setNewPart({ ...newPart, location: e.target.value })} placeholder="e.g., Shelf A-3" className="pl-10" />
+                <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+              </div>
             </div>
-            <form onSubmit={handleAddPart}>
-              <div className="modal-body">
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">SKU *</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      value={newPart.sku}
-                      onChange={(e) => setNewPart({ ...newPart, sku: e.target.value })}
-                      required
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Name *</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      value={newPart.name}
-                      onChange={(e) => setNewPart({ ...newPart, name: e.target.value })}
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Category *</label>
-                    <select
-                      className="form-select"
-                      value={newPart.category}
-                      onChange={(e) => setNewPart({ ...newPart, category: e.target.value })}
-                      required
-                    >
-                      {PART_CATEGORIES.map((cat) => (
-                        <option key={cat} value={cat}>
-                          {cat.replace(/_/g, ' ')}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Source *</label>
-                    <select
-                      className="form-select"
-                      value={newPart.source}
-                      onChange={(e) => setNewPart({ ...newPart, source: e.target.value as any })}
-                      required
-                    >
-                      <option value="HARVESTED">Harvested</option>
-                      <option value="PURCHASED">Purchased</option>
-                      <option value="SYNCED">Synced</option>
-                    </select>
-                  </div>
-                </div>
-
-                {newPart.source === 'HARVESTED' && (
-                  <div className="form-group">
-                    <label className="form-label">Harvested From QLID</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      value={newPart.harvested_from_qlid}
-                      onChange={(e) => setNewPart({ ...newPart, harvested_from_qlid: e.target.value })}
-                      placeholder="e.g., QLID000000001"
-                    />
-                  </div>
-                )}
-
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Quantity *</label>
-                    <input
-                      type="number"
-                      className="form-input"
-                      value={newPart.quantity}
-                      onChange={(e) => setNewPart({ ...newPart, quantity: parseInt(e.target.value) || 0 })}
-                      min={0}
-                      required
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Min Quantity (Alert)</label>
-                    <input
-                      type="number"
-                      className="form-input"
-                      value={newPart.min_quantity}
-                      onChange={(e) => setNewPart({ ...newPart, min_quantity: parseInt(e.target.value) || 0 })}
-                      min={0}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Cost ($)</label>
-                    <input
-                      type="number"
-                      className="form-input"
-                      value={newPart.cost}
-                      onChange={(e) => setNewPart({ ...newPart, cost: parseFloat(e.target.value) || 0 })}
-                      min={0}
-                      step={0.01}
-                    />
-                  </div>
-                </div>
-
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Location</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      value={newPart.location}
-                      onChange={(e) => setNewPart({ ...newPart, location: e.target.value })}
-                      placeholder="e.g., Shelf A-3"
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Condition</label>
-                    <select
-                      className="form-select"
-                      value={newPart.condition}
-                      onChange={(e) => setNewPart({ ...newPart, condition: e.target.value })}
-                    >
-                      <option value="NEW">New</option>
-                      <option value="LIKE_NEW">Like New</option>
-                      <option value="GOOD">Good</option>
-                      <option value="FAIR">Fair</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">Compatible Devices</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    value={newPart.compatible_devices}
-                    onChange={(e) => setNewPart({ ...newPart, compatible_devices: e.target.value })}
-                    placeholder="e.g., iPhone 14 Pro, iPhone 14 Pro Max"
-                  />
-                  <span className="form-hint">Comma-separated list of compatible device models</span>
-                </div>
-              </div>
-              <div className="modal-footer">
-                <button type="button" className="btn btn-outline" onClick={() => setShowAddPart(false)}>
-                  Cancel
-                </button>
-                <button type="submit" className="btn btn-primary">
-                  Add Part
-                </button>
-              </div>
-            </form>
+            <div>
+              <Label htmlFor="condition">Condition</Label>
+              <select
+                id="condition"
+                className="w-full bg-dark-tertiary border border-border rounded-lg px-4 py-2.5 text-white focus:border-ql-yellow focus:outline-none"
+                value={newPart.condition}
+                onChange={(e) => setNewPart({ ...newPart, condition: e.target.value })}
+              >
+                <option value="NEW">New</option>
+                <option value="LIKE_NEW">Like New</option>
+                <option value="GOOD">Good</option>
+                <option value="FAIR">Fair</option>
+              </select>
+            </div>
           </div>
-        </div>
-      )}
+
+          <div>
+            <Label htmlFor="compatible">Compatible Devices</Label>
+            <Input
+              id="compatible"
+              value={newPart.compatible_devices}
+              onChange={(e) => setNewPart({ ...newPart, compatible_devices: e.target.value })}
+              placeholder="e.g., iPhone 14 Pro, iPhone 14 Pro Max"
+            />
+            <span className="text-xs text-zinc-500 mt-1">Comma-separated list</span>
+          </div>
+
+          <div className="flex justify-end gap-3 pt-4 border-t border-border">
+            <Button type="button" variant="secondary" onClick={() => setShowAddPart(false)}>Cancel</Button>
+            <Button type="submit" variant="primary">Add Part</Button>
+          </div>
+        </form>
+      </AnimatedModal>
 
       {/* Adjust Stock Modal */}
-      {showAdjustStock && (
-        <div className="modal-overlay">
-          <div className="modal">
-            <div className="modal-header">
-              <h2>Adjust Stock</h2>
-              <button className="modal-close" onClick={() => setShowAdjustStock(null)}>&times;</button>
+      <AnimatedModal isOpen={!!showAdjustStock} onClose={() => setShowAdjustStock(null)} title="Adjust Stock">
+        {showAdjustStock && (
+          <div className="space-y-4">
+            <div className="bg-dark-tertiary rounded-lg p-4">
+              <p className="text-white"><strong>Part:</strong> {showAdjustStock.name}</p>
+              <p className="text-zinc-400"><strong>SKU:</strong> {showAdjustStock.sku}</p>
+              <p className="text-zinc-400"><strong>Current Qty:</strong> {showAdjustStock.quantity}</p>
             </div>
-            <div className="modal-body">
-              <div className="part-summary">
-                <p><strong>Part:</strong> {showAdjustStock.name}</p>
-                <p><strong>SKU:</strong> {showAdjustStock.sku}</p>
-                <p><strong>Current Qty:</strong> {showAdjustStock.quantity}</p>
-              </div>
 
-              <div className="form-group">
-                <label className="form-label">Adjustment *</label>
-                <input
-                  type="number"
-                  className="form-input"
-                  value={stockAdjust.quantity}
-                  onChange={(e) => setStockAdjust({ ...stockAdjust, quantity: parseInt(e.target.value) || 0 })}
-                  placeholder="e.g., +5 or -3"
-                />
-                <span className="form-hint">
-                  New quantity: {showAdjustStock.quantity + stockAdjust.quantity}
-                </span>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Reason *</label>
-                <select
-                  className="form-select"
-                  value={stockAdjust.reason}
-                  onChange={(e) => setStockAdjust({ ...stockAdjust, reason: e.target.value })}
-                >
-                  <option value="">Select reason...</option>
-                  <option value="REPAIR_USE">Used for repair</option>
-                  <option value="RECEIVED">Received shipment</option>
-                  <option value="HARVESTED">Harvested from device</option>
-                  <option value="DAMAGED">Damaged/Defective</option>
-                  <option value="INVENTORY_COUNT">Inventory count adjustment</option>
-                  <option value="OTHER">Other</option>
-                </select>
-              </div>
+            <div>
+              <Label htmlFor="adjustment">Adjustment *</Label>
+              <Input
+                id="adjustment"
+                type="number"
+                value={stockAdjust.quantity}
+                onChange={(e) => setStockAdjust({ ...stockAdjust, quantity: parseInt(e.target.value) || 0 })}
+                placeholder="e.g., +5 or -3"
+              />
+              <span className="text-xs text-zinc-500 mt-1">
+                New quantity: {showAdjustStock.quantity + stockAdjust.quantity}
+              </span>
             </div>
-            <div className="modal-footer">
-              <button className="btn btn-outline" onClick={() => setShowAdjustStock(null)}>
-                Cancel
-              </button>
-              <button
-                className="btn btn-primary"
-                onClick={handleAdjustStock}
-                disabled={!stockAdjust.reason}
+
+            <div>
+              <Label htmlFor="reason">Reason *</Label>
+              <select
+                id="reason"
+                className="w-full bg-dark-tertiary border border-border rounded-lg px-4 py-2.5 text-white focus:border-ql-yellow focus:outline-none"
+                value={stockAdjust.reason}
+                onChange={(e) => setStockAdjust({ ...stockAdjust, reason: e.target.value })}
               >
-                Apply Adjustment
-              </button>
+                <option value="">Select reason...</option>
+                <option value="REPAIR_USE">Used for repair</option>
+                <option value="RECEIVED">Received shipment</option>
+                <option value="HARVESTED">Harvested from device</option>
+                <option value="DAMAGED">Damaged/Defective</option>
+                <option value="INVENTORY_COUNT">Inventory count adjustment</option>
+                <option value="OTHER">Other</option>
+              </select>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-4 border-t border-border">
+              <Button variant="secondary" onClick={() => setShowAdjustStock(null)}>Cancel</Button>
+              <Button variant="primary" onClick={handleAdjustStock} disabled={!stockAdjust.reason}>Apply Adjustment</Button>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatedModal>
 
       {/* Add Supplier Modal */}
-      {showAddSupplier && (
-        <div className="modal-overlay">
-          <div className="modal">
-            <div className="modal-header">
-              <h2>Add Supplier</h2>
-              <button className="modal-close" onClick={() => setShowAddSupplier(false)}>&times;</button>
-            </div>
-            <form onSubmit={handleAddSupplier}>
-              <div className="modal-body">
-                <div className="form-group">
-                  <label className="form-label">Supplier Name *</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    value={newSupplier.name}
-                    onChange={(e) => setNewSupplier({ ...newSupplier, name: e.target.value })}
-                    placeholder="e.g., iFixit, Injured Gadgets"
-                    required
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">Sync Type *</label>
-                  <select
-                    className="form-select"
-                    value={newSupplier.syncType}
-                    onChange={(e) => setNewSupplier({ ...newSupplier, syncType: e.target.value as any })}
-                  >
-                    {SYNC_TYPES.map((type) => (
-                      <option key={type.value} value={type.value}>
-                        {type.label} - {type.description}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {newSupplier.syncType === 'API' && (
-                  <>
-                    <div className="form-group">
-                      <label className="form-label">API URL</label>
-                      <input
-                        type="url"
-                        className="form-input"
-                        value={newSupplier.apiUrl}
-                        onChange={(e) => setNewSupplier({ ...newSupplier, apiUrl: e.target.value })}
-                        placeholder="https://api.supplier.com/v1/parts"
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">API Key</label>
-                      <input
-                        type="password"
-                        className="form-input"
-                        value={newSupplier.apiKey}
-                        onChange={(e) => setNewSupplier({ ...newSupplier, apiKey: e.target.value })}
-                        placeholder="Your API key"
-                      />
-                    </div>
-                  </>
-                )}
-              </div>
-              <div className="modal-footer">
-                <button type="button" className="btn btn-outline" onClick={() => setShowAddSupplier(false)}>
-                  Cancel
-                </button>
-                <button type="submit" className="btn btn-primary">
-                  Add Supplier
-                </button>
-              </div>
-            </form>
+      <AnimatedModal isOpen={showAddSupplier} onClose={() => setShowAddSupplier(false)} title="Add Supplier">
+        <form onSubmit={handleAddSupplier} className="space-y-4">
+          <div>
+            <Label htmlFor="supplierName">Supplier Name *</Label>
+            <Input
+              id="supplierName"
+              value={newSupplier.name}
+              onChange={(e) => setNewSupplier({ ...newSupplier, name: e.target.value })}
+              placeholder="e.g., iFixit, Injured Gadgets"
+              required
+            />
           </div>
-        </div>
-      )}
 
-      <style>{`
-        .parts-page {
-          max-width: 1400px;
-        }
-
-        .page-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 1.5rem;
-        }
-
-        .header-stats {
-          display: flex;
-          gap: 1.5rem;
-        }
-
-        .stat {
-          text-align: center;
-          padding: 0.5rem 1rem;
-          background: var(--bg-card);
-          border: 1px solid var(--border-color);
-          border-radius: 0.5rem;
-        }
-
-        .stat-value {
-          display: block;
-          font-size: 1.5rem;
-          font-weight: 700;
-          color: var(--ql-yellow);
-        }
-
-        .stat-label {
-          font-size: 0.75rem;
-          color: var(--text-muted);
-        }
-
-        .stat-warning .stat-value {
-          color: var(--accent-red);
-        }
-
-        .alert {
-          padding: 0.75rem 1rem;
-          border-radius: 0.5rem;
-          margin-bottom: 1.5rem;
-          font-size: 0.875rem;
-        }
-
-        .alert-success {
-          background: rgba(2, 219, 168, 0.15);
-          color: var(--accent-green);
-          border: 1px solid var(--accent-green);
-        }
-
-        .alert-error {
-          background: rgba(235, 61, 59, 0.15);
-          color: var(--accent-red);
-          border: 1px solid var(--accent-red);
-        }
-
-        .tabs {
-          display: flex;
-          gap: 0.5rem;
-          margin-bottom: 1.5rem;
-          border-bottom: 1px solid var(--border-color);
-          padding-bottom: 0.5rem;
-        }
-
-        .tab {
-          padding: 0.5rem 1rem;
-          background: none;
-          border: none;
-          color: var(--text-muted);
-          cursor: pointer;
-          font-size: 0.875rem;
-          font-weight: 500;
-          border-radius: 0.25rem;
-        }
-
-        .tab:hover {
-          color: var(--text-primary);
-          background: var(--bg-tertiary);
-        }
-
-        .tab.active {
-          color: var(--ql-yellow);
-          background: rgba(255, 199, 0, 0.1);
-        }
-
-        .filters-section {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 1rem;
-          gap: 1rem;
-        }
-
-        .filters {
-          display: flex;
-          gap: 0.5rem;
-          flex: 1;
-        }
-
-        .filters .form-input,
-        .filters .form-select {
-          max-width: 200px;
-        }
-
-        .table-container {
-          background: var(--bg-card);
-          border: 1px solid var(--border-color);
-          border-radius: 0.75rem;
-          overflow: hidden;
-        }
-
-        .data-table {
-          width: 100%;
-          border-collapse: collapse;
-        }
-
-        .data-table th,
-        .data-table td {
-          padding: 0.75rem;
-          text-align: left;
-          border-bottom: 1px solid var(--border-color);
-        }
-
-        .data-table th {
-          font-size: 0.75rem;
-          font-weight: 600;
-          color: var(--text-muted);
-          text-transform: uppercase;
-          background: var(--bg-tertiary);
-        }
-
-        .data-table td {
-          font-size: 0.875rem;
-        }
-
-        .data-table tr.low-stock {
-          background: rgba(235, 61, 59, 0.05);
-        }
-
-        .sku-cell {
-          font-family: monospace;
-          font-weight: 600;
-        }
-
-        .compatible-hint {
-          display: block;
-          font-size: 0.75rem;
-          color: var(--text-muted);
-        }
-
-        .source-badge {
-          display: inline-block;
-          padding: 0.125rem 0.375rem;
-          border-radius: 0.25rem;
-          font-size: 0.7rem;
-          font-weight: 500;
-        }
-
-        .source-purple {
-          background: rgba(139, 92, 246, 0.2);
-          color: #8b5cf6;
-        }
-
-        .source-blue {
-          background: rgba(59, 130, 246, 0.2);
-          color: #3b82f6;
-        }
-
-        .source-green {
-          background: rgba(2, 219, 168, 0.2);
-          color: var(--accent-green);
-        }
-
-        .harvested-from {
-          display: block;
-          font-size: 0.7rem;
-          color: var(--text-muted);
-          margin-top: 0.125rem;
-        }
-
-        .qty-warning {
-          color: var(--accent-red);
-          font-weight: 600;
-        }
-
-        .low-stock-badge {
-          display: inline-block;
-          margin-left: 0.5rem;
-          padding: 0.125rem 0.375rem;
-          background: rgba(235, 61, 59, 0.2);
-          color: var(--accent-red);
-          border-radius: 0.25rem;
-          font-size: 0.7rem;
-        }
-
-        .actions-cell {
-          display: flex;
-          gap: 0.5rem;
-        }
-
-        .btn-sm {
-          padding: 0.25rem 0.5rem;
-          font-size: 0.75rem;
-        }
-
-        .empty-state {
-          text-align: center;
-          padding: 3rem;
-          color: var(--text-muted);
-        }
-
-        .empty-state .hint {
-          font-size: 0.875rem;
-          margin-top: 0.5rem;
-        }
-
-        .suppliers-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 1rem;
-        }
-
-        .suppliers-header h2 {
-          margin: 0;
-          font-size: 1rem;
-          color: var(--ql-yellow);
-        }
-
-        .suppliers-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-          gap: 1rem;
-          margin-bottom: 2rem;
-        }
-
-        .supplier-card {
-          background: var(--bg-card);
-          border: 1px solid var(--border-color);
-          border-radius: 0.75rem;
-          padding: 1rem;
-        }
-
-        .supplier-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 0.75rem;
-        }
-
-        .supplier-header h3 {
-          margin: 0;
-          font-size: 1rem;
-        }
-
-        .status-badge {
-          padding: 0.125rem 0.375rem;
-          border-radius: 0.25rem;
-          font-size: 0.7rem;
-          font-weight: 500;
-        }
-
-        .status-active {
-          background: rgba(2, 219, 168, 0.2);
-          color: var(--accent-green);
-        }
-
-        .status-inactive {
-          background: rgba(107, 114, 128, 0.2);
-          color: #6b7280;
-        }
-
-        .status-error {
-          background: rgba(235, 61, 59, 0.2);
-          color: var(--accent-red);
-        }
-
-        .supplier-details {
-          font-size: 0.875rem;
-          margin-bottom: 0.75rem;
-        }
-
-        .supplier-details p {
-          margin: 0.25rem 0;
-        }
-
-        .supplier-actions {
-          display: flex;
-          gap: 0.5rem;
-        }
-
-        .import-section {
-          background: var(--bg-card);
-          border: 1px solid var(--border-color);
-          border-radius: 0.75rem;
-          padding: 1.5rem;
-        }
-
-        .import-section h3 {
-          margin: 0 0 0.5rem 0;
-          color: var(--ql-yellow);
-        }
-
-        .import-section > p {
-          color: var(--text-muted);
-          margin-bottom: 1rem;
-        }
-
-        .import-options {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-          gap: 1rem;
-        }
-
-        .import-option {
-          padding: 1rem;
-          background: var(--bg-tertiary);
-          border-radius: 0.5rem;
-        }
-
-        .import-option h4 {
-          margin: 0 0 0.5rem 0;
-          font-size: 0.875rem;
-        }
-
-        .import-option p {
-          font-size: 0.75rem;
-          color: var(--text-muted);
-          margin-bottom: 0.75rem;
-        }
-
-        .file-input {
-          display: block;
-          width: 100%;
-          margin-bottom: 0.5rem;
-          font-size: 0.75rem;
-        }
-
-        .modal-overlay {
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background: rgba(0, 0, 0, 0.75);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 1000;
-        }
-
-        .modal {
-          background: var(--bg-card);
-          border: 1px solid var(--border-color);
-          border-radius: 0.75rem;
-          width: 90%;
-          max-width: 500px;
-          max-height: 90vh;
-          overflow-y: auto;
-        }
-
-        .modal-lg {
-          max-width: 700px;
-        }
-
-        .modal-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 1rem 1.5rem;
-          border-bottom: 1px solid var(--border-color);
-        }
-
-        .modal-header h2 {
-          margin: 0;
-          font-size: 1.125rem;
-        }
-
-        .modal-close {
-          background: none;
-          border: none;
-          font-size: 1.5rem;
-          color: var(--text-muted);
-          cursor: pointer;
-        }
-
-        .modal-close:hover {
-          color: var(--text-primary);
-        }
-
-        .modal-body {
-          padding: 1.5rem;
-        }
-
-        .modal-footer {
-          display: flex;
-          justify-content: flex-end;
-          gap: 0.75rem;
-          padding: 1rem 1.5rem;
-          border-top: 1px solid var(--border-color);
-        }
-
-        .form-row {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-          gap: 1rem;
-        }
-
-        .form-hint {
-          display: block;
-          font-size: 0.75rem;
-          color: var(--text-muted);
-          margin-top: 0.25rem;
-        }
-
-        .part-summary {
-          background: var(--bg-tertiary);
-          padding: 1rem;
-          border-radius: 0.5rem;
-          margin-bottom: 1rem;
-        }
-
-        .part-summary p {
-          margin: 0.25rem 0;
-        }
-
-        .loading-state {
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          min-height: 200px;
-          color: var(--text-muted);
-        }
-
-        @media (max-width: 768px) {
-          .page-header {
-            flex-direction: column;
-            gap: 1rem;
-          }
-
-          .header-stats {
-            width: 100%;
-            justify-content: space-around;
-          }
-
-          .filters-section {
-            flex-direction: column;
-          }
-
-          .filters {
-            flex-direction: column;
-          }
-
-          .filters .form-input,
-          .filters .form-select {
-            max-width: 100%;
-          }
-
-          .form-row {
-            grid-template-columns: 1fr;
-          }
-        }
-      `}</style>
+          <div>
+            <Label htmlFor="syncType">Sync Type *</Label>
+            <select
+              id="syncType"
+              className="w-full bg-dark-tertiary border border-border rounded-lg px-4 py-2.5 text-white focus:border-ql-yellow focus:outline-none"
+              value={newSupplier.syncType}
+              onChange={(e) => setNewSupplier({ ...newSupplier, syncType: e.target.value as any })}
+            >
+              <option value="API">API Integration - Real-time sync via REST API</option>
+              <option value="XLSX">XLSX Import - Manual spreadsheet uploads</option>
+              <option value="MANUAL">Manual Entry - Direct data entry</option>
+            </select>
+          </div>
+
+          {newSupplier.syncType === 'API' && (
+            <>
+              <div>
+                <Label htmlFor="apiUrl">API URL</Label>
+                <Input
+                  id="apiUrl"
+                  type="url"
+                  value={newSupplier.apiUrl}
+                  onChange={(e) => setNewSupplier({ ...newSupplier, apiUrl: e.target.value })}
+                  placeholder="https://api.supplier.com/v1/parts"
+                />
+              </div>
+              <div>
+                <Label htmlFor="apiKey">API Key</Label>
+                <Input
+                  id="apiKey"
+                  type="password"
+                  value={newSupplier.apiKey}
+                  onChange={(e) => setNewSupplier({ ...newSupplier, apiKey: e.target.value })}
+                  placeholder="Your API key"
+                />
+              </div>
+            </>
+          )}
+
+          <div className="flex justify-end gap-3 pt-4 border-t border-border">
+            <Button type="button" variant="secondary" onClick={() => setShowAddSupplier(false)}>Cancel</Button>
+            <Button type="submit" variant="primary">Add Supplier</Button>
+          </div>
+        </form>
+      </AnimatedModal>
     </div>
   );
 }

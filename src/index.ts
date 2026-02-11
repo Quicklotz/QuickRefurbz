@@ -840,6 +840,1162 @@ program
     }
   });
 
+// ==================== DIAGNOSTICS COMMANDS (QuickDiagnosticz) ====================
+
+import {
+  startSession,
+  getSession,
+  getActiveSession,
+  recordTestResult,
+  completeSession,
+  getSessionSummary,
+  listSessions,
+  getAllTestSuites,
+  getTestSuite,
+  getTestByCode,
+  getTechnicianDiagnosticStats,
+  getAllTechnicianDiagnosticStats,
+} from './diagnostics/index.js';
+
+import {
+  issueCertification,
+  getCertification,
+  revokeCertification,
+  listCertifications,
+  getCertificationStats,
+  verifyCertification,
+  generateReportPdf,
+  generateCertificationLabel,
+  CERTIFICATION_LEVEL_DISPLAY,
+} from './certification/index.js';
+
+const diagCmd = program.command('diag').description('QuickDiagnosticz - Device diagnostics');
+
+diagCmd
+  .command('start <qlid>')
+  .description('Start a diagnostic session for an item')
+  .requiredOption('-c, --category <category>', 'Product category (APPLIANCE_SMALL, ICE_MAKER, VACUUM)')
+  .requiredOption('-t, --technician <id>', 'Technician ID')
+  .option('-n, --name <name>', 'Technician name')
+  .option('-j, --job <jobId>', 'Link to refurb job')
+  .action(async (qlid, opts) => {
+    try {
+      const { session, tests } = await startSession({
+        qlid,
+        category: opts.category.toUpperCase() as ProductCategory,
+        technicianId: opts.technician,
+        technicianName: opts.name,
+        jobId: opts.job,
+      });
+
+      console.log(chalk.green(`\n✓ Diagnostic session started: ${session.sessionNumber}`));
+      console.log(`  QLID: ${session.qlid}`);
+      console.log(`  Category: ${CATEGORY_DISPLAY[session.category]}`);
+      console.log(`  Total Tests: ${tests.length}`);
+      console.log(chalk.yellow(`\nTests to perform:`));
+      for (const test of tests) {
+        const marker = test.isCritical ? chalk.red('*') : ' ';
+        console.log(`  ${marker} ${test.code} - ${test.name}`);
+      }
+      console.log(chalk.gray(`\n* = Critical test (must pass for certification)`));
+    } catch (error) {
+      console.error(chalk.red(`Error: ${(error as Error).message}`));
+    } finally {
+      await closePool();
+    }
+  });
+
+diagCmd
+  .command('test <qlid> <testCode>')
+  .description('Record a test result')
+  .requiredOption('-r, --result <result>', 'Result (PASS, FAIL, SKIP)')
+  .option('-m, --measurement <value>', 'Measurement value')
+  .option('-n, --notes <notes>', 'Notes')
+  .option('-t, --technician <id>', 'Technician ID')
+  .action(async (qlid, testCode, opts) => {
+    try {
+      const session = await getActiveSession(qlid);
+      if (!session) {
+        console.error(chalk.red(`No active session found for: ${qlid}`));
+        return;
+      }
+
+      const result = await recordTestResult(session.id, {
+        sessionId: session.id,
+        testId: testCode,
+        testCode: testCode,
+        result: opts.result.toUpperCase() as any,
+        measurementValue: opts.measurement ? parseFloat(opts.measurement) : undefined,
+        notes: opts.notes,
+        testedBy: opts.technician || session.technicianId,
+      });
+
+      const color = result.result === 'PASS' ? chalk.green : result.result === 'FAIL' ? chalk.red : chalk.yellow;
+      console.log(color(`\n✓ Test recorded: ${result.testCode} = ${result.result}`));
+      if (result.measurementValue !== undefined) {
+        console.log(`  Measurement: ${result.measurementValue}${result.measurementUnit || ''}`);
+      }
+    } catch (error) {
+      console.error(chalk.red(`Error: ${(error as Error).message}`));
+    } finally {
+      await closePool();
+    }
+  });
+
+diagCmd
+  .command('complete <qlid>')
+  .description('Complete a diagnostic session')
+  .option('-n, --notes <notes>', 'Session notes')
+  .action(async (qlid, opts) => {
+    try {
+      const session = await getActiveSession(qlid);
+      if (!session) {
+        console.error(chalk.red(`No active session found for: ${qlid}`));
+        return;
+      }
+
+      const summary = await completeSession(session.id, {
+        notes: opts.notes,
+      });
+
+      const resultColor = summary.session.overallResult === 'PASS' ? chalk.green :
+        summary.session.overallResult === 'FAIL' ? chalk.red : chalk.yellow;
+
+      console.log(chalk.bold(`\n✓ Session completed: ${summary.session.sessionNumber}`));
+      console.log(`  Result: ${resultColor(summary.session.overallResult || 'N/A')}`);
+      console.log(`  Pass Rate: ${summary.passRate.toFixed(1)}%`);
+      console.log(`  Critical Failures: ${summary.criticalFailures}`);
+      console.log(`  Can Certify: ${summary.canCertify ? chalk.green('Yes') : chalk.red('No')}`);
+      if (summary.recommendedCertification) {
+        console.log(`  Recommended Level: ${CERTIFICATION_LEVEL_DISPLAY[summary.recommendedCertification]}`);
+      }
+    } catch (error) {
+      console.error(chalk.red(`Error: ${(error as Error).message}`));
+    } finally {
+      await closePool();
+    }
+  });
+
+diagCmd
+  .command('show <identifier>')
+  .description('Show diagnostic session details')
+  .action(async (identifier) => {
+    try {
+      const summary = await getSessionSummary(identifier);
+      if (!summary) {
+        console.error(chalk.red(`Session not found: ${identifier}`));
+        return;
+      }
+
+      const s = summary.session;
+      console.log(chalk.bold(`\nDiagnostic Session: ${s.sessionNumber}\n`));
+      console.log(`  QLID: ${s.qlid}`);
+      console.log(`  Category: ${CATEGORY_DISPLAY[s.category]}`);
+      console.log(`  Technician: ${s.technicianName || s.technicianId}`);
+      console.log(`  Status: ${s.completedAt ? 'Completed' : 'In Progress'}`);
+      if (s.overallResult) {
+        const color = s.overallResult === 'PASS' ? chalk.green : chalk.red;
+        console.log(`  Result: ${color(s.overallResult)}`);
+      }
+      console.log(`  Tests: ${s.passedTests}/${s.totalTests} passed`);
+      console.log(`  Pass Rate: ${summary.passRate.toFixed(1)}%`);
+
+      if (summary.results.length > 0) {
+        console.log(chalk.yellow(`\nTest Results:`));
+        for (const r of summary.results) {
+          const color = r.result === 'PASS' ? chalk.green : r.result === 'FAIL' ? chalk.red : chalk.gray;
+          let line = `  ${color(r.result.padEnd(4))} ${r.testCode}`;
+          if (r.measurementValue !== undefined) {
+            line += ` = ${r.measurementValue}${r.measurementUnit || ''}`;
+          }
+          console.log(line);
+        }
+      }
+    } catch (error) {
+      console.error(chalk.red(`Error: ${(error as Error).message}`));
+    } finally {
+      await closePool();
+    }
+  });
+
+diagCmd
+  .command('list')
+  .description('List diagnostic sessions')
+  .option('-c, --category <category>', 'Filter by category')
+  .option('-t, --technician <id>', 'Filter by technician')
+  .option('-l, --limit <n>', 'Limit results', '25')
+  .option('--completed', 'Include completed sessions')
+  .action(async (opts) => {
+    try {
+      const sessions = await listSessions({
+        category: opts.category?.toUpperCase() as ProductCategory,
+        technicianId: opts.technician,
+        limit: parseInt(opts.limit),
+        includeCompleted: opts.completed,
+      });
+
+      console.log(chalk.bold(`\nDiagnostic Sessions (${sessions.length}):\n`));
+
+      for (const s of sessions) {
+        const status = s.completedAt ? s.overallResult || 'DONE' : 'IN PROGRESS';
+        const statusColor = status === 'PASS' ? chalk.green :
+          status === 'FAIL' ? chalk.red :
+          status === 'IN PROGRESS' ? chalk.yellow : chalk.gray;
+
+        console.log(`${chalk.cyan(s.sessionNumber)} - ${s.qlid} [${CATEGORY_DISPLAY[s.category]}]`);
+        console.log(`  Status: ${statusColor(status)} | Tests: ${s.passedTests}/${s.totalTests}`);
+      }
+    } catch (error) {
+      console.error(chalk.red(`Error: ${(error as Error).message}`));
+    } finally {
+      await closePool();
+    }
+  });
+
+diagCmd
+  .command('tests [category]')
+  .description('Show available diagnostic tests')
+  .action(async (category) => {
+    try {
+      if (category) {
+        const suite = getTestSuite(category.toUpperCase() as ProductCategory);
+        if (!suite) {
+          console.error(chalk.red(`No tests defined for category: ${category}`));
+          return;
+        }
+
+        console.log(chalk.bold(`\n${suite.categoryName} Tests (${suite.totalTestCount}):\n`));
+        for (const test of suite.tests) {
+          const marker = test.isCritical ? chalk.red('*') : ' ';
+          console.log(`${marker} ${chalk.cyan(test.code)} - ${test.name}`);
+          console.log(`    Type: ${test.testType} | ${test.isCritical ? 'CRITICAL' : 'Standard'}`);
+        }
+        console.log(chalk.gray(`\n* = Critical test`));
+      } else {
+        const suites = getAllTestSuites();
+        console.log(chalk.bold(`\nAvailable Test Suites:\n`));
+        for (const suite of suites) {
+          console.log(`${chalk.cyan(suite.category)} - ${suite.categoryName}`);
+          console.log(`  Tests: ${suite.totalTestCount} (${suite.criticalTestCount} critical)`);
+        }
+      }
+    } catch (error) {
+      console.error(chalk.red(`Error: ${(error as Error).message}`));
+    }
+  });
+
+diagCmd
+  .command('quick <qlid>')
+  .description('Quick diagnostic - run all tests with default PASS results')
+  .requiredOption('-c, --category <category>', 'Product category (APPLIANCE_SMALL, ICE_MAKER, VACUUM)')
+  .requiredOption('-t, --technician <id>', 'Technician ID')
+  .option('-n, --name <name>', 'Technician name')
+  .option('--all-pass', 'Mark all tests as PASS (default)', true)
+  .option('--interactive', 'Prompt for each critical test')
+  .action(async (qlid, opts) => {
+    try {
+      // Start session
+      const { session, tests } = await startSession({
+        qlid,
+        category: opts.category.toUpperCase() as ProductCategory,
+        technicianId: opts.technician,
+        technicianName: opts.name,
+      });
+
+      console.log(chalk.green(`\n✓ Quick diagnostic started: ${session.sessionNumber}`));
+      console.log(`  Running ${tests.length} tests...`);
+
+      // Record all tests as PASS
+      let passed = 0;
+      for (const test of tests) {
+        await recordTestResult(session.id, {
+          sessionId: session.id,
+          testId: test.code,
+          testCode: test.code,
+          result: 'PASS',
+          testedBy: opts.technician,
+        });
+        passed++;
+        process.stdout.write(`\r  Progress: ${passed}/${tests.length} tests completed`);
+      }
+      console.log();
+
+      // Complete session
+      const summary = await completeSession(session.id, {
+        notes: 'Quick diagnostic - all tests passed',
+      });
+
+      console.log(chalk.green(`\n✓ Quick diagnostic complete!`));
+      console.log(`  Session: ${summary.session.sessionNumber}`);
+      console.log(`  Result: ${chalk.green(summary.session.overallResult || 'PASS')}`);
+      console.log(`  Pass Rate: 100%`);
+      console.log(`  Can Certify: ${chalk.green('Yes')}`);
+      console.log(`  Recommended Level: ${CERTIFICATION_LEVEL_DISPLAY[summary.recommendedCertification || 'EXCELLENT']}`);
+    } catch (error) {
+      console.error(chalk.red(`Error: ${(error as Error).message}`));
+    } finally {
+      await closePool();
+    }
+  });
+
+diagCmd
+  .command('export')
+  .description('Export diagnostic sessions to CSV')
+  .option('-f, --from <date>', 'From date (YYYY-MM-DD)')
+  .option('-t, --to <date>', 'To date (YYYY-MM-DD)')
+  .option('-c, --category <category>', 'Filter by category')
+  .option('-o, --output <file>', 'Output file', 'diagnostics-export.csv')
+  .action(async (opts) => {
+    try {
+      const sessions = await listSessions({
+        category: opts.category?.toUpperCase() as ProductCategory,
+        limit: 1000,
+        includeCompleted: true,
+      });
+
+      // Filter by date if specified
+      let filtered = sessions;
+      if (opts.from) {
+        const fromDate = new Date(opts.from);
+        filtered = filtered.filter(s => new Date(s.startedAt) >= fromDate);
+      }
+      if (opts.to) {
+        const toDate = new Date(opts.to);
+        filtered = filtered.filter(s => new Date(s.startedAt) <= toDate);
+      }
+
+      // Build CSV
+      const headers = [
+        'Session Number',
+        'QLID',
+        'Category',
+        'Technician',
+        'Started At',
+        'Completed At',
+        'Total Tests',
+        'Passed',
+        'Failed',
+        'Skipped',
+        'Result',
+      ];
+
+      const rows = filtered.map(s => [
+        s.sessionNumber,
+        s.qlid,
+        s.category,
+        s.technicianId,
+        s.startedAt,
+        s.completedAt || '',
+        s.totalTests,
+        s.passedTests,
+        s.failedTests,
+        s.skippedTests,
+        s.overallResult || '',
+      ]);
+
+      const csv = [
+        headers.join(','),
+        ...rows.map(r => r.map(v => `"${v}"`).join(',')),
+      ].join('\n');
+
+      // Write file
+      const fs = await import('fs');
+      fs.writeFileSync(opts.output, csv);
+
+      console.log(chalk.green(`\n✓ Exported ${filtered.length} sessions to ${opts.output}`));
+    } catch (error) {
+      console.error(chalk.red(`Error: ${(error as Error).message}`));
+    } finally {
+      await closePool();
+    }
+  });
+
+diagCmd
+  .command('stats')
+  .description('Show technician diagnostic performance stats')
+  .option('-t, --technician <id>', 'Specific technician ID')
+  .option('-a, --all', 'Show all technicians')
+  .action(async (opts) => {
+    try {
+      if (opts.technician) {
+        // Show stats for specific technician
+        const stats = await getTechnicianDiagnosticStats(opts.technician);
+        if (!stats) {
+          console.error(chalk.red(`No diagnostic data found for technician: ${opts.technician}`));
+          return;
+        }
+
+        console.log(chalk.bold(`\nTechnician Performance: ${stats.technicianName || stats.technicianId}\n`));
+        console.log(`  Total Sessions: ${stats.totalSessions}`);
+        console.log(`  Completed: ${stats.completedSessions}`);
+        console.log(`  Pass Rate: ${chalk.green(stats.passRate.toFixed(1) + '%')}`);
+        console.log(`  Passed: ${chalk.green(stats.passedSessions.toString())} | Failed: ${chalk.red(stats.failedSessions.toString())}`);
+        console.log(`  Avg Tests/Session: ${stats.avgTestsPerSession.toFixed(1)}`);
+        console.log(`  Avg Duration: ${stats.avgDurationMinutes.toFixed(1)} min`);
+
+        if (Object.keys(stats.categoryCounts).length > 0) {
+          console.log(chalk.yellow(`\nCategories Tested:`));
+          for (const [cat, count] of Object.entries(stats.categoryCounts)) {
+            console.log(`  ${CATEGORY_DISPLAY[cat as ProductCategory] || cat}: ${count}`);
+          }
+        }
+
+        if (stats.recentSessions.length > 0) {
+          console.log(chalk.yellow(`\nRecent Sessions (${stats.recentSessions.length}):`));
+          for (const s of stats.recentSessions.slice(0, 5)) {
+            const resultColor = s.overallResult === 'PASS' ? chalk.green : chalk.red;
+            console.log(`  ${s.sessionNumber} - ${s.qlid} [${resultColor(s.overallResult || 'IN PROGRESS')}]`);
+          }
+        }
+      } else {
+        // Show stats for all technicians
+        const allStats = await getAllTechnicianDiagnosticStats();
+        if (allStats.length === 0) {
+          console.log(chalk.yellow('No diagnostic sessions found.'));
+          return;
+        }
+
+        console.log(chalk.bold(`\nTechnician Diagnostic Performance (${allStats.length} technicians):\n`));
+
+        // Header
+        console.log(chalk.gray('Technician'.padEnd(20) + 'Sessions'.padEnd(10) + 'Pass Rate'.padEnd(12) + 'Avg Duration'));
+        console.log(chalk.gray('-'.repeat(60)));
+
+        // Sort by pass rate descending
+        allStats.sort((a, b) => b.passRate - a.passRate);
+
+        for (const stats of allStats) {
+          const name = (stats.technicianName || stats.technicianId).slice(0, 18).padEnd(20);
+          const sessions = stats.completedSessions.toString().padEnd(10);
+          const passRate = stats.passRate.toFixed(1) + '%';
+          const passRateColored = stats.passRate >= 90 ? chalk.green(passRate.padEnd(12)) :
+            stats.passRate >= 75 ? chalk.yellow(passRate.padEnd(12)) : chalk.red(passRate.padEnd(12));
+          const avgDur = stats.avgDurationMinutes.toFixed(1) + ' min';
+
+          console.log(`${chalk.cyan(name)}${sessions}${passRateColored}${avgDur}`);
+        }
+
+        // Summary stats
+        const totalSessions = allStats.reduce((sum, s) => sum + s.totalSessions, 0);
+        const totalPassed = allStats.reduce((sum, s) => sum + s.passedSessions, 0);
+        const overallPassRate = totalSessions > 0 ? (totalPassed / totalSessions) * 100 : 0;
+
+        console.log(chalk.gray('\n' + '-'.repeat(60)));
+        console.log(`Total: ${totalSessions} sessions | Overall Pass Rate: ${chalk.green(overallPassRate.toFixed(1) + '%')}`);
+      }
+    } catch (error) {
+      console.error(chalk.red(`Error: ${(error as Error).message}`));
+    } finally {
+      await closePool();
+    }
+  });
+
+// ==================== CERTIFICATION COMMANDS ====================
+
+const certCmd = program.command('cert').description('QuickDiagnosticz - Device certification');
+
+certCmd
+  .command('issue <qlid>')
+  .description('Issue a certification for a diagnosed item')
+  .requiredOption('-l, --level <level>', 'Certification level (EXCELLENT, GOOD, FAIR)')
+  .requiredOption('-m, --manufacturer <name>', 'Manufacturer')
+  .requiredOption('-o, --model <name>', 'Model')
+  .requiredOption('-c, --category <category>', 'Product category')
+  .requiredOption('-t, --technician <id>', 'Certifier ID')
+  .option('-s, --session <id>', 'Link to diagnostic session')
+  .option('-j, --job <id>', 'Link to refurb job')
+  .option('--serial <number>', 'Serial number')
+  .option('--imei <number>', 'IMEI')
+  .option('--warranty-type <type>', 'Warranty type (MANUFACTURER, EXTENDED, RETAILER, UPSCALED, NONE)')
+  .option('--warranty-status <status>', 'Warranty status (ACTIVE, EXPIRED, VOIDED, UNKNOWN)')
+  .option('--warranty-provider <provider>', 'Warranty provider name')
+  .option('--warranty-end <date>', 'Warranty end date (YYYY-MM-DD)')
+  .action(async (qlid, opts) => {
+    try {
+      const certification = await issueCertification({
+        qlid,
+        sessionId: opts.session,
+        jobId: opts.job,
+        category: opts.category.toUpperCase() as ProductCategory,
+        manufacturer: opts.manufacturer,
+        model: opts.model,
+        serialNumber: opts.serial,
+        certificationLevel: opts.level.toUpperCase() as any,
+        imei: opts.imei,
+        certifiedBy: opts.technician,
+        warrantyType: opts.warrantyType?.toUpperCase() as any,
+        warrantyStatus: opts.warrantyStatus?.toUpperCase() as any,
+        warrantyProvider: opts.warrantyProvider,
+        warrantyEndDate: opts.warrantyEnd,
+      });
+
+      console.log(chalk.green(`\n✓ Certification issued: ${certification.certificationId}`));
+      console.log(`  QLID: ${certification.qlid}`);
+      console.log(`  Device: ${certification.manufacturer} ${certification.model}`);
+      console.log(`  Level: ${CERTIFICATION_LEVEL_DISPLAY[certification.certificationLevel]}`);
+      console.log(`  Valid Until: ${certification.validUntil?.toLocaleDateString()}`);
+      console.log(`  Report URL: ${certification.publicReportUrl}`);
+    } catch (error) {
+      console.error(chalk.red(`Error: ${(error as Error).message}`));
+    } finally {
+      await closePool();
+    }
+  });
+
+certCmd
+  .command('show <identifier>')
+  .description('Show certification details')
+  .action(async (identifier) => {
+    try {
+      const cert = await getCertification(identifier);
+      if (!cert) {
+        console.error(chalk.red(`Certification not found: ${identifier}`));
+        return;
+      }
+
+      const levelColor = cert.certificationLevel === 'EXCELLENT' ? chalk.green :
+        cert.certificationLevel === 'GOOD' ? chalk.blue :
+        cert.certificationLevel === 'FAIR' ? chalk.yellow : chalk.red;
+
+      console.log(chalk.bold(`\nCertification: ${cert.certificationId}\n`));
+      console.log(`  QLID: ${cert.qlid}`);
+      console.log(`  Device: ${cert.manufacturer} ${cert.model}`);
+      console.log(`  Category: ${CATEGORY_DISPLAY[cert.category]}`);
+      console.log(`  Level: ${levelColor(CERTIFICATION_LEVEL_DISPLAY[cert.certificationLevel])}`);
+      console.log(`  Certified: ${cert.certifiedAt.toLocaleDateString()}`);
+      console.log(`  Valid Until: ${cert.validUntil?.toLocaleDateString()}`);
+      console.log(`  Status: ${cert.isRevoked ? chalk.red('REVOKED') : chalk.green('VALID')}`);
+      if (cert.isRevoked && cert.revokedReason) {
+        console.log(`  Revoked Reason: ${cert.revokedReason}`);
+      }
+
+      // Warranty info
+      if (cert.warrantyInfo) {
+        const w = cert.warrantyInfo;
+        const warrantyStatusColor = w.status === 'ACTIVE' ? chalk.green :
+          w.status === 'EXPIRED' ? chalk.red : chalk.yellow;
+        console.log(chalk.yellow(`\n  Warranty:`));
+        console.log(`    Type: ${w.type}`);
+        console.log(`    Status: ${warrantyStatusColor(w.status)}`);
+        if (w.provider) console.log(`    Provider: ${w.provider}`);
+        if (w.endDate) console.log(`    End Date: ${new Date(w.endDate).toLocaleDateString()}`);
+        if (w.daysRemaining !== undefined && w.daysRemaining > 0) {
+          console.log(`    Days Remaining: ${w.daysRemaining}`);
+        }
+        if (w.coverageType) console.log(`    Coverage: ${w.coverageType}`);
+      }
+
+      console.log(`\n  Report URL: ${cert.publicReportUrl}`);
+    } catch (error) {
+      console.error(chalk.red(`Error: ${(error as Error).message}`));
+    } finally {
+      await closePool();
+    }
+  });
+
+certCmd
+  .command('report <certId>')
+  .description('Generate PDF report for certification')
+  .option('-o, --output <path>', 'Output path')
+  .action(async (certId, opts) => {
+    try {
+      const outputPath = await generateReportPdf(certId, {
+        outputPath: opts.output,
+      });
+
+      console.log(chalk.green(`\n✓ Report generated: ${outputPath}`));
+    } catch (error) {
+      console.error(chalk.red(`Error: ${(error as Error).message}`));
+    } finally {
+      await closePool();
+    }
+  });
+
+certCmd
+  .command('label <certId>')
+  .description('Generate certification label')
+  .option('-o, --output <path>', 'Output path')
+  .action(async (certId, opts) => {
+    try {
+      const outputPath = await generateCertificationLabel(certId, {
+        outputPath: opts.output,
+      });
+
+      console.log(chalk.green(`\n✓ Label generated: ${outputPath}`));
+    } catch (error) {
+      console.error(chalk.red(`Error: ${(error as Error).message}`));
+    } finally {
+      await closePool();
+    }
+  });
+
+certCmd
+  .command('revoke <certId>')
+  .description('Revoke a certification')
+  .requiredOption('-r, --reason <reason>', 'Reason for revocation')
+  .requiredOption('-b, --by <id>', 'Revoking user ID')
+  .action(async (certId, opts) => {
+    try {
+      const cert = await revokeCertification(certId, {
+        reason: opts.reason,
+        revokedBy: opts.by,
+      });
+
+      console.log(chalk.yellow(`\n✓ Certification revoked: ${cert.certificationId}`));
+      console.log(`  Reason: ${opts.reason}`);
+    } catch (error) {
+      console.error(chalk.red(`Error: ${(error as Error).message}`));
+    } finally {
+      await closePool();
+    }
+  });
+
+certCmd
+  .command('list')
+  .description('List certifications')
+  .option('-c, --category <category>', 'Filter by category')
+  .option('-l, --level <level>', 'Filter by level')
+  .option('-t, --technician <id>', 'Filter by certifier')
+  .option('--limit <n>', 'Limit results', '25')
+  .option('--revoked', 'Include revoked certifications')
+  .action(async (opts) => {
+    try {
+      const certs = await listCertifications({
+        category: opts.category?.toUpperCase() as ProductCategory,
+        level: opts.level?.toUpperCase() as any,
+        certifiedBy: opts.technician,
+        limit: parseInt(opts.limit),
+        includeRevoked: opts.revoked,
+      });
+
+      console.log(chalk.bold(`\nCertifications (${certs.length}):\n`));
+
+      for (const c of certs) {
+        const levelColor = c.certificationLevel === 'EXCELLENT' ? chalk.green :
+          c.certificationLevel === 'GOOD' ? chalk.blue :
+          c.certificationLevel === 'FAIR' ? chalk.yellow : chalk.red;
+
+        console.log(`${chalk.cyan(c.certificationId)} - ${c.manufacturer} ${c.model}`);
+        console.log(`  Level: ${levelColor(c.certificationLevel)} | ${c.isRevoked ? chalk.red('REVOKED') : chalk.green('VALID')}`);
+      }
+    } catch (error) {
+      console.error(chalk.red(`Error: ${(error as Error).message}`));
+    } finally {
+      await closePool();
+    }
+  });
+
+certCmd
+  .command('verify <certId>')
+  .description('Verify a certification (public check)')
+  .action(async (certId) => {
+    try {
+      const result = await verifyCertification(certId);
+
+      if (result.valid) {
+        console.log(chalk.green(`\n✓ ${result.message}`));
+      } else {
+        console.log(chalk.red(`\n✗ ${result.message}`));
+      }
+
+      if (result.certification) {
+        const c = result.certification;
+        console.log(`\n  ID: ${c.certificationId}`);
+        console.log(`  Device: ${c.manufacturer} ${c.model}`);
+        console.log(`  Level: ${CERTIFICATION_LEVEL_DISPLAY[c.certificationLevel]}`);
+        console.log(`  Certified: ${c.certifiedAt.toLocaleDateString()}`);
+      }
+
+      if (result.checks.length > 0) {
+        console.log(chalk.yellow(`\nChecks:`));
+        for (const check of result.checks) {
+          const icon = check.passed ? chalk.green('✓') : chalk.red('✗');
+          console.log(`  ${icon} ${check.name}`);
+        }
+      }
+    } catch (error) {
+      console.error(chalk.red(`Error: ${(error as Error).message}`));
+    } finally {
+      await closePool();
+    }
+  });
+
+certCmd
+  .command('stats')
+  .description('Show certification statistics')
+  .option('-p, --period <period>', 'Period (today, week, month, all)', 'all')
+  .action(async (opts) => {
+    try {
+      const stats = await getCertificationStats(opts.period as any);
+
+      console.log(chalk.bold(`\nCertification Statistics (${opts.period}):\n`));
+      console.log(`  Total Certifications: ${stats.totalCertifications}`);
+      console.log(`  Certification Rate: ${stats.certificationRate.toFixed(1)}%`);
+      console.log(`\nBy Level:`);
+      console.log(`  Excellent: ${stats.byLevel.EXCELLENT}`);
+      console.log(`  Good: ${stats.byLevel.GOOD}`);
+      console.log(`  Fair: ${stats.byLevel.FAIR}`);
+      console.log(`  Not Certified: ${stats.byLevel.NOT_CERTIFIED}`);
+    } catch (error) {
+      console.error(chalk.red(`Error: ${(error as Error).message}`));
+    } finally {
+      await closePool();
+    }
+  });
+
+certCmd
+  .command('bulk')
+  .description('Bulk certify from completed diagnostic sessions')
+  .requiredOption('-t, --technician <id>', 'Certifier ID')
+  .option('-c, --category <category>', 'Filter by category')
+  .option('--dry-run', 'Show what would be certified without actually issuing')
+  .action(async (opts) => {
+    try {
+      // Get completed sessions that can be certified
+      const sessions = await listSessions({
+        category: opts.category?.toUpperCase() as ProductCategory,
+        limit: 100,
+        includeCompleted: true,
+      });
+
+      // Filter to only completed sessions that passed
+      const eligibleSessions = sessions.filter(s =>
+        s.completedAt && s.overallResult === 'PASS'
+      );
+
+      if (eligibleSessions.length === 0) {
+        console.log(chalk.yellow('\nNo eligible sessions found for bulk certification.'));
+        console.log('Sessions must be completed with PASS result.');
+        return;
+      }
+
+      console.log(chalk.bold(`\nEligible Sessions for Certification: ${eligibleSessions.length}\n`));
+
+      let certified = 0;
+      let skipped = 0;
+
+      for (const session of eligibleSessions) {
+        // Check if already certified
+        const existingCerts = await listCertifications({
+          qlid: session.qlid,
+          limit: 1,
+        });
+
+        if (existingCerts.length > 0) {
+          console.log(chalk.gray(`  Skipped ${session.qlid} - already certified`));
+          skipped++;
+          continue;
+        }
+
+        // Calculate certification level based on pass rate
+        const summary = await getSessionSummary(session.id);
+        let level: 'EXCELLENT' | 'GOOD' | 'FAIR' | 'NOT_CERTIFIED' = 'NOT_CERTIFIED';
+        if (summary && summary.passRate >= 95) {
+          level = 'EXCELLENT';
+        } else if (summary && summary.passRate >= 85) {
+          level = 'GOOD';
+        } else if (summary && summary.passRate >= 70) {
+          level = 'FAIR';
+        }
+
+        if (opts.dryRun) {
+          console.log(chalk.cyan(`  Would certify ${session.qlid} as ${level}`));
+        } else {
+          try {
+            const cert = await issueCertification({
+              qlid: session.qlid,
+              sessionId: session.id,
+              category: session.category as ProductCategory,
+              manufacturer: 'Unknown', // Would need to be provided or looked up
+              model: `${session.category} Unit`,
+              certificationLevel: level,
+              certifiedBy: opts.technician,
+            });
+            console.log(chalk.green(`  ✓ Certified ${session.qlid} - ${cert.certificationId} [${level}]`));
+            certified++;
+          } catch (err) {
+            console.log(chalk.red(`  ✗ Failed to certify ${session.qlid}: ${(err as Error).message}`));
+          }
+        }
+      }
+
+      console.log(chalk.bold(`\nSummary:`));
+      if (opts.dryRun) {
+        console.log(`  Would certify: ${eligibleSessions.length - skipped}`);
+        console.log(`  Already certified: ${skipped}`);
+      } else {
+        console.log(`  Certified: ${certified}`);
+        console.log(`  Skipped: ${skipped}`);
+      }
+    } catch (error) {
+      console.error(chalk.red(`Error: ${(error as Error).message}`));
+    } finally {
+      await closePool();
+    }
+  });
+
+certCmd
+  .command('export')
+  .description('Export certifications to CSV')
+  .option('-f, --from <date>', 'From date (YYYY-MM-DD)')
+  .option('-t, --to <date>', 'To date (YYYY-MM-DD)')
+  .option('-c, --category <category>', 'Filter by category')
+  .option('-o, --output <file>', 'Output file', 'certifications-export.csv')
+  .action(async (opts) => {
+    try {
+      const certs = await listCertifications({
+        category: opts.category?.toUpperCase() as ProductCategory,
+        fromDate: opts.from ? new Date(opts.from) : undefined,
+        toDate: opts.to ? new Date(opts.to) : undefined,
+        limit: 1000,
+        includeRevoked: true,
+      });
+
+      // Build CSV
+      const headers = [
+        'Certification ID',
+        'QLID',
+        'Manufacturer',
+        'Model',
+        'Category',
+        'Level',
+        'Certified By',
+        'Certified At',
+        'Valid Until',
+        'Status',
+        'Public URL',
+      ];
+
+      const rows = certs.map(c => [
+        c.certificationId,
+        c.qlid,
+        c.manufacturer,
+        c.model,
+        c.category,
+        c.certificationLevel,
+        c.certifiedBy,
+        c.certifiedAt,
+        c.validUntil || '',
+        c.isRevoked ? 'REVOKED' : 'VALID',
+        c.publicReportUrl || '',
+      ]);
+
+      const csv = [
+        headers.join(','),
+        ...rows.map(r => r.map(v => `"${v}"`).join(',')),
+      ].join('\n');
+
+      // Write file
+      const fs = await import('fs');
+      fs.writeFileSync(opts.output, csv);
+
+      console.log(chalk.green(`\n✓ Exported ${certs.length} certifications to ${opts.output}`));
+    } catch (error) {
+      console.error(chalk.red(`Error: ${(error as Error).message}`));
+    } finally {
+      await closePool();
+    }
+  });
+
+// ==================== TEST PLAN COMMANDS ====================
+
+const testplanCmd = program.command('testplan').description('Manage diagnostic test plans');
+
+testplanCmd
+  .command('list')
+  .description('List available test suites by category')
+  .action(async () => {
+    try {
+      const suites = getAllTestSuites();
+      console.log(chalk.bold(`\nAvailable Test Plans:\n`));
+      for (const suite of suites) {
+        console.log(`${chalk.cyan(suite.category)} - ${suite.categoryName}`);
+        console.log(`  Total Tests: ${suite.totalTestCount}`);
+        console.log(`  Critical Tests: ${suite.criticalTestCount}`);
+      }
+    } catch (error) {
+      console.error(chalk.red(`Error: ${(error as Error).message}`));
+    }
+  });
+
+testplanCmd
+  .command('show <category>')
+  .description('Show tests for a category')
+  .action(async (category) => {
+    try {
+      const suite = getTestSuite(category.toUpperCase() as ProductCategory);
+      if (!suite) {
+        console.error(chalk.red(`No test plan found for category: ${category}`));
+        return;
+      }
+
+      console.log(chalk.bold(`\n${suite.categoryName} Test Plan\n`));
+      console.log(`Total Tests: ${suite.totalTestCount}`);
+      console.log(`Critical Tests: ${suite.criticalTestCount}\n`);
+
+      for (const test of suite.tests) {
+        const marker = test.isCritical ? chalk.red('[CRITICAL]') : chalk.gray('[Standard]');
+        console.log(`${chalk.cyan(test.code)} ${marker}`);
+        console.log(`  ${test.name}`);
+        console.log(`  Type: ${test.testType}`);
+        if (test.measurementUnit) {
+          console.log(`  Measurement: ${test.measurementUnit} (${test.measurementMin}-${test.measurementMax})`);
+        }
+        console.log();
+      }
+    } catch (error) {
+      console.error(chalk.red(`Error: ${(error as Error).message}`));
+    }
+  });
+
+// ==================== EXTERNAL CHECK COMMANDS ====================
+
+import {
+  performExternalCheck,
+  getExternalChecks,
+  hasFlags,
+  runAllChecks,
+} from './diagnostics/index.js';
+import type { ExternalCheckType, ExternalCheckProvider } from './diagnostics/types.js';
+
+const checkCmd = program.command('check').description('External device checks (IMEI, serial, warranty, stolen)');
+
+checkCmd
+  .command('imei <qlid> <imei>')
+  .description('Check IMEI against blacklist databases')
+  .option('-p, --provider <provider>', 'Provider (IMEI_INFO, CHECKMEND, MANUAL)', 'MANUAL')
+  .option('-c, --cert <certId>', 'Link to certification')
+  .option('-s, --session <sessionId>', 'Link to diagnostic session')
+  .action(async (qlid, imei, opts) => {
+    try {
+      const check = await performExternalCheck({
+        qlid,
+        checkType: 'IMEI',
+        provider: opts.provider.toUpperCase() as ExternalCheckProvider,
+        identifier: imei,
+        identifierType: 'imei',
+        certificationId: opts.cert,
+        sessionId: opts.session,
+      });
+
+      const statusColor = check.status === 'CLEAR' ? chalk.green :
+        check.status === 'FLAGGED' ? chalk.red : chalk.yellow;
+
+      console.log(chalk.bold(`\n✓ IMEI Check Complete\n`));
+      console.log(`  QLID: ${check.qlid}`);
+      console.log(`  IMEI: ${imei}`);
+      console.log(`  Provider: ${check.provider}`);
+      console.log(`  Status: ${statusColor(check.status)}`);
+      console.log(`  Blacklisted: ${check.isBlacklisted ? chalk.red('YES') : chalk.green('No')}`);
+      console.log(`  Financial Hold: ${check.hasFinancialHold ? chalk.red('YES') : chalk.green('No')}`);
+      console.log(`  Checked: ${check.checkedAt.toLocaleString()}`);
+    } catch (error) {
+      console.error(chalk.red(`Error: ${(error as Error).message}`));
+    } finally {
+      await closePool();
+    }
+  });
+
+checkCmd
+  .command('serial <qlid> <serial>')
+  .description('Check serial number with manufacturer')
+  .option('-p, --provider <provider>', 'Provider (APPLE_GSX, SAMSUNG_CHECK, MANUAL)', 'MANUAL')
+  .option('-c, --cert <certId>', 'Link to certification')
+  .option('-s, --session <sessionId>', 'Link to diagnostic session')
+  .action(async (qlid, serial, opts) => {
+    try {
+      const check = await performExternalCheck({
+        qlid,
+        checkType: 'SERIAL',
+        provider: opts.provider.toUpperCase() as ExternalCheckProvider,
+        identifier: serial,
+        identifierType: 'serial',
+        certificationId: opts.cert,
+        sessionId: opts.session,
+      });
+
+      const statusColor = check.status === 'CLEAR' ? chalk.green :
+        check.status === 'FLAGGED' ? chalk.red : chalk.yellow;
+
+      console.log(chalk.bold(`\n✓ Serial Check Complete\n`));
+      console.log(`  QLID: ${check.qlid}`);
+      console.log(`  Serial: ${serial}`);
+      console.log(`  Provider: ${check.provider}`);
+      console.log(`  Status: ${statusColor(check.status)}`);
+      console.log(`  Checked: ${check.checkedAt.toLocaleString()}`);
+    } catch (error) {
+      console.error(chalk.red(`Error: ${(error as Error).message}`));
+    } finally {
+      await closePool();
+    }
+  });
+
+checkCmd
+  .command('warranty <qlid> <identifier>')
+  .description('Check warranty status')
+  .option('-t, --type <type>', 'Identifier type (imei, serial)', 'serial')
+  .option('-p, --provider <provider>', 'Provider (APPLE_GSX, SAMSUNG_CHECK, MANUAL)', 'MANUAL')
+  .option('-c, --cert <certId>', 'Link to certification')
+  .action(async (qlid, identifier, opts) => {
+    try {
+      const check = await performExternalCheck({
+        qlid,
+        checkType: 'WARRANTY',
+        provider: opts.provider.toUpperCase() as ExternalCheckProvider,
+        identifier,
+        identifierType: opts.type,
+        certificationId: opts.cert,
+      });
+
+      const statusColor = check.status === 'CLEAR' ? chalk.green :
+        check.status === 'FLAGGED' ? chalk.red : chalk.yellow;
+
+      console.log(chalk.bold(`\n✓ Warranty Check Complete\n`));
+      console.log(`  QLID: ${check.qlid}`);
+      console.log(`  Identifier: ${identifier}`);
+      console.log(`  Provider: ${check.provider}`);
+      console.log(`  Status: ${statusColor(check.status)}`);
+      console.log(`  Warranty Status: ${check.warrantyStatus || 'Unknown'}`);
+      console.log(`  Checked: ${check.checkedAt.toLocaleString()}`);
+    } catch (error) {
+      console.error(chalk.red(`Error: ${(error as Error).message}`));
+    } finally {
+      await closePool();
+    }
+  });
+
+checkCmd
+  .command('stolen <qlid> <identifier>')
+  .description('Check stolen device database')
+  .option('-t, --type <type>', 'Identifier type (imei, serial)', 'imei')
+  .option('-p, --provider <provider>', 'Provider (CHECKMEND, MANUAL)', 'MANUAL')
+  .option('-c, --cert <certId>', 'Link to certification')
+  .action(async (qlid, identifier, opts) => {
+    try {
+      const check = await performExternalCheck({
+        qlid,
+        checkType: 'STOLEN',
+        provider: opts.provider.toUpperCase() as ExternalCheckProvider,
+        identifier,
+        identifierType: opts.type,
+        certificationId: opts.cert,
+      });
+
+      const statusColor = check.status === 'CLEAR' ? chalk.green :
+        check.status === 'FLAGGED' ? chalk.red : chalk.yellow;
+
+      console.log(chalk.bold(`\n✓ Stolen Check Complete\n`));
+      console.log(`  QLID: ${check.qlid}`);
+      console.log(`  Identifier: ${identifier}`);
+      console.log(`  Provider: ${check.provider}`);
+      console.log(`  Status: ${statusColor(check.status)}`);
+      console.log(`  Reported Stolen: ${check.isStolen ? chalk.red('YES - DO NOT PURCHASE') : chalk.green('No')}`);
+      console.log(`  Checked: ${check.checkedAt.toLocaleString()}`);
+    } catch (error) {
+      console.error(chalk.red(`Error: ${(error as Error).message}`));
+    } finally {
+      await closePool();
+    }
+  });
+
+checkCmd
+  .command('all <qlid>')
+  .description('Run all standard checks for a device')
+  .option('-i, --imei <imei>', 'IMEI to check')
+  .option('-s, --serial <serial>', 'Serial number to check')
+  .option('-c, --cert <certId>', 'Link to certification')
+  .option('--session <sessionId>', 'Link to diagnostic session')
+  .action(async (qlid, opts) => {
+    try {
+      if (!opts.imei && !opts.serial) {
+        console.error(chalk.red('Error: At least one of --imei or --serial is required'));
+        return;
+      }
+
+      console.log(chalk.bold(`\nRunning all checks for ${qlid}...\n`));
+
+      const checks = await runAllChecks({
+        qlid,
+        imei: opts.imei,
+        serial: opts.serial,
+        certificationId: opts.cert,
+        sessionId: opts.session,
+      });
+
+      // Display results
+      console.log(chalk.bold(`Results (${checks.length} checks):\n`));
+
+      for (const check of checks) {
+        const statusColor = check.status === 'CLEAR' ? chalk.green :
+          check.status === 'FLAGGED' ? chalk.red : chalk.yellow;
+        const icon = check.status === 'CLEAR' ? '✓' : check.status === 'FLAGGED' ? '✗' : '?';
+
+        console.log(`  ${statusColor(icon)} ${check.checkType} (${check.provider}): ${statusColor(check.status)}`);
+        if (check.isStolen) console.log(chalk.red(`      ⚠ REPORTED STOLEN`));
+        if (check.isBlacklisted) console.log(chalk.red(`      ⚠ BLACKLISTED`));
+        if (check.hasFinancialHold) console.log(chalk.yellow(`      ⚠ Financial Hold`));
+      }
+
+      // Summary
+      const flags = await hasFlags(qlid);
+      console.log();
+      if (flags.hasFlags) {
+        console.log(chalk.red.bold(`⚠ WARNING: Device has flags!`));
+        if (flags.isStolen) console.log(chalk.red(`  - Reported stolen`));
+        if (flags.isBlacklisted) console.log(chalk.red(`  - Blacklisted`));
+        if (flags.hasFinancialHold) console.log(chalk.yellow(`  - Financial hold`));
+      } else {
+        console.log(chalk.green.bold(`✓ All checks clear - safe to proceed`));
+      }
+    } catch (error) {
+      console.error(chalk.red(`Error: ${(error as Error).message}`));
+    } finally {
+      await closePool();
+    }
+  });
+
+checkCmd
+  .command('show <qlid>')
+  .description('Show all external checks for a device')
+  .action(async (qlid) => {
+    try {
+      const checks = await getExternalChecks(qlid);
+      const flags = await hasFlags(qlid);
+
+      console.log(chalk.bold(`\nExternal Checks for ${qlid}\n`));
+
+      if (checks.length === 0) {
+        console.log(chalk.gray('  No checks recorded'));
+        return;
+      }
+
+      for (const check of checks) {
+        const statusColor = check.status === 'CLEAR' ? chalk.green :
+          check.status === 'FLAGGED' ? chalk.red : chalk.yellow;
+
+        console.log(`${chalk.cyan(check.checkType)} via ${check.provider}`);
+        console.log(`  Status: ${statusColor(check.status)}`);
+        console.log(`  Checked: ${check.checkedAt.toLocaleString()}`);
+        if (check.expiresAt) {
+          const expired = new Date() > check.expiresAt;
+          console.log(`  Expires: ${expired ? chalk.red('EXPIRED') : check.expiresAt.toLocaleDateString()}`);
+        }
+        console.log();
+      }
+
+      // Summary
+      console.log(chalk.bold('Summary:'));
+      console.log(`  Has Flags: ${flags.hasFlags ? chalk.red('Yes') : chalk.green('No')}`);
+      console.log(`  Stolen: ${flags.isStolen ? chalk.red('Yes') : chalk.green('No')}`);
+      console.log(`  Blacklisted: ${flags.isBlacklisted ? chalk.red('Yes') : chalk.green('No')}`);
+      console.log(`  Financial Hold: ${flags.hasFinancialHold ? chalk.red('Yes') : chalk.green('No')}`);
+    } catch (error) {
+      console.error(chalk.red(`Error: ${(error as Error).message}`));
+    } finally {
+      await closePool();
+    }
+  });
+
 // ==================== MENU COMMAND ====================
 
 program

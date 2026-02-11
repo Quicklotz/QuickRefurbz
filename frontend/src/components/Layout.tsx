@@ -12,8 +12,28 @@ import {
   Settings,
   ShieldCheck,
   Wrench,
-  Clock
+  Clock,
+  Users,
+  Stethoscope,
+  Award,
+  ClipboardList,
+  Database,
 } from 'lucide-react';
+
+const navItems = [
+  { to: '/', icon: LayoutDashboard, label: 'Dashboard', end: true },
+  { to: '/workflow', icon: Workflow, label: 'Workflow' },
+  { to: '/queue', icon: ListTodo, label: 'Job Queue' },
+  { to: '/kanban', icon: Columns3, label: 'Kanban' },
+  { to: '/items', icon: Package, label: 'Items' },
+  { to: '/scan', icon: ScanLine, label: 'Scan' },
+  { to: '/datawipe', icon: ShieldCheck, label: 'Data Wipe' },
+  { to: '/parts', icon: Wrench, label: 'Parts' },
+  { to: '/diagnostics', icon: Stethoscope, label: 'Diagnostics' },
+  { to: '/certifications', icon: Award, label: 'Certifications' },
+  { to: '/test-plans', icon: ClipboardList, label: 'Test Plans' },
+  { to: '/device-database', icon: Database, label: 'Devices' },
+];
 
 export function Layout() {
   const { user, logout } = useAuth();
@@ -31,46 +51,39 @@ export function Layout() {
 
         {session && (
           <div className="session-info">
-            <Clock size={14} />
-            <span>{session.employee_id} | {session.workstation_id}</span>
+            <Clock size={12} />
+            <span className="truncate">{session.employee_id} · {session.workstation_id}</span>
           </div>
         )}
 
         <nav className="sidebar-nav">
-          <NavLink to="/" end className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            <LayoutDashboard size={20} />
-            Dashboard
-          </NavLink>
-          <NavLink to="/workflow" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            <Workflow size={20} />
-            Workflow Station
-          </NavLink>
-          <NavLink to="/queue" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            <ListTodo size={20} />
-            Job Queue
-          </NavLink>
-          <NavLink to="/kanban" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            <Columns3 size={20} />
-            Kanban Board
-          </NavLink>
-          <NavLink to="/items" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            <Package size={20} />
-            Items
-          </NavLink>
-          <NavLink to="/scan" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            <ScanLine size={20} />
-            Scan Item
-          </NavLink>
-          <NavLink to="/datawipe" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            <ShieldCheck size={20} />
-            Data Wipe
-          </NavLink>
-          <NavLink to="/parts" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            <Wrench size={20} />
-            Parts
-          </NavLink>
-          <NavLink to="/settings" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            <Settings size={20} />
+          {navItems.map(({ to, icon: Icon, label, end }) => (
+            <NavLink
+              key={to}
+              to={to}
+              end={end}
+              className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+            >
+              <Icon size={16} />
+              {label}
+            </NavLink>
+          ))}
+
+          {user?.role === 'admin' && (
+            <NavLink
+              to="/users"
+              className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+            >
+              <Users size={16} />
+              Users
+            </NavLink>
+          )}
+
+          <NavLink
+            to="/settings"
+            className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+          >
+            <Settings size={16} />
             Settings
           </NavLink>
         </nav>
@@ -85,11 +98,10 @@ export function Layout() {
           </div>
           <button
             onClick={handleLogout}
-            className="btn btn-secondary"
-            style={{ padding: '0.5rem' }}
-            title="Logout"
+            className="p-2 text-zinc-500 hover:text-white hover:bg-dark-tertiary rounded-md transition-colors"
+            title="Sign out"
           >
-            <LogOut size={18} />
+            <LogOut size={16} />
           </button>
         </div>
       </aside>

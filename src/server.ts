@@ -7,6 +7,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { initializeDatabase } from './database.js';
@@ -17,6 +18,7 @@ import * as partsInventory from './partsInventory.js';
 import * as technicianManager from './technicianManager.js';
 import type { Retailer, LiquidationSource, ProductCategory, JobPriority, RefurbStage } from './types.js';
 import workflowRoutes from './workflow/api.js';
+import { sendInviteEmail, sendPasswordResetEmail, sendWelcomeEmail } from './email.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -33,6 +35,8 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, '../frontend/dist')));
 
 // ==================== AUTH ====================
+
+import { getPool, generateUUID } from './database.js';
 
 interface AuthUser {
   id: string;
@@ -52,16 +56,62 @@ function queryString(val: unknown): string | undefined {
   return undefined;
 }
 
-// Hardcoded users (in production, use database)
-const USERS: { id: string; email: string; password: string; name: string; role: 'admin' | 'manager' | 'technician' }[] = [
-  {
-    id: '1',
-    email: 'connor@quicklotz.com',
-    password: bcrypt.hashSync('QuickLotz2026!!', 10),
-    name: 'Connor',
-    role: 'admin'
+// Helper to get database user by email
+async function getUserByEmail(email: string) {
+  const db = getPool();
+  const result = await db.query(
+    'SELECT * FROM users WHERE email = $1',
+    [email.toLowerCase()]
+  );
+  return result.rows[0] || null;
+}
+
+// Helper to get database user by ID
+async function getUserById(id: string) {
+  const db = getPool();
+  const result = await db.query(
+    'SELECT * FROM users WHERE id = $1',
+    [id]
+  );
+  return result.rows[0] || null;
+}
+
+// Seed initial admin user if no users exist
+async function seedAdminUser() {
+  const db = getPool();
+  const dbType = process.env.DB_TYPE || 'sqlite';
+
+  const result = await db.query<{ count: string | number }>('SELECT COUNT(*) as count FROM users');
+  const count = parseInt(String(result.rows[0].count));
+
+  if (count === 0) {
+    const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
+    if (!adminPassword) {
+      console.warn('[Auth] INITIAL_ADMIN_PASSWORD not set. Skipping admin user creation.');
+      console.warn('[Auth] Set INITIAL_ADMIN_PASSWORD environment variable to create initial admin.');
+      return;
+    }
+
+    console.log('[Auth] No users found, creating initial admin user...');
+    const id = generateUUID();
+    const passwordHash = await bcrypt.hash(adminPassword, 10);
+
+    if (dbType === 'postgres') {
+      await db.query(
+        `INSERT INTO users (id, email, password_hash, name, role, is_active, email_verified, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, true, true, now(), now())`,
+        [id, 'connor@quicklotz.com', passwordHash, 'Connor', 'admin']
+      );
+    } else {
+      await db.query(
+        `INSERT INTO users (id, email, password_hash, name, role, is_active, email_verified, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, 1, 1, datetime('now'), datetime('now'))`,
+        [id, 'connor@quicklotz.com', passwordHash, 'Connor', 'admin']
+      );
+    }
+    console.log('[Auth] Initial admin user created: connor@quicklotz.com');
   }
-];
+}
 
 function authMiddleware(req: AuthRequest, res: Response, next: NextFunction): void {
   const authHeader = req.headers.authorization;
@@ -82,7 +132,16 @@ function authMiddleware(req: AuthRequest, res: Response, next: NextFunction): vo
   }
 }
 
-// Login
+// Admin-only middleware
+function adminMiddleware(req: AuthRequest, res: Response, next: NextFunction): void {
+  if (req.user?.role !== 'admin') {
+    res.status(403).json({ error: 'Admin access required' });
+    return;
+  }
+  next();
+}
+
+// Login (database-backed)
 app.post('/api/auth/login', async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
@@ -92,13 +151,23 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
       return;
     }
 
-    const user = USERS.find(u => u.email === email);
+    const user = await getUserByEmail(email);
     if (!user) {
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
 
-    const validPassword = await bcrypt.compare(password, user.password);
+    if (!user.is_active) {
+      res.status(401).json({ error: 'Account is not active' });
+      return;
+    }
+
+    if (!user.password_hash) {
+      res.status(401).json({ error: 'Please set your password using the invite link' });
+      return;
+    }
+
+    const validPassword = await bcrypt.compare(password, String(user.password_hash));
     if (!validPassword) {
       res.status(401).json({ error: 'Invalid credentials' });
       return;
@@ -123,6 +192,485 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
 // Verify token
 app.get('/api/auth/me', authMiddleware, (req: AuthRequest, res: Response) => {
   res.json({ user: req.user });
+});
+
+// Verify invite/reset token
+app.get('/api/auth/verify-token', async (req: Request, res: Response) => {
+  try {
+    const token = queryString(req.query.token);
+    const type = queryString(req.query.type);
+
+    if (!token) {
+      res.status(400).json({ error: 'Token required' });
+      return;
+    }
+
+    const db = getPool();
+    const result = await db.query(
+      `SELECT t.*, u.email, u.name FROM auth_tokens t
+       JOIN users u ON t.user_id = u.id
+       WHERE t.token = $1 AND t.used_at IS NULL AND t.expires_at > $2
+       ${type ? 'AND t.type = $3' : ''}`,
+      type
+        ? [token, new Date().toISOString(), type]
+        : [token, new Date().toISOString()]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(400).json({ error: 'Invalid or expired token' });
+      return;
+    }
+
+    const tokenData = result.rows[0];
+    res.json({
+      valid: true,
+      email: tokenData.email,
+      name: tokenData.name,
+      type: tokenData.type
+    });
+  } catch (error) {
+    console.error('Verify token error:', error);
+    res.status(500).json({ error: 'Failed to verify token' });
+  }
+});
+
+// Accept invite (set password)
+app.post('/api/auth/accept-invite', async (req: Request, res: Response) => {
+  try {
+    const { token, password } = req.body;
+
+    if (!token || !password) {
+      res.status(400).json({ error: 'Token and password required' });
+      return;
+    }
+
+    if (password.length < 8) {
+      res.status(400).json({ error: 'Password must be at least 8 characters' });
+      return;
+    }
+
+    const db = getPool();
+    const dbType = process.env.DB_TYPE || 'sqlite';
+
+    // Find valid token
+    const tokenResult = await db.query(
+      `SELECT * FROM auth_tokens WHERE token = $1 AND type = 'invite' AND used_at IS NULL AND expires_at > $2`,
+      [token, new Date().toISOString()]
+    );
+
+    if (tokenResult.rows.length === 0) {
+      res.status(400).json({ error: 'Invalid or expired invite token' });
+      return;
+    }
+
+    const tokenData = tokenResult.rows[0];
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    // Update user with password and activate
+    if (dbType === 'postgres') {
+      await db.query(
+        `UPDATE users SET password_hash = $1, is_active = true, email_verified = true, updated_at = now() WHERE id = $2`,
+        [passwordHash, tokenData.user_id]
+      );
+      await db.query(
+        `UPDATE auth_tokens SET used_at = now() WHERE id = $1`,
+        [tokenData.id]
+      );
+    } else {
+      await db.query(
+        `UPDATE users SET password_hash = $1, is_active = 1, email_verified = 1, updated_at = datetime('now') WHERE id = $2`,
+        [passwordHash, tokenData.user_id]
+      );
+      await db.query(
+        `UPDATE auth_tokens SET used_at = datetime('now') WHERE id = $1`,
+        [tokenData.id]
+      );
+    }
+
+    // Get updated user and send welcome email
+    const user = await getUserById(String(tokenData.user_id));
+    if (user) {
+      try {
+        await sendWelcomeEmail(String(user.email), String(user.name));
+      } catch (err) {
+        console.error('Failed to send welcome email:', err);
+      }
+    }
+
+    res.json({ success: true, message: 'Password set successfully. You can now log in.' });
+  } catch (error) {
+    console.error('Accept invite error:', error);
+    res.status(500).json({ error: 'Failed to accept invite' });
+  }
+});
+
+// Forgot password
+app.post('/api/auth/forgot-password', async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      res.status(400).json({ error: 'Email required' });
+      return;
+    }
+
+    const user = await getUserByEmail(email);
+
+    // Always return success to prevent email enumeration
+    if (!user || !user.is_active) {
+      res.json({ success: true, message: 'If an account exists with this email, a reset link will be sent.' });
+      return;
+    }
+
+    const db = getPool();
+    const dbType = process.env.DB_TYPE || 'sqlite';
+
+    // Create reset token
+    const tokenId = generateUUID();
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
+
+    if (dbType === 'postgres') {
+      await db.query(
+        `INSERT INTO auth_tokens (id, user_id, token, type, expires_at, created_at)
+         VALUES ($1, $2, $3, 'reset', $4, now())`,
+        [tokenId, user.id, token, expiresAt]
+      );
+    } else {
+      await db.query(
+        `INSERT INTO auth_tokens (id, user_id, token, type, expires_at, created_at)
+         VALUES ($1, $2, $3, 'reset', $4, datetime('now'))`,
+        [tokenId, user.id, token, expiresAt]
+      );
+    }
+
+    // Send reset email
+    try {
+      await sendPasswordResetEmail(String(user.email), String(user.name), token);
+    } catch (err) {
+      console.error('Failed to send password reset email:', err);
+    }
+
+    res.json({ success: true, message: 'If an account exists with this email, a reset link will be sent.' });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    res.status(500).json({ error: 'Failed to process password reset request' });
+  }
+});
+
+// Reset password
+app.post('/api/auth/reset-password', async (req: Request, res: Response) => {
+  try {
+    const { token, password } = req.body;
+
+    if (!token || !password) {
+      res.status(400).json({ error: 'Token and password required' });
+      return;
+    }
+
+    if (password.length < 8) {
+      res.status(400).json({ error: 'Password must be at least 8 characters' });
+      return;
+    }
+
+    const db = getPool();
+    const dbType = process.env.DB_TYPE || 'sqlite';
+
+    // Find valid token
+    const tokenResult = await db.query(
+      `SELECT * FROM auth_tokens WHERE token = $1 AND type = 'reset' AND used_at IS NULL AND expires_at > $2`,
+      [token, new Date().toISOString()]
+    );
+
+    if (tokenResult.rows.length === 0) {
+      res.status(400).json({ error: 'Invalid or expired reset token' });
+      return;
+    }
+
+    const tokenData = tokenResult.rows[0];
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    // Update user password
+    if (dbType === 'postgres') {
+      await db.query(
+        `UPDATE users SET password_hash = $1, updated_at = now() WHERE id = $2`,
+        [passwordHash, tokenData.user_id]
+      );
+      await db.query(
+        `UPDATE auth_tokens SET used_at = now() WHERE id = $1`,
+        [tokenData.id]
+      );
+    } else {
+      await db.query(
+        `UPDATE users SET password_hash = $1, updated_at = datetime('now') WHERE id = $2`,
+        [passwordHash, tokenData.user_id]
+      );
+      await db.query(
+        `UPDATE auth_tokens SET used_at = datetime('now') WHERE id = $1`,
+        [tokenData.id]
+      );
+    }
+
+    res.json({ success: true, message: 'Password reset successfully. You can now log in.' });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({ error: 'Failed to reset password' });
+  }
+});
+
+// ==================== ADMIN USER MANAGEMENT ====================
+
+// List all users (admin only)
+app.get('/api/admin/users', authMiddleware, adminMiddleware, async (_req: Request, res: Response) => {
+  try {
+    const db = getPool();
+    const result = await db.query(
+      `SELECT id, email, name, role, is_active, email_verified, invited_at, created_at, updated_at
+       FROM users ORDER BY created_at DESC`
+    );
+    res.json(result.rows);
+  } catch (error) {
+    console.error('List users error:', error);
+    res.status(500).json({ error: 'Failed to list users' });
+  }
+});
+
+// Invite new user (admin only)
+app.post('/api/auth/invite', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const { email, name, role } = req.body;
+
+    if (!email || !name) {
+      res.status(400).json({ error: 'Email and name required' });
+      return;
+    }
+
+    const validRoles = ['admin', 'manager', 'technician'];
+    const userRole = validRoles.includes(role) ? role : 'technician';
+
+    // Check if user already exists
+    const existingUser = await getUserByEmail(email);
+    if (existingUser) {
+      res.status(400).json({ error: 'User with this email already exists' });
+      return;
+    }
+
+    const db = getPool();
+    const dbType = process.env.DB_TYPE || 'sqlite';
+
+    // Create user
+    const userId = generateUUID();
+    if (dbType === 'postgres') {
+      await db.query(
+        `INSERT INTO users (id, email, name, role, is_active, email_verified, invited_by, invited_at, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, false, false, $5, now(), now(), now())`,
+        [userId, email.toLowerCase(), name, userRole, req.user?.id]
+      );
+    } else {
+      await db.query(
+        `INSERT INTO users (id, email, name, role, is_active, email_verified, invited_by, invited_at, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, 0, 0, $5, datetime('now'), datetime('now'), datetime('now'))`,
+        [userId, email.toLowerCase(), name, userRole, req.user?.id]
+      );
+    }
+
+    // Create invite token
+    const tokenId = generateUUID();
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days
+
+    if (dbType === 'postgres') {
+      await db.query(
+        `INSERT INTO auth_tokens (id, user_id, token, type, expires_at, created_at)
+         VALUES ($1, $2, $3, 'invite', $4, now())`,
+        [tokenId, userId, token, expiresAt]
+      );
+    } else {
+      await db.query(
+        `INSERT INTO auth_tokens (id, user_id, token, type, expires_at, created_at)
+         VALUES ($1, $2, $3, 'invite', $4, datetime('now'))`,
+        [tokenId, userId, token, expiresAt]
+      );
+    }
+
+    // Send invite email
+    try {
+      await sendInviteEmail(email, name, token, req.user?.name || 'Admin');
+    } catch (err) {
+      console.error('Failed to send invite email:', err);
+    }
+
+    const user = await getUserById(userId);
+    res.status(201).json(user);
+  } catch (error) {
+    console.error('Invite user error:', error);
+    res.status(500).json({ error: 'Failed to invite user' });
+  }
+});
+
+// Update user (admin only)
+app.put('/api/admin/users/:id', authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
+  try {
+    const userId = req.params.id as string;
+    const { name, role, is_active } = req.body;
+
+    const db = getPool();
+    const dbType = process.env.DB_TYPE || 'sqlite';
+
+    const user = await getUserById(userId);
+    if (!user) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    const updates: string[] = [];
+    const params: any[] = [];
+    let paramIndex = 1;
+
+    if (name !== undefined) {
+      updates.push(`name = $${paramIndex++}`);
+      params.push(name);
+    }
+    if (role !== undefined) {
+      updates.push(`role = $${paramIndex++}`);
+      params.push(role);
+    }
+    if (is_active !== undefined) {
+      if (dbType === 'postgres') {
+        updates.push(`is_active = $${paramIndex++}`);
+        params.push(is_active);
+      } else {
+        updates.push(`is_active = $${paramIndex++}`);
+        params.push(is_active ? 1 : 0);
+      }
+    }
+
+    if (updates.length === 0) {
+      res.status(400).json({ error: 'No fields to update' });
+      return;
+    }
+
+    if (dbType === 'postgres') {
+      updates.push(`updated_at = now()`);
+    } else {
+      updates.push(`updated_at = datetime('now')`);
+    }
+
+    params.push(userId);
+    await db.query(
+      `UPDATE users SET ${updates.join(', ')} WHERE id = $${paramIndex}`,
+      params
+    );
+
+    const updatedUser = await getUserById(userId);
+    res.json(updatedUser);
+  } catch (error) {
+    console.error('Update user error:', error);
+    res.status(500).json({ error: 'Failed to update user' });
+  }
+});
+
+// Deactivate user (admin only)
+app.delete('/api/admin/users/:id', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.params.id as string;
+
+    if (userId === req.user?.id) {
+      res.status(400).json({ error: 'Cannot deactivate your own account' });
+      return;
+    }
+
+    const db = getPool();
+    const dbType = process.env.DB_TYPE || 'sqlite';
+
+    const user = await getUserById(userId);
+    if (!user) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    if (dbType === 'postgres') {
+      await db.query(
+        `UPDATE users SET is_active = false, updated_at = now() WHERE id = $1`,
+        [userId]
+      );
+    } else {
+      await db.query(
+        `UPDATE users SET is_active = 0, updated_at = datetime('now') WHERE id = $1`,
+        [userId]
+      );
+    }
+
+    res.json({ success: true, message: 'User deactivated' });
+  } catch (error) {
+    console.error('Deactivate user error:', error);
+    res.status(500).json({ error: 'Failed to deactivate user' });
+  }
+});
+
+// Resend invite (admin only)
+app.post('/api/admin/users/:id/resend-invite', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.params.id as string;
+
+    const db = getPool();
+    const dbType = process.env.DB_TYPE || 'sqlite';
+
+    const user = await getUserById(userId);
+    if (!user) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    if (user.is_active && user.email_verified) {
+      res.status(400).json({ error: 'User has already accepted their invite' });
+      return;
+    }
+
+    // Invalidate old invite tokens
+    if (dbType === 'postgres') {
+      await db.query(
+        `UPDATE auth_tokens SET used_at = now() WHERE user_id = $1 AND type = 'invite' AND used_at IS NULL`,
+        [userId]
+      );
+    } else {
+      await db.query(
+        `UPDATE auth_tokens SET used_at = datetime('now') WHERE user_id = $1 AND type = 'invite' AND used_at IS NULL`,
+        [userId]
+      );
+    }
+
+    // Create new invite token
+    const tokenId = generateUUID();
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days
+
+    if (dbType === 'postgres') {
+      await db.query(
+        `INSERT INTO auth_tokens (id, user_id, token, type, expires_at, created_at)
+         VALUES ($1, $2, $3, 'invite', $4, now())`,
+        [tokenId, userId, token, expiresAt]
+      );
+    } else {
+      await db.query(
+        `INSERT INTO auth_tokens (id, user_id, token, type, expires_at, created_at)
+         VALUES ($1, $2, $3, 'invite', $4, datetime('now'))`,
+        [tokenId, userId, token, expiresAt]
+      );
+    }
+
+    // Send invite email
+    try {
+      await sendInviteEmail(String(user.email), String(user.name), token, req.user?.name || 'Admin');
+    } catch (err) {
+      console.error('Failed to send invite email:', err);
+    }
+
+    res.json({ success: true, message: 'Invite resent' });
+  } catch (error) {
+    console.error('Resend invite error:', error);
+    res.status(500).json({ error: 'Failed to resend invite' });
+  }
 });
 
 // ==================== DASHBOARD ====================
@@ -529,8 +1077,6 @@ app.get('/api/kanban', authMiddleware, async (_req: Request, res: Response) => {
 app.use('/api/workflow', authMiddleware, workflowRoutes);
 
 // ==================== SETTINGS API ====================
-
-import { getPool, generateUUID } from './database.js';
 
 app.get('/api/settings', authMiddleware, async (_req: Request, res: Response) => {
   try {
@@ -963,6 +1509,9 @@ async function start() {
   try {
     await initializeDatabase();
     console.log('Database initialized');
+
+    // Seed initial admin user if no users exist
+    await seedAdminUser();
 
     app.listen(PORT, () => {
       console.log(`QuickRefurbz API running on port ${PORT}`);

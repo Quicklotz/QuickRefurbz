@@ -1,5 +1,25 @@
+"use client";
 import { useState, useEffect } from 'react';
-import { api } from '../api/client';
+import { useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  RefreshCw,
+  ListTodo,
+  CheckCircle,
+  Clock,
+  AlertTriangle,
+  ExternalLink,
+  Filter
+} from 'lucide-react';
+import { api } from '@/api/client';
+import { SpotlightCard } from '@/components/aceternity/spotlight';
+import { Button } from '@/components/aceternity/button';
+import { AnimatedModal } from '@/components/aceternity/animated-modal';
+import { TextGenerateEffect } from '@/components/aceternity/text-generate-effect';
+import { StatCard } from '@/components/shared/StatCard';
+import { Badge, PriorityBadge } from '@/components/shared/Badge';
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
+import { cn } from '@/lib/utils';
 
 interface Job {
   id: string;
@@ -14,36 +34,48 @@ interface Job {
   createdAt: string;
 }
 
-const STATE_DISPLAY: Record<string, { label: string; color: string }> = {
-  REFURBZ_QUEUED: { label: 'Queued', color: 'blue' },
-  REFURBZ_ASSIGNED: { label: 'Assigned', color: 'blue' },
-  REFURBZ_IN_PROGRESS: { label: 'Security Prep', color: 'yellow' },
-  SECURITY_PREP_COMPLETE: { label: 'Diagnosis', color: 'yellow' },
-  DIAGNOSED: { label: 'Ready for Repair', color: 'purple' },
-  REPAIR_IN_PROGRESS: { label: 'Repairing', color: 'purple' },
-  REPAIR_COMPLETE: { label: 'Repair Done', color: 'purple' },
-  FINAL_TEST_IN_PROGRESS: { label: 'Final Testing', color: 'yellow' },
-  FINAL_TEST_PASSED: { label: 'Test Passed', color: 'green' },
-  CERTIFIED: { label: 'Certified', color: 'green' },
-  REFURBZ_COMPLETE: { label: 'Complete', color: 'green' },
-  REFURBZ_BLOCKED: { label: 'Blocked', color: 'red' },
-  REFURBZ_ESCALATED: { label: 'Escalated', color: 'red' },
-  FINAL_TEST_FAILED: { label: 'Test Failed', color: 'red' },
-  REFURBZ_FAILED_DISPOSITION: { label: 'Failed', color: 'red' },
+const STATE_DISPLAY: Record<string, { label: string; variant: 'info' | 'warning' | 'success' | 'danger' }> = {
+  REFURBZ_QUEUED: { label: 'Queued', variant: 'info' },
+  REFURBZ_ASSIGNED: { label: 'Assigned', variant: 'info' },
+  REFURBZ_IN_PROGRESS: { label: 'Security Prep', variant: 'warning' },
+  SECURITY_PREP_COMPLETE: { label: 'Diagnosis', variant: 'warning' },
+  DIAGNOSED: { label: 'Ready for Repair', variant: 'warning' },
+  REPAIR_IN_PROGRESS: { label: 'Repairing', variant: 'warning' },
+  REPAIR_COMPLETE: { label: 'Repair Done', variant: 'warning' },
+  FINAL_TEST_IN_PROGRESS: { label: 'Final Testing', variant: 'warning' },
+  FINAL_TEST_PASSED: { label: 'Test Passed', variant: 'success' },
+  CERTIFIED: { label: 'Certified', variant: 'success' },
+  REFURBZ_COMPLETE: { label: 'Complete', variant: 'success' },
+  REFURBZ_BLOCKED: { label: 'Blocked', variant: 'danger' },
+  REFURBZ_ESCALATED: { label: 'Escalated', variant: 'danger' },
+  FINAL_TEST_FAILED: { label: 'Test Failed', variant: 'danger' },
+  REFURBZ_FAILED_DISPOSITION: { label: 'Failed', variant: 'danger' },
 };
 
 const PRIORITY_ORDER = ['URGENT', 'HIGH', 'NORMAL', 'LOW'];
 
+const MAIN_STATES = [
+  'REFURBZ_QUEUED',
+  'REFURBZ_IN_PROGRESS',
+  'DIAGNOSED',
+  'REPAIR_IN_PROGRESS',
+  'FINAL_TEST_IN_PROGRESS',
+  'REFURBZ_BLOCKED',
+  'REFURBZ_COMPLETE',
+];
+
 export function JobQueue() {
+  const navigate = useNavigate();
   const [queue, setQueue] = useState<Record<string, { count: number; jobs: Job[] }>>({});
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('all');
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+  const [showDetailModal, setShowDetailModal] = useState(false);
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(loadData, 30000); // Refresh every 30 seconds
+    const interval = setInterval(loadData, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -71,7 +103,6 @@ export function JobQueue() {
       }
     });
 
-    // Sort by priority then created date
     return allJobs.sort((a, b) => {
       const priorityDiff = PRIORITY_ORDER.indexOf(a.priority) - PRIORITY_ORDER.indexOf(b.priority);
       if (priorityDiff !== 0) return priorityDiff;
@@ -87,70 +118,6 @@ export function JobQueue() {
     return Object.values(queue).reduce((sum, data) => sum + data.count, 0);
   };
 
-  const renderStatCards = () => {
-    if (!stats) return null;
-
-    return (
-      <div className="stats-grid">
-        <div className="stat-card">
-          <div className="stat-label">Total Jobs</div>
-          <div className="stat-value yellow">{stats.total}</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Completed Today</div>
-          <div className="stat-value green">{stats.completedToday}</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">In Progress</div>
-          <div className="stat-value blue">
-            {(stats.byState?.REFURBZ_IN_PROGRESS || 0) +
-              (stats.byState?.REPAIR_IN_PROGRESS || 0) +
-              (stats.byState?.FINAL_TEST_IN_PROGRESS || 0)}
-          </div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Blocked / Escalated</div>
-          <div className="stat-value red">
-            {(stats.byState?.REFURBZ_BLOCKED || 0) +
-              (stats.byState?.REFURBZ_ESCALATED || 0)}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const renderStateFilters = () => {
-    const mainStates = [
-      'REFURBZ_QUEUED',
-      'REFURBZ_IN_PROGRESS',
-      'DIAGNOSED',
-      'REPAIR_IN_PROGRESS',
-      'FINAL_TEST_IN_PROGRESS',
-      'REFURBZ_BLOCKED',
-      'REFURBZ_COMPLETE',
-    ];
-
-    return (
-      <div className="state-filters">
-        <button
-          className={`filter-btn ${filter === 'all' ? 'active' : ''}`}
-          onClick={() => setFilter('all')}
-        >
-          All ({getTotalCount()})
-        </button>
-        {mainStates.map((state) => (
-          <button
-            key={state}
-            className={`filter-btn ${filter === state ? 'active' : ''} state-${STATE_DISPLAY[state]?.color || 'gray'}`}
-            onClick={() => setFilter(state)}
-          >
-            {STATE_DISPLAY[state]?.label} ({getStateCount(state)})
-          </button>
-        ))}
-      </div>
-    );
-  };
-
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
     const now = new Date();
@@ -164,10 +131,15 @@ export function JobQueue() {
     return date.toLocaleDateString();
   };
 
+  const openJobDetails = (job: Job) => {
+    setSelectedJob(job);
+    setShowDetailModal(true);
+  };
+
   if (loading) {
     return (
-      <div className="loading-state">
-        <div className="spin">Loading...</div>
+      <div className="flex items-center justify-center min-h-[400px]">
+        <LoadingSpinner size="xl" text="Loading job queue..." />
       </div>
     );
   }
@@ -175,307 +147,263 @@ export function JobQueue() {
   const filteredJobs = getFilteredJobs();
 
   return (
-    <div className="job-queue">
-      <div className="page-header">
-        <h1>Job Queue</h1>
-        <button className="btn btn-secondary" onClick={loadData}>
-          Refresh
-        </button>
-      </div>
-
-      {renderStatCards()}
-      {renderStateFilters()}
-
-      <div className="jobs-table-container">
-        <table className="jobs-table">
-          <thead>
-            <tr>
-              <th>QLID</th>
-              <th>Category</th>
-              <th>State</th>
-              <th>Priority</th>
-              <th>Assigned To</th>
-              <th>Created</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredJobs.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="empty-state">
-                  No jobs found
-                </td>
-              </tr>
-            ) : (
-              filteredJobs.map((job) => (
-                <tr key={job.id} onClick={() => setSelectedJob(job)}>
-                  <td className="qlid-cell">{job.qlid}</td>
-                  <td>{job.category}</td>
-                  <td>
-                    <span className={`state-badge state-${STATE_DISPLAY[job.currentState]?.color || 'gray'}`}>
-                      {STATE_DISPLAY[job.currentState]?.label || job.currentState}
-                    </span>
-                  </td>
-                  <td>
-                    <span className={`priority-badge priority-${job.priority.toLowerCase()}`}>
-                      {job.priority}
-                    </span>
-                  </td>
-                  <td>{job.assignedTechnicianName || '-'}</td>
-                  <td>{formatDate(job.createdAt)}</td>
-                  <td>
-                    <a
-                      href={`/workflow?qlid=${job.qlid}`}
-                      className="btn btn-primary btn-sm"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      Open
-                    </a>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Job Details Modal */}
-      {selectedJob && (
-        <div className="modal-overlay" onClick={() => setSelectedJob(null)}>
-          <div className="modal modal-lg" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">{selectedJob.qlid}</h3>
-              <button className="modal-close" onClick={() => setSelectedJob(null)}>&times;</button>
-            </div>
-
-            <div className="job-details">
-              <div className="detail-row">
-                <span className="detail-label">Category</span>
-                <span className="detail-value">{selectedJob.category}</span>
-              </div>
-              <div className="detail-row">
-                <span className="detail-label">State</span>
-                <span className={`state-badge state-${STATE_DISPLAY[selectedJob.currentState]?.color}`}>
-                  {STATE_DISPLAY[selectedJob.currentState]?.label}
-                </span>
-              </div>
-              <div className="detail-row">
-                <span className="detail-label">Priority</span>
-                <span className={`priority-badge priority-${selectedJob.priority.toLowerCase()}`}>
-                  {selectedJob.priority}
-                </span>
-              </div>
-              <div className="detail-row">
-                <span className="detail-label">Pallet ID</span>
-                <span className="detail-value">{selectedJob.palletId}</span>
-              </div>
-              <div className="detail-row">
-                <span className="detail-label">Assigned To</span>
-                <span className="detail-value">{selectedJob.assignedTechnicianName || 'Unassigned'}</span>
-              </div>
-              <div className="detail-row">
-                <span className="detail-label">Created</span>
-                <span className="detail-value">{new Date(selectedJob.createdAt).toLocaleString()}</span>
-              </div>
-            </div>
-
-            <div className="modal-actions">
-              <button className="btn btn-secondary" onClick={() => setSelectedJob(null)}>
-                Close
-              </button>
-              <a href={`/workflow?qlid=${selectedJob.qlid}`} className="btn btn-primary">
-                Open in Workflow Station
-              </a>
-            </div>
-          </div>
+    <div className="space-y-6">
+      {/* Header */}
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="flex justify-between items-center"
+      >
+        <div>
+          <h1 className="text-3xl font-bold text-white mb-2">Job Queue</h1>
+          <TextGenerateEffect
+            words="Monitor and manage refurbishment jobs"
+            className="text-zinc-400 text-sm"
+            duration={0.3}
+          />
         </div>
+        <Button variant="secondary" onClick={loadData}>
+          <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
+          Refresh
+        </Button>
+      </motion.div>
+
+      {/* Stats Cards */}
+      {stats && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="grid grid-cols-1 md:grid-cols-4 gap-4"
+        >
+          <StatCard
+            label="Total Jobs"
+            value={stats.total}
+            icon={ListTodo}
+            color="yellow"
+          />
+          <StatCard
+            label="Completed Today"
+            value={stats.completedToday}
+            icon={CheckCircle}
+            color="green"
+          />
+          <StatCard
+            label="In Progress"
+            value={
+              (stats.byState?.REFURBZ_IN_PROGRESS || 0) +
+              (stats.byState?.REPAIR_IN_PROGRESS || 0) +
+              (stats.byState?.FINAL_TEST_IN_PROGRESS || 0)
+            }
+            icon={Clock}
+            color="blue"
+          />
+          <StatCard
+            label="Blocked / Escalated"
+            value={
+              (stats.byState?.REFURBZ_BLOCKED || 0) +
+              (stats.byState?.REFURBZ_ESCALATED || 0)
+            }
+            icon={AlertTriangle}
+            color="red"
+          />
+        </motion.div>
       )}
 
-      <style>{`
-        .job-queue {
-          max-width: 1400px;
-        }
+      {/* State Filters */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.2 }}
+        className="flex items-center gap-2 flex-wrap"
+      >
+        <div className="flex items-center gap-2 text-zinc-400 mr-2">
+          <Filter size={16} />
+          <span className="text-sm">Filter:</span>
+        </div>
+        <motion.button
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={() => setFilter('all')}
+          className={cn(
+            "px-3 py-1.5 rounded-full text-xs font-semibold border transition-all",
+            filter === 'all'
+              ? "bg-ql-yellow text-black border-ql-yellow"
+              : "bg-dark-card border-border text-zinc-400 hover:border-ql-yellow"
+          )}
+        >
+          All ({getTotalCount()})
+        </motion.button>
+        {MAIN_STATES.map((state) => {
+          const display = STATE_DISPLAY[state];
+          const isActive = filter === state;
+          const count = getStateCount(state);
 
-        .page-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 1.5rem;
-        }
+          return (
+            <motion.button
+              key={state}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => setFilter(state)}
+              className={cn(
+                "px-3 py-1.5 rounded-full text-xs font-semibold border transition-all",
+                isActive
+                  ? cn(
+                      "border-transparent",
+                      display.variant === 'info' && "bg-accent-blue text-white",
+                      display.variant === 'warning' && "bg-ql-yellow text-black",
+                      display.variant === 'success' && "bg-accent-green text-black",
+                      display.variant === 'danger' && "bg-accent-red text-white"
+                    )
+                  : "bg-dark-card border-border text-zinc-400 hover:border-zinc-600"
+              )}
+            >
+              {display?.label} ({count})
+            </motion.button>
+          );
+        })}
+      </motion.div>
 
-        .state-filters {
-          display: flex;
-          gap: 0.5rem;
-          flex-wrap: wrap;
-          margin-bottom: 1.5rem;
-        }
+      {/* Jobs Table */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.3 }}
+      >
+        <SpotlightCard className="overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">QLID</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Category</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">State</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Priority</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Assigned To</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Created</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <AnimatePresence>
+                  {filteredJobs.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-12 text-center text-zinc-500">
+                        <div className="flex flex-col items-center gap-2">
+                          <ListTodo className="w-8 h-8 text-zinc-600" />
+                          <span>No jobs found</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredJobs.map((job, index) => (
+                      <motion.tr
+                        key={job.id}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, x: -20 }}
+                        transition={{ delay: index * 0.03 }}
+                        onClick={() => openJobDetails(job)}
+                        className="border-b border-border hover:bg-dark-tertiary/50 cursor-pointer transition-colors"
+                      >
+                        <td className="px-4 py-3">
+                          <span className="font-mono font-semibold text-ql-yellow">{job.qlid}</span>
+                        </td>
+                        <td className="px-4 py-3 text-zinc-300">{job.category}</td>
+                        <td className="px-4 py-3">
+                          <Badge
+                            variant={STATE_DISPLAY[job.currentState]?.variant || 'info'}
+                            size="sm"
+                          >
+                            {STATE_DISPLAY[job.currentState]?.label || job.currentState}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3">
+                          <PriorityBadge priority={job.priority.toLowerCase() as 'urgent' | 'high' | 'normal' | 'low'} />
+                        </td>
+                        <td className="px-4 py-3 text-zinc-400">
+                          {job.assignedTechnicianName || <span className="text-zinc-600">-</span>}
+                        </td>
+                        <td className="px-4 py-3 text-zinc-400 text-sm">{formatDate(job.createdAt)}</td>
+                        <td className="px-4 py-3">
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(`/workflow?qlid=${job.qlid}`);
+                            }}
+                          >
+                            <ExternalLink size={14} />
+                            Open
+                          </Button>
+                        </td>
+                      </motion.tr>
+                    ))
+                  )}
+                </AnimatePresence>
+              </tbody>
+            </table>
+          </div>
+        </SpotlightCard>
+      </motion.div>
 
-        .filter-btn {
-          padding: 0.5rem 1rem;
-          border: 1px solid var(--border-color);
-          border-radius: 9999px;
-          background: var(--bg-card);
-          color: var(--text-secondary);
-          font-size: 0.75rem;
-          font-weight: 600;
-          cursor: pointer;
-          transition: all 0.15s ease;
-        }
+      {/* Job Details Modal */}
+      <AnimatedModal
+        isOpen={showDetailModal}
+        onClose={() => setShowDetailModal(false)}
+        title={selectedJob?.qlid}
+      >
+        {selectedJob && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <span className="text-zinc-400">Priority</span>
+              <PriorityBadge priority={selectedJob.priority.toLowerCase() as 'urgent' | 'high' | 'normal' | 'low'} />
+            </div>
 
-        .filter-btn:hover {
-          border-color: var(--ql-yellow);
-        }
+            <div className="space-y-4">
+              <div className="flex justify-between items-center py-2 border-b border-border">
+                <span className="text-zinc-400">Category</span>
+                <span className="text-white font-medium">{selectedJob.category}</span>
+              </div>
+              <div className="flex justify-between items-center py-2 border-b border-border">
+                <span className="text-zinc-400">State</span>
+                <Badge variant={STATE_DISPLAY[selectedJob.currentState]?.variant || 'info'}>
+                  {STATE_DISPLAY[selectedJob.currentState]?.label}
+                </Badge>
+              </div>
+              <div className="flex justify-between items-center py-2 border-b border-border">
+                <span className="text-zinc-400">Pallet ID</span>
+                <span className="text-white font-medium">{selectedJob.palletId}</span>
+              </div>
+              <div className="flex justify-between items-center py-2 border-b border-border">
+                <span className="text-zinc-400">Assigned To</span>
+                <span className="text-white font-medium">{selectedJob.assignedTechnicianName || 'Unassigned'}</span>
+              </div>
+              <div className="flex justify-between items-center py-2">
+                <span className="text-zinc-400">Created</span>
+                <span className="text-white font-medium">{new Date(selectedJob.createdAt).toLocaleString()}</span>
+              </div>
+            </div>
 
-        .filter-btn.active {
-          background: var(--ql-yellow);
-          color: var(--ql-black);
-          border-color: var(--ql-yellow);
-        }
-
-        .filter-btn.state-red.active { background: var(--accent-red); border-color: var(--accent-red); color: white; }
-        .filter-btn.state-green.active { background: var(--accent-green); border-color: var(--accent-green); color: var(--ql-black); }
-        .filter-btn.state-blue.active { background: var(--accent-blue); border-color: var(--accent-blue); color: white; }
-        .filter-btn.state-purple.active { background: #a855f7; border-color: #a855f7; color: white; }
-
-        .jobs-table-container {
-          background: var(--bg-card);
-          border: 1px solid var(--border-color);
-          border-radius: 0.75rem;
-          overflow: hidden;
-        }
-
-        .jobs-table {
-          width: 100%;
-          border-collapse: collapse;
-        }
-
-        .jobs-table th {
-          background: var(--bg-tertiary);
-          padding: 0.875rem 1rem;
-          text-align: left;
-          font-size: 0.75rem;
-          text-transform: uppercase;
-          color: var(--text-muted);
-          font-weight: 600;
-          letter-spacing: 0.05em;
-        }
-
-        .jobs-table td {
-          padding: 0.875rem 1rem;
-          border-top: 1px solid var(--border-color);
-        }
-
-        .jobs-table tbody tr {
-          cursor: pointer;
-          transition: background 0.15s ease;
-        }
-
-        .jobs-table tbody tr:hover {
-          background: var(--bg-tertiary);
-        }
-
-        .qlid-cell {
-          font-family: 'SF Mono', 'Consolas', monospace;
-          font-weight: 600;
-          color: var(--ql-yellow);
-        }
-
-        .state-badge {
-          display: inline-block;
-          padding: 0.25rem 0.5rem;
-          border-radius: 0.25rem;
-          font-size: 0.625rem;
-          font-weight: 700;
-          text-transform: uppercase;
-        }
-
-        .state-blue { background: rgba(67, 150, 253, 0.15); color: #4396FD; }
-        .state-yellow { background: rgba(241, 196, 15, 0.15); color: #F1C40F; }
-        .state-green { background: rgba(2, 219, 168, 0.15); color: #02dba8; }
-        .state-red { background: rgba(235, 61, 59, 0.15); color: #eb3d3b; }
-        .state-purple { background: rgba(168, 85, 247, 0.15); color: #a855f7; }
-
-        .priority-badge {
-          padding: 0.125rem 0.5rem;
-          border-radius: 0.25rem;
-          font-size: 0.625rem;
-          font-weight: 700;
-          text-transform: uppercase;
-        }
-
-        .priority-urgent { background: var(--accent-red); color: white; }
-        .priority-high { background: var(--ql-yellow); color: var(--ql-black); }
-        .priority-normal { background: var(--bg-tertiary); color: var(--text-secondary); }
-        .priority-low { background: var(--bg-tertiary); color: var(--text-muted); }
-
-        .btn-sm {
-          padding: 0.375rem 0.75rem;
-          font-size: 0.75rem;
-        }
-
-        .empty-state {
-          text-align: center;
-          padding: 2rem !important;
-          color: var(--text-muted);
-        }
-
-        .loading-state {
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          min-height: 200px;
-          color: var(--text-muted);
-        }
-
-        .modal-lg {
-          max-width: 600px;
-        }
-
-        .job-details {
-          display: flex;
-          flex-direction: column;
-          gap: 1rem;
-        }
-
-        .detail-row {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 0.5rem 0;
-          border-bottom: 1px solid var(--border-color);
-        }
-
-        .detail-row:last-child {
-          border-bottom: none;
-        }
-
-        .detail-label {
-          color: var(--text-muted);
-          font-size: 0.875rem;
-        }
-
-        .detail-value {
-          font-weight: 500;
-        }
-
-        .modal-actions {
-          display: flex;
-          justify-content: flex-end;
-          gap: 0.75rem;
-          margin-top: 1.5rem;
-        }
-
-        @media (max-width: 768px) {
-          .jobs-table {
-            font-size: 0.875rem;
-          }
-
-          .jobs-table th,
-          .jobs-table td {
-            padding: 0.625rem 0.5rem;
-          }
-        }
-      `}</style>
+            <div className="flex justify-end gap-3">
+              <Button variant="secondary" onClick={() => setShowDetailModal(false)}>
+                Close
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  setShowDetailModal(false);
+                  navigate(`/workflow?qlid=${selectedJob?.qlid}`);
+                }}
+              >
+                <ExternalLink size={16} />
+                Open in Workflow Station
+              </Button>
+            </div>
+          </div>
+        )}
+      </AnimatedModal>
     </div>
   );
 }

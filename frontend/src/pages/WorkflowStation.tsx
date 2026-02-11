@@ -1,7 +1,29 @@
+"use client";
 import { useState, useCallback } from 'react';
-import { api } from '../api/client';
-import { ProgressIndicator } from '../components/workflow/ProgressIndicator';
-import { StepPrompt } from '../components/workflow/StepPrompt';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  Scan,
+  X,
+  CheckCircle,
+  AlertTriangle,
+  XCircle,
+  RefreshCw,
+  Award,
+  ChevronRight,
+  Ban,
+  RotateCcw
+} from 'lucide-react';
+import { api } from '@/api/client';
+import { ProgressIndicator } from '@/components/workflow/ProgressIndicator';
+import { StepPrompt } from '@/components/workflow/StepPrompt';
+import { SpotlightCard, Spotlight } from '@/components/aceternity/spotlight';
+import { Input } from '@/components/aceternity/input';
+import { Label } from '@/components/aceternity/label';
+import { Button } from '@/components/aceternity/button';
+import { AnimatedModal } from '@/components/aceternity/animated-modal';
+import { TextGenerateEffect } from '@/components/aceternity/text-generate-effect';
+import { PriorityBadge } from '@/components/shared/Badge';
+import { cn } from '@/lib/utils';
 
 interface Job {
   id: string;
@@ -45,9 +67,9 @@ export function WorkflowStation() {
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [blockReason, setBlockReason] = useState('');
+  const [certifyData, setCertifyData] = useState({ finalGrade: 'B', warrantyEligible: true, notes: '' });
   const [showBlockModal, setShowBlockModal] = useState(false);
   const [showCertifyModal, setShowCertifyModal] = useState(false);
-  const [certifyData, setCertifyData] = useState({ finalGrade: 'B', warrantyEligible: true, notes: '' });
 
   const loadPrompt = useCallback(async (qlid: string) => {
     setLoading(true);
@@ -71,7 +93,6 @@ export function WorkflowStation() {
     setError(null);
 
     try {
-      // First try to get existing job
       try {
         await loadPrompt(scanInput.trim());
         setScanInput('');
@@ -80,7 +101,6 @@ export function WorkflowStation() {
         // Job doesn't exist, try to create it
       }
 
-      // Create new job
       await api.createJob({ qlid: scanInput.trim() });
       await loadPrompt(scanInput.trim());
       setScanInput('');
@@ -192,99 +212,172 @@ export function WorkflowStation() {
     if (!prompt) return null;
 
     return (
-      <div className="job-header">
-        <div className="job-id-section">
-          <span className="job-qlid">{prompt.job.qlid}</span>
-          <span className={`priority-badge priority-${prompt.job.priority.toLowerCase()}`}>
-            {prompt.job.priority}
-          </span>
-        </div>
-        <div className="job-meta">
-          <span className="meta-item">
-            <strong>Category:</strong> {prompt.job.category}
-          </span>
-          <span className="meta-item">
-            <strong>State:</strong> {prompt.stateName}
-          </span>
-          <span className="meta-item">
-            <strong>Attempt:</strong> {prompt.job.attemptCount + 1} / {prompt.job.maxAttempts + 1}
-          </span>
-        </div>
-        <button className="btn btn-secondary" onClick={handleClear}>
-          Close Job
-        </button>
-      </div>
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+      >
+        <SpotlightCard className="p-5 mb-6">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-3">
+                <span className="text-xl font-bold font-mono text-ql-yellow">
+                  {prompt.job.qlid}
+                </span>
+                <PriorityBadge priority={prompt.job.priority.toLowerCase() as 'urgent' | 'high' | 'normal' | 'low'} />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-6 text-sm text-zinc-400">
+              <div>
+                <span className="text-zinc-500">Category:</span>{' '}
+                <span className="text-white font-medium">{prompt.job.category}</span>
+              </div>
+              <div>
+                <span className="text-zinc-500">State:</span>{' '}
+                <span className="text-ql-yellow font-medium">{prompt.stateName}</span>
+              </div>
+              <div>
+                <span className="text-zinc-500">Attempt:</span>{' '}
+                <span className="text-white font-medium">{prompt.job.attemptCount + 1} / {prompt.job.maxAttempts + 1}</span>
+              </div>
+            </div>
+
+            <Button variant="secondary" size="sm" onClick={handleClear}>
+              <X size={16} />
+              Close Job
+            </Button>
+          </div>
+        </SpotlightCard>
+      </motion.div>
     );
   };
 
   const renderCurrentPrompt = () => {
     if (!prompt) return null;
 
-    // Special states
+    // Completed state
     if (prompt.job.currentState === 'REFURBZ_COMPLETE') {
       return (
-        <div className="completion-message success">
-          <svg className="completion-icon" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-          </svg>
-          <h2>Refurbishment Complete!</h2>
-          <p>This item has been certified and is ready for the next stage.</p>
-          {prompt.job.finalGrade && (
-            <div className="final-grade">Final Grade: <strong>{prompt.job.finalGrade}</strong></div>
-          )}
-        </div>
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+        >
+          <SpotlightCard className="p-8 text-center border-accent-green">
+            <motion.div
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ type: "spring", delay: 0.2 }}
+              className="w-20 h-20 mx-auto mb-6 rounded-full bg-accent-green/20 flex items-center justify-center"
+            >
+              <CheckCircle className="w-10 h-10 text-accent-green" />
+            </motion.div>
+            <h2 className="text-2xl font-bold text-white mb-2">Refurbishment Complete!</h2>
+            <p className="text-zinc-400 mb-4">This item has been certified and is ready for the next stage.</p>
+            {prompt.job.finalGrade && (
+              <div className="inline-flex items-center gap-2 px-4 py-2 bg-accent-green/10 rounded-lg">
+                <Award className="w-5 h-5 text-accent-green" />
+                <span className="text-lg font-bold text-accent-green">Grade {prompt.job.finalGrade}</span>
+              </div>
+            )}
+          </SpotlightCard>
+        </motion.div>
       );
     }
 
+    // Blocked state
     if (prompt.job.currentState === 'REFURBZ_BLOCKED') {
       return (
-        <div className="blocked-message">
-          <svg className="blocked-icon" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-          </svg>
-          <h2>Job Blocked</h2>
-          <p>This job has been blocked and requires resolution.</p>
-          <button className="btn btn-primary" onClick={handleResolve} disabled={actionLoading}>
-            {actionLoading ? 'Processing...' : 'Resolve & Continue'}
-          </button>
-        </div>
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+        >
+          <SpotlightCard className="p-8 text-center">
+            <motion.div
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ type: "spring", delay: 0.2 }}
+              className="w-20 h-20 mx-auto mb-6 rounded-full bg-ql-yellow/20 flex items-center justify-center"
+            >
+              <AlertTriangle className="w-10 h-10 text-ql-yellow" />
+            </motion.div>
+            <h2 className="text-2xl font-bold text-white mb-2">Job Blocked</h2>
+            <p className="text-zinc-400 mb-6">This job has been blocked and requires resolution.</p>
+            <Button variant="primary" onClick={handleResolve} loading={actionLoading}>
+              <RefreshCw size={16} />
+              Resolve & Continue
+            </Button>
+          </SpotlightCard>
+        </motion.div>
       );
     }
 
+    // Failed state
     if (prompt.job.currentState === 'FINAL_TEST_FAILED') {
       return (
-        <div className="failed-message">
-          <svg className="failed-icon" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-          </svg>
-          <h2>Final Test Failed</h2>
-          <p>Attempt {prompt.job.attemptCount} of {prompt.job.maxAttempts} failed. {prompt.job.attemptCount < prompt.job.maxAttempts ? 'You can retry the repair process.' : 'Maximum attempts reached.'}</p>
-          {prompt.canRetry && (
-            <button className="btn btn-primary" onClick={handleRetry} disabled={actionLoading}>
-              {actionLoading ? 'Processing...' : 'Retry Repair'}
-            </button>
-          )}
-        </div>
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+        >
+          <SpotlightCard className="p-8 text-center">
+            <motion.div
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ type: "spring", delay: 0.2 }}
+              className="w-20 h-20 mx-auto mb-6 rounded-full bg-accent-red/20 flex items-center justify-center"
+            >
+              <XCircle className="w-10 h-10 text-accent-red" />
+            </motion.div>
+            <h2 className="text-2xl font-bold text-white mb-2">Final Test Failed</h2>
+            <p className="text-zinc-400 mb-6">
+              Attempt {prompt.job.attemptCount} of {prompt.job.maxAttempts} failed.
+              {prompt.job.attemptCount < prompt.job.maxAttempts ? ' You can retry the repair process.' : ' Maximum attempts reached.'}
+            </p>
+            {prompt.canRetry && (
+              <Button variant="primary" onClick={handleRetry} loading={actionLoading}>
+                <RotateCcw size={16} />
+                Retry Repair
+              </Button>
+            )}
+          </SpotlightCard>
+        </motion.div>
       );
     }
 
+    // Ready for certification
     if (prompt.job.currentState === 'FINAL_TEST_PASSED') {
       return (
-        <div className="certification-prompt">
-          <h2>Ready for Certification</h2>
-          <p>All tests passed! Certify this item with a final grade.</p>
-          <button className="btn btn-primary" onClick={() => setShowCertifyModal(true)}>
-            Certify Item
-          </button>
-        </div>
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+        >
+          <SpotlightCard className="p-8 text-center">
+            <motion.div
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ type: "spring", delay: 0.2 }}
+              className="w-20 h-20 mx-auto mb-6 rounded-full bg-accent-green/20 flex items-center justify-center"
+            >
+              <Award className="w-10 h-10 text-accent-green" />
+            </motion.div>
+            <h2 className="text-2xl font-bold text-white mb-2">Ready for Certification</h2>
+            <p className="text-zinc-400 mb-6">All tests passed! Certify this item with a final grade.</p>
+            <Button variant="primary" onClick={() => setShowCertifyModal(true)}>
+              <Award size={16} />
+              Certify Item
+            </Button>
+          </SpotlightCard>
+        </motion.div>
       );
     }
 
-    // Current step prompt
+    // Current step
     if (prompt.currentStep) {
       return (
-        <div className="current-step-section">
-          <div className="step-counter">
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <div className="text-sm text-zinc-400 mb-3">
             Step {prompt.currentStepIndex + 1} of {prompt.totalSteps}
           </div>
           <StepPrompt
@@ -292,392 +385,235 @@ export function WorkflowStation() {
             onComplete={handleStepComplete}
             loading={actionLoading}
           />
-        </div>
+        </motion.div>
       );
     }
 
-    // All steps complete for this state
+    // All steps complete, ready to advance
     return (
-      <div className="advance-prompt">
-        <h3>All steps complete!</h3>
-        <p>Ready to advance to the next stage.</p>
-        <button className="btn btn-primary" onClick={handleAdvance} disabled={actionLoading}>
-          {actionLoading ? 'Advancing...' : 'Advance to Next Stage'}
-        </button>
-      </div>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+      >
+        <SpotlightCard className="p-8 text-center">
+          <motion.div
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={{ type: "spring", delay: 0.2 }}
+            className="w-16 h-16 mx-auto mb-4 rounded-full bg-ql-yellow/20 flex items-center justify-center"
+          >
+            <CheckCircle className="w-8 h-8 text-ql-yellow" />
+          </motion.div>
+          <h3 className="text-xl font-bold text-white mb-2">All steps complete!</h3>
+          <p className="text-zinc-400 mb-6">Ready to advance to the next stage.</p>
+          <Button variant="primary" onClick={handleAdvance} loading={actionLoading}>
+            Advance to Next Stage
+            <ChevronRight size={16} />
+          </Button>
+        </SpotlightCard>
+      </motion.div>
     );
   };
 
   return (
-    <div className="workflow-station">
-      <div className="page-header">
-        <h1>Workflow Station</h1>
-      </div>
+    <div className="max-w-4xl mx-auto space-y-6">
+      {/* Header */}
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+      >
+        <h1 className="text-3xl font-bold text-white mb-2">Workflow Station</h1>
+        <TextGenerateEffect
+          words="Scan an item to begin the refurbishment process"
+          className="text-zinc-400 text-sm"
+          duration={0.3}
+        />
+      </motion.div>
 
-      {!prompt && (
-        <div className="scan-section">
-          <form onSubmit={handleScan} className="scan-form">
-            <input
-              type="text"
-              className="form-input scan-input"
-              placeholder="Scan or enter QLID (e.g., P1BBY-QLID000000001)"
-              value={scanInput}
-              onChange={(e) => setScanInput(e.target.value)}
-              autoFocus
-            />
-            <button type="submit" className="btn btn-primary" disabled={loading}>
-              {loading ? 'Loading...' : 'Load Job'}
-            </button>
-          </form>
-        </div>
-      )}
+      {/* Scan Input */}
+      <AnimatePresence>
+        {!prompt && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+          >
+            <Spotlight
+              className="bg-dark-card border border-border rounded-xl p-8"
+              spotlightColor="rgba(241, 196, 15, 0.15)"
+            >
+              <form onSubmit={handleScan} className="max-w-xl mx-auto">
+                <div className="flex gap-3">
+                  <div className="flex-1">
+                    <Input
+                      type="text"
+                      placeholder="Scan or enter QLID (e.g., P1BBY-QLID000000001)"
+                      value={scanInput}
+                      onChange={(e) => setScanInput(e.target.value)}
+                      className="text-center font-mono text-lg"
+                      autoFocus
+                    />
+                  </div>
+                  <Button type="submit" variant="primary" loading={loading}>
+                    <Scan size={18} />
+                    Load Job
+                  </Button>
+                </div>
+              </form>
+            </Spotlight>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {error && (
-        <div className="error-banner">
-          {error}
-          <button className="dismiss-btn" onClick={() => setError(null)}>&times;</button>
-        </div>
-      )}
-
-      {prompt && (
-        <>
-          {renderJobHeader()}
-          <ProgressIndicator
-            currentState={prompt.job.currentState}
-            progress={prompt.progress}
-          />
-          {renderCurrentPrompt()}
-
-          {/* Escape Actions */}
-          {prompt.canBlock && !['REFURBZ_BLOCKED', 'REFURBZ_COMPLETE', 'FINAL_TEST_PASSED'].includes(prompt.job.currentState) && (
-            <div className="escape-actions">
-              <button
-                className="btn btn-secondary"
-                onClick={() => setShowBlockModal(true)}
-              >
-                Block Job
-              </button>
+      {/* Error Banner */}
+      <AnimatePresence>
+        {error && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="bg-accent-red/10 border border-accent-red rounded-lg p-4 flex items-center justify-between"
+          >
+            <div className="flex items-center gap-2 text-accent-red">
+              <AlertTriangle size={18} />
+              <span>{error}</span>
             </div>
-          )}
-        </>
-      )}
+            <button onClick={() => setError(null)} className="text-accent-red hover:text-white transition-colors">
+              <X size={18} />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Job Content */}
+      <AnimatePresence mode="wait">
+        {prompt && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            {renderJobHeader()}
+            <ProgressIndicator
+              currentState={prompt.job.currentState}
+              progress={prompt.progress}
+            />
+            {renderCurrentPrompt()}
+
+            {/* Escape Actions */}
+            {prompt.canBlock && !['REFURBZ_BLOCKED', 'REFURBZ_COMPLETE', 'FINAL_TEST_PASSED'].includes(prompt.job.currentState) && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="mt-6 pt-6 border-t border-border flex justify-end"
+              >
+                <Button variant="secondary" onClick={() => setShowBlockModal(true)}>
+                  <Ban size={16} />
+                  Block Job
+                </Button>
+              </motion.div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Block Modal */}
-      {showBlockModal && (
-        <div className="modal-overlay" onClick={() => setShowBlockModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">Block Job</h3>
-              <button className="modal-close" onClick={() => setShowBlockModal(false)}>&times;</button>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Reason for blocking</label>
-              <textarea
-                className="form-input"
-                rows={3}
-                value={blockReason}
-                onChange={(e) => setBlockReason(e.target.value)}
-                placeholder="Describe why this job needs to be blocked..."
-              />
-            </div>
-            <div className="modal-actions">
-              <button className="btn btn-secondary" onClick={() => setShowBlockModal(false)}>
-                Cancel
-              </button>
-              <button
-                className="btn btn-danger"
-                onClick={handleBlock}
-                disabled={!blockReason.trim() || actionLoading}
-              >
-                {actionLoading ? 'Blocking...' : 'Block Job'}
-              </button>
-            </div>
+      <AnimatedModal
+        isOpen={showBlockModal}
+        onClose={() => setShowBlockModal(false)}
+        title="Block Job"
+      >
+        <div className="space-y-4">
+          <div>
+            <Label htmlFor="blockReason">Reason for blocking</Label>
+            <textarea
+              id="blockReason"
+              className="w-full mt-2 bg-dark-tertiary border border-border rounded-lg px-4 py-3 text-white placeholder:text-zinc-500 focus:border-ql-yellow focus:outline-none resize-y min-h-[100px]"
+              value={blockReason}
+              onChange={(e) => setBlockReason(e.target.value)}
+              placeholder="Describe why this job needs to be blocked..."
+            />
+          </div>
+          <div className="flex justify-end gap-3">
+            <Button variant="secondary" onClick={() => setShowBlockModal(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              onClick={handleBlock}
+              disabled={!blockReason.trim()}
+              loading={actionLoading}
+            >
+              Block Job
+            </Button>
           </div>
         </div>
-      )}
+      </AnimatedModal>
 
       {/* Certify Modal */}
-      {showCertifyModal && (
-        <div className="modal-overlay" onClick={() => setShowCertifyModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">Certify Item</h3>
-              <button className="modal-close" onClick={() => setShowCertifyModal(false)}>&times;</button>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Final Grade</label>
-              <select
-                className="form-select"
-                value={certifyData.finalGrade}
-                onChange={(e) => setCertifyData(prev => ({ ...prev, finalGrade: e.target.value }))}
-              >
-                <option value="A">Grade A - Like New</option>
-                <option value="B">Grade B - Minor Wear</option>
-                <option value="C">Grade C - Visible Wear</option>
-              </select>
-            </div>
-            <div className="form-group">
-              <label className="toggle-label">
-                <input
-                  type="checkbox"
-                  checked={certifyData.warrantyEligible}
-                  onChange={(e) => setCertifyData(prev => ({ ...prev, warrantyEligible: e.target.checked }))}
-                />
-                <span className="toggle-switch" />
-                <span>Warranty Eligible</span>
-              </label>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Certification Notes</label>
-              <textarea
-                className="form-input"
-                rows={2}
-                value={certifyData.notes}
-                onChange={(e) => setCertifyData(prev => ({ ...prev, notes: e.target.value }))}
-                placeholder="Any notes about certification..."
+      <AnimatedModal
+        isOpen={showCertifyModal}
+        onClose={() => setShowCertifyModal(false)}
+        title="Certify Item"
+      >
+        <div className="space-y-4">
+          <div>
+            <Label htmlFor="finalGrade">Final Grade</Label>
+            <select
+              id="finalGrade"
+              className="w-full mt-2 bg-dark-tertiary border border-border rounded-lg px-4 py-2.5 text-white focus:border-ql-yellow focus:outline-none"
+              value={certifyData.finalGrade}
+              onChange={(e) => setCertifyData(prev => ({ ...prev, finalGrade: e.target.value }))}
+            >
+              <option value="A">Grade A - Like New</option>
+              <option value="B">Grade B - Minor Wear</option>
+              <option value="C">Grade C - Visible Wear</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={certifyData.warrantyEligible}
+                onChange={(e) => setCertifyData(prev => ({ ...prev, warrantyEligible: e.target.checked }))}
+                className="sr-only"
               />
-            </div>
-            <div className="modal-actions">
-              <button className="btn btn-secondary" onClick={() => setShowCertifyModal(false)}>
-                Cancel
-              </button>
-              <button
-                className="btn btn-primary"
-                onClick={handleCertify}
-                disabled={actionLoading}
-              >
-                {actionLoading ? 'Certifying...' : 'Certify Item'}
-              </button>
-            </div>
+              <div className={cn(
+                "w-11 h-6 rounded-full relative transition-colors",
+                certifyData.warrantyEligible ? "bg-accent-green" : "bg-dark-tertiary"
+              )}>
+                <motion.div
+                  animate={{ x: certifyData.warrantyEligible ? 20 : 2 }}
+                  className="absolute top-1 w-4 h-4 bg-white rounded-full"
+                />
+              </div>
+              <span className="text-white">Warranty Eligible</span>
+            </label>
+          </div>
+
+          <div>
+            <Label htmlFor="certNotes">Certification Notes</Label>
+            <textarea
+              id="certNotes"
+              className="w-full mt-2 bg-dark-tertiary border border-border rounded-lg px-4 py-3 text-white placeholder:text-zinc-500 focus:border-ql-yellow focus:outline-none resize-y min-h-[80px]"
+              value={certifyData.notes}
+              onChange={(e) => setCertifyData(prev => ({ ...prev, notes: e.target.value }))}
+              placeholder="Any notes about certification..."
+            />
+          </div>
+
+          <div className="flex justify-end gap-3">
+            <Button variant="secondary" onClick={() => setShowCertifyModal(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={handleCertify} loading={actionLoading}>
+              <Award size={16} />
+              Certify Item
+            </Button>
           </div>
         </div>
-      )}
-
-      <style>{`
-        .workflow-station {
-          max-width: 900px;
-          margin: 0 auto;
-        }
-
-        .page-header {
-          margin-bottom: 2rem;
-        }
-
-        .scan-section {
-          background: var(--bg-card);
-          border: 1px solid var(--border-color);
-          border-radius: 0.75rem;
-          padding: 2rem;
-          text-align: center;
-        }
-
-        .scan-form {
-          display: flex;
-          gap: 1rem;
-          max-width: 600px;
-          margin: 0 auto;
-        }
-
-        .scan-input {
-          flex: 1;
-          font-size: 1.125rem;
-          text-align: center;
-          font-family: 'SF Mono', 'Consolas', monospace;
-        }
-
-        .error-banner {
-          background: rgba(235, 61, 59, 0.1);
-          border: 1px solid var(--accent-red);
-          color: var(--accent-red);
-          padding: 1rem;
-          border-radius: 0.5rem;
-          margin-bottom: 1.5rem;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-        }
-
-        .dismiss-btn {
-          background: none;
-          border: none;
-          color: inherit;
-          font-size: 1.5rem;
-          cursor: pointer;
-          padding: 0;
-          line-height: 1;
-        }
-
-        .job-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          background: var(--bg-card);
-          border: 1px solid var(--border-color);
-          border-radius: 0.75rem;
-          padding: 1.25rem 1.5rem;
-          margin-bottom: 1.5rem;
-          flex-wrap: wrap;
-          gap: 1rem;
-        }
-
-        .job-id-section {
-          display: flex;
-          align-items: center;
-          gap: 0.75rem;
-        }
-
-        .job-qlid {
-          font-family: 'SF Mono', 'Consolas', monospace;
-          font-size: 1.25rem;
-          font-weight: 700;
-          color: var(--ql-yellow);
-        }
-
-        .priority-badge {
-          padding: 0.25rem 0.5rem;
-          border-radius: 0.25rem;
-          font-size: 0.625rem;
-          font-weight: 700;
-          text-transform: uppercase;
-        }
-
-        .priority-urgent { background: var(--accent-red); color: white; }
-        .priority-high { background: var(--ql-yellow); color: var(--ql-black); }
-        .priority-normal { background: var(--bg-tertiary); color: var(--text-secondary); }
-        .priority-low { background: var(--bg-tertiary); color: var(--text-muted); }
-
-        .job-meta {
-          display: flex;
-          gap: 1.5rem;
-          font-size: 0.875rem;
-          color: var(--text-secondary);
-        }
-
-        .current-step-section {
-          margin-bottom: 1.5rem;
-        }
-
-        .step-counter {
-          font-size: 0.875rem;
-          color: var(--text-muted);
-          margin-bottom: 0.75rem;
-        }
-
-        .advance-prompt, .certification-prompt {
-          background: var(--bg-card);
-          border: 1px solid var(--border-color);
-          border-radius: 0.75rem;
-          padding: 2rem;
-          text-align: center;
-        }
-
-        .advance-prompt h3, .certification-prompt h2 {
-          margin-bottom: 0.5rem;
-        }
-
-        .advance-prompt p, .certification-prompt p {
-          color: var(--text-secondary);
-          margin-bottom: 1.5rem;
-        }
-
-        .completion-message, .blocked-message, .failed-message {
-          background: var(--bg-card);
-          border: 1px solid var(--border-color);
-          border-radius: 0.75rem;
-          padding: 2rem;
-          text-align: center;
-        }
-
-        .completion-message.success {
-          border-color: var(--accent-green);
-        }
-
-        .completion-icon, .blocked-icon, .failed-icon {
-          width: 48px;
-          height: 48px;
-          margin-bottom: 1rem;
-        }
-
-        .completion-icon { color: var(--accent-green); }
-        .blocked-icon { color: var(--ql-yellow); }
-        .failed-icon { color: var(--accent-red); }
-
-        .final-grade {
-          margin-top: 1rem;
-          font-size: 1.25rem;
-        }
-
-        .escape-actions {
-          margin-top: 1.5rem;
-          padding-top: 1.5rem;
-          border-top: 1px solid var(--border-color);
-          display: flex;
-          justify-content: flex-end;
-        }
-
-        .modal-actions {
-          display: flex;
-          justify-content: flex-end;
-          gap: 0.75rem;
-          margin-top: 1.5rem;
-        }
-
-        .toggle-label {
-          display: flex;
-          align-items: center;
-          gap: 0.75rem;
-          cursor: pointer;
-        }
-
-        .toggle-label input {
-          display: none;
-        }
-
-        .toggle-switch {
-          width: 44px;
-          height: 24px;
-          background: var(--bg-tertiary);
-          border-radius: 12px;
-          position: relative;
-          transition: background 0.2s ease;
-        }
-
-        .toggle-switch::after {
-          content: '';
-          position: absolute;
-          width: 20px;
-          height: 20px;
-          background: white;
-          border-radius: 50%;
-          top: 2px;
-          left: 2px;
-          transition: transform 0.2s ease;
-        }
-
-        .toggle-label input:checked + .toggle-switch {
-          background: var(--accent-green);
-        }
-
-        .toggle-label input:checked + .toggle-switch::after {
-          transform: translateX(20px);
-        }
-
-        @media (max-width: 768px) {
-          .scan-form {
-            flex-direction: column;
-          }
-
-          .job-header {
-            flex-direction: column;
-            align-items: flex-start;
-          }
-
-          .job-meta {
-            flex-direction: column;
-            gap: 0.5rem;
-          }
-        }
-      `}</style>
+      </AnimatedModal>
     </div>
   );
 }

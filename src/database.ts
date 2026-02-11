@@ -265,6 +265,56 @@ export async function getNextPalletId(): Promise<string> {
   }
 }
 
+/**
+ * Generate next diagnostic session number
+ * Format: DS-YYYYMMDD-NNNN
+ */
+export async function getNextDiagnosticSessionNumber(): Promise<string> {
+  const db = getPool();
+  const dbType = process.env.DB_TYPE || 'sqlite';
+  const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+
+  let num: number;
+
+  if (dbType === 'postgres') {
+    const result = await db.query<{ nextval: string }>(
+      "SELECT nextval('diagnostic_session_sequence') as nextval"
+    );
+    num = parseInt(result.rows[0].nextval);
+  } else {
+    await db.query('INSERT INTO diagnostic_session_sequence (placeholder) VALUES (1)');
+    const result = await db.query<{ id: number }>('SELECT last_insert_rowid() as id');
+    num = result.rows[0].id;
+  }
+
+  return `DS-${today}-${num.toString().padStart(4, '0')}`;
+}
+
+/**
+ * Generate next certification ID
+ * Format: UC-YYYYMMDD-NNNN (Upscaled Certified)
+ */
+export async function getNextCertificationId(): Promise<string> {
+  const db = getPool();
+  const dbType = process.env.DB_TYPE || 'sqlite';
+  const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+
+  let num: number;
+
+  if (dbType === 'postgres') {
+    const result = await db.query<{ nextval: string }>(
+      "SELECT nextval('certification_sequence') as nextval"
+    );
+    num = parseInt(result.rows[0].nextval);
+  } else {
+    await db.query('INSERT INTO certification_sequence (placeholder) VALUES (1)');
+    const result = await db.query<{ id: number }>('SELECT last_insert_rowid() as id');
+    num = result.rows[0].id;
+  }
+
+  return `UC-${today}-${num.toString().padStart(4, '0')}`;
+}
+
 // ==================== BARCODE PARSING ====================
 
 /**
@@ -738,6 +788,246 @@ async function initializePostgres(db: DatabaseAdapter): Promise<void> {
 
   await db.query(`CREATE INDEX IF NOT EXISTS idx_work_sessions_user ON work_sessions(user_id)`);
   await db.query(`CREATE INDEX IF NOT EXISTS idx_work_sessions_date ON work_sessions(session_date)`);
+
+  // Users table
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT,
+      name TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'technician',
+      is_active BOOLEAN NOT NULL DEFAULT false,
+      email_verified BOOLEAN NOT NULL DEFAULT false,
+      invited_by UUID,
+      invited_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)`);
+
+  // Auth tokens (for invites, password resets, email verification)
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS auth_tokens (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token TEXT UNIQUE NOT NULL,
+      type TEXT NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      used_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_auth_tokens_token ON auth_tokens(token)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_auth_tokens_user ON auth_tokens(user_id)`);
+
+  // ==================== QUICKDIAGNOSTICZ TABLES (Postgres) ====================
+
+  // Diagnostic test definitions - master list of tests by category
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS diagnostic_tests (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      code TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      category TEXT NOT NULL,
+      test_type TEXT NOT NULL,
+      description TEXT NOT NULL,
+      instructions TEXT NOT NULL,
+      pass_criteria TEXT NOT NULL,
+      measurement_unit TEXT,
+      measurement_min NUMERIC,
+      measurement_max NUMERIC,
+      is_critical BOOLEAN NOT NULL DEFAULT false,
+      display_order INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_diagnostic_tests_category ON diagnostic_tests(category)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_diagnostic_tests_code ON diagnostic_tests(code)`);
+
+  // Diagnostic sessions - testing sessions for items
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS diagnostic_sessions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      session_number TEXT UNIQUE NOT NULL,
+      job_id UUID REFERENCES refurb_jobs(id),
+      qlid TEXT NOT NULL,
+      category TEXT NOT NULL,
+      technician_id TEXT NOT NULL,
+      technician_name TEXT,
+      started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      completed_at TIMESTAMPTZ,
+      duration_seconds INTEGER,
+      total_tests INTEGER NOT NULL DEFAULT 0,
+      passed_tests INTEGER NOT NULL DEFAULT 0,
+      failed_tests INTEGER NOT NULL DEFAULT 0,
+      skipped_tests INTEGER NOT NULL DEFAULT 0,
+      overall_result TEXT,
+      notes TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_diagnostic_sessions_qlid ON diagnostic_sessions(qlid)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_diagnostic_sessions_job ON diagnostic_sessions(job_id)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_diagnostic_sessions_technician ON diagnostic_sessions(technician_id)`);
+
+  // Diagnostic session sequence
+  await db.query(`CREATE SEQUENCE IF NOT EXISTS diagnostic_session_sequence START 1`);
+
+  // Diagnostic test results - individual test results within a session
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS diagnostic_test_results (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      session_id UUID NOT NULL REFERENCES diagnostic_sessions(id) ON DELETE CASCADE,
+      test_id UUID NOT NULL REFERENCES diagnostic_tests(id),
+      test_code TEXT NOT NULL,
+      result TEXT NOT NULL,
+      measurement_value NUMERIC,
+      measurement_unit TEXT,
+      notes TEXT,
+      photo_urls TEXT[],
+      tested_by TEXT NOT NULL,
+      tested_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_diagnostic_test_results_session ON diagnostic_test_results(session_id)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_diagnostic_test_results_test ON diagnostic_test_results(test_id)`);
+
+  // Diagnostic defects - defects found during diagnosis
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS diagnostic_defects (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      session_id UUID NOT NULL REFERENCES diagnostic_sessions(id) ON DELETE CASCADE,
+      test_result_id UUID REFERENCES diagnostic_test_results(id),
+      defect_code TEXT NOT NULL,
+      component TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      description TEXT NOT NULL,
+      notes TEXT,
+      photo_urls TEXT[],
+      repair_action TEXT,
+      repair_estimate_minutes INTEGER,
+      parts_required TEXT[],
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_diagnostic_defects_session ON diagnostic_defects(session_id)`);
+
+  // Certifications - issued certifications
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS certifications (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      certification_id TEXT UNIQUE NOT NULL,
+      qlid TEXT NOT NULL,
+      job_id UUID REFERENCES refurb_jobs(id),
+      session_id UUID REFERENCES diagnostic_sessions(id),
+      category TEXT NOT NULL,
+      manufacturer TEXT NOT NULL,
+      model TEXT NOT NULL,
+      serial_number TEXT,
+      certification_level TEXT NOT NULL,
+      reported_stolen BOOLEAN NOT NULL DEFAULT false,
+      financial_hold BOOLEAN NOT NULL DEFAULT false,
+      warranty_status TEXT,
+      warranty_info JSONB,
+      imei TEXT,
+      imei2 TEXT,
+      esn TEXT,
+      mac_address TEXT,
+      certified_by TEXT NOT NULL,
+      certified_by_name TEXT,
+      certified_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      report_pdf_url TEXT,
+      label_png_url TEXT,
+      qr_code_url TEXT,
+      public_report_url TEXT,
+      valid_until DATE,
+      is_revoked BOOLEAN NOT NULL DEFAULT false,
+      revoked_at TIMESTAMPTZ,
+      revoked_by TEXT,
+      revoked_reason TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_certifications_qlid ON certifications(qlid)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_certifications_cert_id ON certifications(certification_id)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_certifications_session ON certifications(session_id)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_certifications_level ON certifications(certification_level)`);
+
+  // Certification sequence
+  await db.query(`CREATE SEQUENCE IF NOT EXISTS certification_sequence START 1`);
+
+  // Certification photos
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS certification_photos (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      certification_id UUID NOT NULL REFERENCES certifications(id) ON DELETE CASCADE,
+      photo_type TEXT NOT NULL,
+      photo_url TEXT NOT NULL,
+      thumbnail_url TEXT,
+      caption TEXT,
+      display_order INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_certification_photos_cert ON certification_photos(certification_id)`);
+
+  // External checks - IMEI, serial, warranty lookups
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS external_checks (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      certification_id UUID REFERENCES certifications(id),
+      session_id UUID REFERENCES diagnostic_sessions(id),
+      qlid TEXT NOT NULL,
+      check_type TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      request_payload JSONB,
+      response_payload JSONB,
+      status TEXT NOT NULL DEFAULT 'PENDING',
+      status_details TEXT,
+      is_stolen BOOLEAN,
+      is_blacklisted BOOLEAN,
+      has_financial_hold BOOLEAN,
+      warranty_status TEXT,
+      recall_status TEXT,
+      checked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      expires_at TIMESTAMPTZ
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_external_checks_cert ON external_checks(certification_id)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_external_checks_qlid ON external_checks(qlid)`);
+
+  // Test plans - customizable test configurations
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS test_plans (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      category TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT,
+      enabled_tests TEXT[] NOT NULL DEFAULT '{}',
+      disabled_tests TEXT[] NOT NULL DEFAULT '{}',
+      is_default BOOLEAN NOT NULL DEFAULT false,
+      require_all_critical BOOLEAN NOT NULL DEFAULT true,
+      created_by TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_test_plans_category ON test_plans(category)`);
 }
 
 async function initializeSQLite(db: DatabaseAdapter): Promise<void> {
@@ -1116,6 +1406,267 @@ async function initializeSQLite(db: DatabaseAdapter): Promise<void> {
 
   await db.query(`CREATE INDEX IF NOT EXISTS idx_work_sessions_user ON work_sessions(user_id)`);
   await db.query(`CREATE INDEX IF NOT EXISTS idx_work_sessions_date ON work_sessions(session_date)`);
+
+  // Users table
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT,
+      name TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'technician',
+      is_active INTEGER NOT NULL DEFAULT 0,
+      email_verified INTEGER NOT NULL DEFAULT 0,
+      invited_by TEXT,
+      invited_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)`);
+
+  // Auth tokens (for invites, password resets, email verification)
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS auth_tokens (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      token TEXT UNIQUE NOT NULL,
+      type TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      used_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_auth_tokens_token ON auth_tokens(token)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_auth_tokens_user ON auth_tokens(user_id)`);
+
+  // ==================== QUICKDIAGNOSTICZ TABLES (SQLite) ====================
+
+  // Diagnostic session sequence
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS diagnostic_session_sequence (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      placeholder INTEGER
+    )
+  `);
+
+  // Certification sequence
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS certification_sequence (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      placeholder INTEGER
+    )
+  `);
+
+  // Diagnostic test definitions
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS diagnostic_tests (
+      id TEXT PRIMARY KEY,
+      code TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      category TEXT NOT NULL,
+      test_type TEXT NOT NULL,
+      description TEXT NOT NULL,
+      instructions TEXT NOT NULL,
+      pass_criteria TEXT NOT NULL,
+      measurement_unit TEXT,
+      measurement_min REAL,
+      measurement_max REAL,
+      is_critical INTEGER NOT NULL DEFAULT 0,
+      display_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_diagnostic_tests_category ON diagnostic_tests(category)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_diagnostic_tests_code ON diagnostic_tests(code)`);
+
+  // Diagnostic sessions
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS diagnostic_sessions (
+      id TEXT PRIMARY KEY,
+      session_number TEXT UNIQUE NOT NULL,
+      job_id TEXT,
+      qlid TEXT NOT NULL,
+      category TEXT NOT NULL,
+      technician_id TEXT NOT NULL,
+      technician_name TEXT,
+      started_at TEXT NOT NULL DEFAULT (datetime('now')),
+      completed_at TEXT,
+      duration_seconds INTEGER,
+      total_tests INTEGER NOT NULL DEFAULT 0,
+      passed_tests INTEGER NOT NULL DEFAULT 0,
+      failed_tests INTEGER NOT NULL DEFAULT 0,
+      skipped_tests INTEGER NOT NULL DEFAULT 0,
+      overall_result TEXT,
+      notes TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT,
+      FOREIGN KEY (job_id) REFERENCES refurb_jobs(id)
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_diagnostic_sessions_qlid ON diagnostic_sessions(qlid)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_diagnostic_sessions_job ON diagnostic_sessions(job_id)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_diagnostic_sessions_technician ON diagnostic_sessions(technician_id)`);
+
+  // Diagnostic test results
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS diagnostic_test_results (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      test_id TEXT NOT NULL,
+      test_code TEXT NOT NULL,
+      result TEXT NOT NULL,
+      measurement_value REAL,
+      measurement_unit TEXT,
+      notes TEXT,
+      photo_urls TEXT,
+      tested_by TEXT NOT NULL,
+      tested_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (session_id) REFERENCES diagnostic_sessions(id) ON DELETE CASCADE,
+      FOREIGN KEY (test_id) REFERENCES diagnostic_tests(id)
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_diagnostic_test_results_session ON diagnostic_test_results(session_id)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_diagnostic_test_results_test ON diagnostic_test_results(test_id)`);
+
+  // Diagnostic defects
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS diagnostic_defects (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      test_result_id TEXT,
+      defect_code TEXT NOT NULL,
+      component TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      description TEXT NOT NULL,
+      notes TEXT,
+      photo_urls TEXT,
+      repair_action TEXT,
+      repair_estimate_minutes INTEGER,
+      parts_required TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (session_id) REFERENCES diagnostic_sessions(id) ON DELETE CASCADE,
+      FOREIGN KEY (test_result_id) REFERENCES diagnostic_test_results(id)
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_diagnostic_defects_session ON diagnostic_defects(session_id)`);
+
+  // Certifications
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS certifications (
+      id TEXT PRIMARY KEY,
+      certification_id TEXT UNIQUE NOT NULL,
+      qlid TEXT NOT NULL,
+      job_id TEXT,
+      session_id TEXT,
+      category TEXT NOT NULL,
+      manufacturer TEXT NOT NULL,
+      model TEXT NOT NULL,
+      serial_number TEXT,
+      certification_level TEXT NOT NULL,
+      reported_stolen INTEGER NOT NULL DEFAULT 0,
+      financial_hold INTEGER NOT NULL DEFAULT 0,
+      warranty_status TEXT,
+      warranty_info TEXT,
+      imei TEXT,
+      imei2 TEXT,
+      esn TEXT,
+      mac_address TEXT,
+      certified_by TEXT NOT NULL,
+      certified_by_name TEXT,
+      certified_at TEXT NOT NULL DEFAULT (datetime('now')),
+      report_pdf_url TEXT,
+      label_png_url TEXT,
+      qr_code_url TEXT,
+      public_report_url TEXT,
+      valid_until TEXT,
+      is_revoked INTEGER NOT NULL DEFAULT 0,
+      revoked_at TEXT,
+      revoked_by TEXT,
+      revoked_reason TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT,
+      FOREIGN KEY (job_id) REFERENCES refurb_jobs(id),
+      FOREIGN KEY (session_id) REFERENCES diagnostic_sessions(id)
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_certifications_qlid ON certifications(qlid)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_certifications_cert_id ON certifications(certification_id)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_certifications_session ON certifications(session_id)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_certifications_level ON certifications(certification_level)`);
+
+  // Certification photos
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS certification_photos (
+      id TEXT PRIMARY KEY,
+      certification_id TEXT NOT NULL,
+      photo_type TEXT NOT NULL,
+      photo_url TEXT NOT NULL,
+      thumbnail_url TEXT,
+      caption TEXT,
+      display_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (certification_id) REFERENCES certifications(id) ON DELETE CASCADE
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_certification_photos_cert ON certification_photos(certification_id)`);
+
+  // External checks
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS external_checks (
+      id TEXT PRIMARY KEY,
+      certification_id TEXT,
+      session_id TEXT,
+      qlid TEXT NOT NULL,
+      check_type TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      request_payload TEXT,
+      response_payload TEXT,
+      status TEXT NOT NULL DEFAULT 'PENDING',
+      status_details TEXT,
+      is_stolen INTEGER,
+      is_blacklisted INTEGER,
+      has_financial_hold INTEGER,
+      warranty_status TEXT,
+      recall_status TEXT,
+      checked_at TEXT NOT NULL DEFAULT (datetime('now')),
+      expires_at TEXT,
+      FOREIGN KEY (certification_id) REFERENCES certifications(id),
+      FOREIGN KEY (session_id) REFERENCES diagnostic_sessions(id)
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_external_checks_cert ON external_checks(certification_id)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_external_checks_qlid ON external_checks(qlid)`);
+
+  // Test plans
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS test_plans (
+      id TEXT PRIMARY KEY,
+      category TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT,
+      enabled_tests TEXT NOT NULL DEFAULT '[]',
+      disabled_tests TEXT NOT NULL DEFAULT '[]',
+      is_default INTEGER NOT NULL DEFAULT 0,
+      require_all_critical INTEGER NOT NULL DEFAULT 1,
+      created_by TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_test_plans_category ON test_plans(category)`);
 }
 
 // ==================== SHARED ITEM MODEL ACCESS ====================

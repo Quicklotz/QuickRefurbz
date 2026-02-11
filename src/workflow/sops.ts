@@ -739,6 +739,8 @@ const CATEGORY_SOPS: Record<ProductCategory, Map<RefurbState, WorkflowStep[]>> =
   AUDIO: GENERIC_SOP,
   APPLIANCE_SMALL: GENERIC_SOP,
   APPLIANCE_LARGE: GENERIC_SOP,
+  ICE_MAKER: GENERIC_SOP, // Ice makers use generic SOP
+  VACUUM: GENERIC_SOP, // Vacuums use generic SOP
   GAMING: GENERIC_SOP,
   WEARABLE: PHONE_SOP, // Wearables use phone SOP
   OTHER: GENERIC_SOP,
@@ -814,6 +816,14 @@ export const CategorySOPs: Record<ProductCategory, { name: string; states: Recor
   },
   APPLIANCE_LARGE: {
     name: 'Large Appliance SOP',
+    states: Object.fromEntries(GENERIC_SOP) as Record<RefurbState, WorkflowStep[]>,
+  },
+  ICE_MAKER: {
+    name: 'Ice Maker SOP',
+    states: Object.fromEntries(GENERIC_SOP) as Record<RefurbState, WorkflowStep[]>,
+  },
+  VACUUM: {
+    name: 'Vacuum SOP',
     states: Object.fromEntries(GENERIC_SOP) as Record<RefurbState, WorkflowStep[]>,
   },
   GAMING: {

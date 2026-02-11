@@ -1,5 +1,26 @@
 const API_BASE = '/api';
 
+export interface TechnicianStats {
+  technicianId: string;
+  technicianName?: string;
+  totalSessions: number;
+  completedSessions: number;
+  passedSessions: number;
+  failedSessions: number;
+  passRate: number;
+  avgTestsPerSession: number;
+  avgDurationMinutes: number;
+  categoryCounts: Record<string, number>;
+  recentSessions: Array<{
+    sessionNumber: string;
+    qlid: string;
+    category: string;
+    overallResult?: string;
+    startedAt: string;
+    completedAt?: string;
+  }>;
+}
+
 class ApiClient {
   private token: string | null = null;
 
@@ -68,6 +89,65 @@ class ApiClient {
 
   logout() {
     this.setToken(null);
+  }
+
+  // Auth - Token Verification (no auth header needed)
+  async verifyToken(token: string, type?: string) {
+    const params = new URLSearchParams({ token });
+    if (type) params.append('type', type);
+    return this.request<{ valid: boolean; email: string; name: string; type: string }>(`/auth/verify-token?${params}`);
+  }
+
+  async acceptInvite(token: string, password: string) {
+    return this.request<{ success: boolean; message: string }>('/auth/accept-invite', {
+      method: 'POST',
+      body: JSON.stringify({ token, password }),
+    });
+  }
+
+  async forgotPassword(email: string) {
+    return this.request<{ success: boolean; message: string }>('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  }
+
+  async resetPassword(token: string, password: string) {
+    return this.request<{ success: boolean; message: string }>('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ token, password }),
+    });
+  }
+
+  // Admin - User Management
+  async getUsers() {
+    return this.request<any[]>('/admin/users');
+  }
+
+  async inviteUser(data: { email: string; name: string; role?: string }) {
+    return this.request<any>('/auth/invite', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateUser(id: string, data: { name?: string; role?: string; is_active?: boolean }) {
+    return this.request<any>(`/admin/users/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deactivateUser(id: string) {
+    return this.request<{ success: boolean; message: string }>(`/admin/users/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async resendInvite(id: string) {
+    return this.request<{ success: boolean; message: string }>(`/admin/users/${id}/resend-invite`, {
+      method: 'POST',
+    });
   }
 
   // Dashboard
@@ -411,6 +491,220 @@ class ApiClient {
     return this.request<any>('/session/end', {
       method: 'POST',
     });
+  }
+
+  // ==================== DIAGNOSTICS API (QuickDiagnosticz) ====================
+
+  async getDiagnosticTests(category?: string) {
+    const query = category ? `?category=${category}` : '';
+    return this.request<any>(`/workflow/diagnostics/tests${query}`);
+  }
+
+  async getTestSuite(category: string) {
+    return this.request<any>(`/workflow/diagnostics/tests/${category}`);
+  }
+
+  async getAllTestSuites() {
+    return this.request<any[]>('/workflow/diagnostics/tests/all');
+  }
+
+  async getDiagnosticSessions(params?: Record<string, string>) {
+    const query = params ? '?' + new URLSearchParams(params).toString() : '';
+    return this.request<any[]>(`/workflow/diagnostics/sessions${query}`);
+  }
+
+  async getDiagnosticSession(identifier: string) {
+    return this.request<any>(`/workflow/diagnostics/sessions/${identifier}`);
+  }
+
+  async startDiagnosticSession(data: { qlid: string; category: string; jobId?: string }) {
+    return this.request<any>('/workflow/diagnostics/sessions', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async recordTestResult(sessionNumber: string, data: {
+    testCode: string;
+    result: 'PASS' | 'FAIL' | 'SKIP' | 'N/A';
+    measurementValue?: number;
+    measurementUnit?: string;
+    notes?: string;
+    photoUrls?: string[];
+  }) {
+    return this.request<any>(`/workflow/diagnostics/sessions/${sessionNumber}/tests`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async completeDiagnosticSession(sessionNumber: string, notes?: string) {
+    return this.request<any>(`/workflow/diagnostics/sessions/${sessionNumber}/complete`, {
+      method: 'POST',
+      body: JSON.stringify({ notes }),
+    });
+  }
+
+  async getTechnicianStats() {
+    return this.request<{
+      technicians: TechnicianStats[];
+      summary: {
+        technicianCount: number;
+        totalSessions: number;
+        totalCompleted: number;
+        totalPassed: number;
+        totalFailed: number;
+        overallPassRate: number;
+      };
+    }>('/workflow/diagnostics/technicians/stats');
+  }
+
+  async getTechnicianStatsById(technicianId: string) {
+    return this.request<TechnicianStats>(`/workflow/diagnostics/technicians/${technicianId}/stats`);
+  }
+
+  // ==================== CERTIFICATIONS API (QuickDiagnosticz) ====================
+
+  async getCertifications(params?: Record<string, string>) {
+    const query = params ? '?' + new URLSearchParams(params).toString() : '';
+    return this.request<any[]>(`/workflow/certifications${query}`);
+  }
+
+  async getCertification(certificationId: string) {
+    return this.request<any>(`/workflow/certifications/${certificationId}`);
+  }
+
+  async issueCertification(data: {
+    qlid: string;
+    category: string;
+    manufacturer: string;
+    model: string;
+    certificationLevel: 'EXCELLENT' | 'GOOD' | 'FAIR' | 'NOT_CERTIFIED';
+    serialNumber?: string;
+    sessionId?: string;
+    jobId?: string;
+    notes?: string;
+    warrantyType?: string;
+    warrantyStatus?: string;
+    warrantyProvider?: string;
+    warrantyEndDate?: string;
+  }) {
+    return this.request<any>('/workflow/certifications', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async revokeCertification(certificationId: string, reason: string) {
+    return this.request<any>(`/workflow/certifications/${certificationId}/revoke`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  }
+
+  async getCertificationReport(certificationId: string, format: 'pdf' | 'json' = 'json') {
+    return this.request<any>(`/workflow/certifications/${certificationId}/report?format=${format}`);
+  }
+
+  async getCertificationLabel(certificationId: string) {
+    // Returns a blob URL for the label image
+    const response = await fetch(`${API_BASE}/workflow/certifications/${certificationId}/label?format=buffer`, {
+      headers: this.token ? { Authorization: `Bearer ${this.token}` } : {},
+    });
+    if (!response.ok) throw new Error('Failed to get label');
+    const blob = await response.blob();
+    return URL.createObjectURL(blob);
+  }
+
+  async verifyCertification(certificationId: string) {
+    return this.request<any>(`/workflow/certifications/verify/${certificationId}`);
+  }
+
+  async getCertificationStats() {
+    return this.request<any>('/workflow/certifications/stats');
+  }
+
+  // ==================== EXTERNAL CHECKS API ====================
+
+  async runExternalCheck(data: {
+    qlid: string;
+    checkType: 'IMEI' | 'SERIAL' | 'WARRANTY' | 'STOLEN' | 'RECALL';
+    identifier: string;
+    identifierType?: 'imei' | 'serial';
+    provider?: string;
+    certificationId?: string;
+    sessionId?: string;
+  }) {
+    return this.request<any>('/workflow/checks', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async runAllExternalChecks(data: {
+    qlid: string;
+    imei?: string;
+    serial?: string;
+    certificationId?: string;
+    sessionId?: string;
+  }) {
+    return this.request<{
+      checks: any[];
+      flags: {
+        hasFlags: boolean;
+        isStolen: boolean;
+        isBlacklisted: boolean;
+        hasFinancialHold: boolean;
+      };
+      summary: {
+        total: number;
+        clear: number;
+        flagged: number;
+        error: number;
+      };
+    }>('/workflow/checks/all', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getExternalChecks(qlid: string) {
+    return this.request<{
+      checks: any[];
+      flags: {
+        hasFlags: boolean;
+        isStolen: boolean;
+        isBlacklisted: boolean;
+        hasFinancialHold: boolean;
+      };
+      summary: {
+        total: number;
+        clear: number;
+        flagged: number;
+        error: number;
+      };
+    }>(`/workflow/checks/${qlid}`);
+  }
+
+  async getExternalChecksForCertification(certificationId: string) {
+    return this.request<{
+      checks: any[];
+      summary: {
+        total: number;
+        clear: number;
+        flagged: number;
+        error: number;
+      };
+    }>(`/workflow/checks/cert/${certificationId}`);
+  }
+
+  async getDeviceFlags(qlid: string) {
+    return this.request<{
+      hasFlags: boolean;
+      isStolen: boolean;
+      isBlacklisted: boolean;
+      hasFinancialHold: boolean;
+    }>(`/workflow/checks/${qlid}/flags`);
   }
 }
 

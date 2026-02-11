@@ -1,4 +1,13 @@
+"use client";
 import { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Check, HelpCircle, FileText, Ruler, Camera, CheckCircle } from 'lucide-react';
+import { SpotlightCard } from '@/components/aceternity/spotlight';
+import { Button } from '@/components/aceternity/button';
+import { Input } from '@/components/aceternity/input';
+import { Label } from '@/components/aceternity/label';
+import { Badge } from '@/components/shared/Badge';
+import { cn } from '@/lib/utils';
 
 interface WorkflowStep {
   id: string;
@@ -18,6 +27,14 @@ interface StepPromptProps {
   onComplete: (data: any) => void;
   loading?: boolean;
 }
+
+const STEP_ICONS: Record<string, React.ReactNode> = {
+  CHECKLIST: <Check className="w-4 h-4" />,
+  INPUT: <FileText className="w-4 h-4" />,
+  MEASUREMENT: <Ruler className="w-4 h-4" />,
+  PHOTO: <Camera className="w-4 h-4" />,
+  CONFIRMATION: <CheckCircle className="w-4 h-4" />,
+};
 
 export function StepPrompt({ step, onComplete, loading }: StepPromptProps) {
   const [checklistState, setChecklistState] = useState<Record<string, boolean>>({});
@@ -71,17 +88,53 @@ export function StepPrompt({ step, onComplete, loading }: StepPromptProps) {
     switch (step.type) {
       case 'CHECKLIST':
         return (
-          <div className="checklist-items">
+          <div className="space-y-3">
             {step.checklistItems?.map((item, index) => (
-              <label key={index} className="checklist-item">
+              <motion.label
+                key={index}
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: index * 0.05 }}
+                className={cn(
+                  "flex items-center gap-3 p-4 bg-dark-primary border rounded-lg cursor-pointer transition-all",
+                  checklistState[item]
+                    ? "border-accent-green bg-accent-green/5"
+                    : "border-border hover:border-ql-yellow"
+                )}
+              >
                 <input
                   type="checkbox"
                   checked={checklistState[item] || false}
                   onChange={(e) => handleChecklistChange(item, e.target.checked)}
+                  className="sr-only"
                 />
-                <span className="checkmark" />
-                <span className="item-text">{item}</span>
-              </label>
+                <motion.div
+                  animate={{
+                    scale: checklistState[item] ? 1 : 1,
+                    backgroundColor: checklistState[item] ? '#02dba8' : 'transparent',
+                    borderColor: checklistState[item] ? '#02dba8' : '#27272a'
+                  }}
+                  className="w-5 h-5 border-2 rounded flex items-center justify-center flex-shrink-0"
+                >
+                  <AnimatePresence>
+                    {checklistState[item] && (
+                      <motion.div
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        exit={{ scale: 0 }}
+                      >
+                        <Check className="w-3 h-3 text-white" />
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </motion.div>
+                <span className={cn(
+                  "text-sm flex-1",
+                  checklistState[item] ? "text-accent-green" : "text-zinc-300"
+                )}>
+                  {item}
+                </span>
+              </motion.label>
             ))}
           </div>
         );
@@ -89,26 +142,45 @@ export function StepPrompt({ step, onComplete, loading }: StepPromptProps) {
       case 'INPUT':
       case 'MEASUREMENT':
         return (
-          <div className="input-fields">
-            {step.inputSchema?.properties && Object.entries(step.inputSchema.properties).map(([key, prop]: [string, any]) => (
-              <div key={key} className="form-group">
-                <label className="form-label">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {step.inputSchema?.properties && Object.entries(step.inputSchema.properties).map(([key, prop]: [string, any], index) => (
+              <motion.div
+                key={key}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.05 }}
+                className="space-y-2"
+              >
+                <Label htmlFor={key}>
                   {prop.title || key}
-                  {step.inputSchema.required?.includes(key) && <span className="required">*</span>}
-                </label>
+                  {step.inputSchema.required?.includes(key) && (
+                    <span className="text-accent-red ml-1">*</span>
+                  )}
+                </Label>
                 {prop.type === 'boolean' ? (
-                  <label className="toggle-label">
+                  <label className="flex items-center gap-3 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={inputValues[key] || false}
                       onChange={(e) => handleInputChange(key, e.target.checked)}
+                      className="sr-only"
                     />
-                    <span className="toggle-switch" />
-                    <span>{inputValues[key] ? 'Yes' : 'No'}</span>
+                    <div className={cn(
+                      "w-11 h-6 rounded-full relative transition-colors",
+                      inputValues[key] ? "bg-accent-green" : "bg-dark-tertiary"
+                    )}>
+                      <motion.div
+                        animate={{ x: inputValues[key] ? 20 : 2 }}
+                        className="absolute top-1 w-4 h-4 bg-white rounded-full"
+                      />
+                    </div>
+                    <span className="text-sm text-zinc-300">
+                      {inputValues[key] ? 'Yes' : 'No'}
+                    </span>
                   </label>
                 ) : prop.enum ? (
                   <select
-                    className="form-select"
+                    className="w-full bg-dark-tertiary border border-border rounded-lg px-4 py-2.5 text-white focus:border-ql-yellow focus:outline-none transition-colors"
                     value={inputValues[key] || ''}
                     onChange={(e) => handleInputChange(key, e.target.value)}
                   >
@@ -117,41 +189,57 @@ export function StepPrompt({ step, onComplete, loading }: StepPromptProps) {
                       <option key={opt} value={opt}>{opt}</option>
                     ))}
                   </select>
-                ) : prop.type === 'number' ? (
-                  <input
-                    type="number"
-                    className="form-input"
-                    value={inputValues[key] || ''}
-                    onChange={(e) => handleInputChange(key, parseFloat(e.target.value) || 0)}
-                    min={prop.minimum}
-                    max={prop.maximum}
-                  />
                 ) : (
-                  <input
-                    type="text"
-                    className="form-input"
+                  <Input
+                    id={key}
+                    type={prop.type === 'number' ? 'number' : 'text'}
                     value={inputValues[key] || ''}
-                    onChange={(e) => handleInputChange(key, e.target.value)}
+                    onChange={(e) => handleInputChange(key, prop.type === 'number' ? parseFloat(e.target.value) || 0 : e.target.value)}
+                    placeholder={prop.description || `Enter ${prop.title || key}`}
                   />
                 )}
-              </div>
+              </motion.div>
             ))}
           </div>
         );
 
       case 'CONFIRMATION':
         return (
-          <div className="confirmation-section">
-            <label className="confirm-checkbox">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="p-6 bg-dark-primary rounded-lg text-center"
+          >
+            <label className="inline-flex items-center gap-3 cursor-pointer">
               <input
                 type="checkbox"
                 checked={confirmed}
                 onChange={(e) => setConfirmed(e.target.checked)}
+                className="sr-only"
               />
-              <span className="checkmark" />
-              <span>I confirm this step is complete</span>
+              <motion.div
+                animate={{
+                  scale: confirmed ? 1 : 1,
+                  backgroundColor: confirmed ? '#02dba8' : 'transparent',
+                  borderColor: confirmed ? '#02dba8' : '#27272a'
+                }}
+                className="w-6 h-6 border-2 rounded flex items-center justify-center"
+              >
+                <AnimatePresence>
+                  {confirmed && (
+                    <motion.div
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      exit={{ scale: 0 }}
+                    >
+                      <Check className="w-4 h-4 text-white" />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </motion.div>
+              <span className="text-white font-medium">I confirm this step is complete</span>
             </label>
-          </div>
+          </motion.div>
         );
 
       default:
@@ -160,31 +248,42 @@ export function StepPrompt({ step, onComplete, loading }: StepPromptProps) {
   };
 
   return (
-    <div className="step-prompt">
-      <div className="step-header">
-        <span className="step-type-badge">{step.type}</span>
-        <h3 className="step-name">{step.name}</h3>
+    <SpotlightCard className="p-6">
+      {/* Header */}
+      <div className="flex items-center gap-3 mb-4">
+        <Badge variant="warning" size="sm" className="flex items-center gap-1.5">
+          {STEP_ICONS[step.type]}
+          {step.type}
+        </Badge>
+        <h3 className="text-lg font-semibold text-white">{step.name}</h3>
       </div>
 
-      <p className="step-prompt-text">{step.prompt}</p>
+      {/* Prompt */}
+      <p className="text-zinc-400 mb-4">{step.prompt}</p>
 
+      {/* Help Text */}
       {step.helpText && (
-        <div className="step-help">
-          <svg className="help-icon" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
-          </svg>
+        <motion.div
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: 'auto' }}
+          className="flex items-start gap-2 p-3 bg-accent-blue/10 border border-accent-blue/20 rounded-lg mb-5 text-sm text-accent-blue"
+        >
+          <HelpCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
           <span>{step.helpText}</span>
-        </div>
+        </motion.div>
       )}
 
-      <div className="step-content">
+      {/* Step Content */}
+      <div className="mb-5">
         {renderStepContent()}
       </div>
 
-      <div className="step-notes">
-        <label className="form-label">Notes (optional)</label>
+      {/* Notes */}
+      <div className="mb-5">
+        <Label htmlFor="notes">Notes (optional)</Label>
         <textarea
-          className="form-input"
+          id="notes"
+          className="w-full mt-2 bg-dark-tertiary border border-border rounded-lg px-4 py-3 text-white placeholder:text-zinc-500 focus:border-ql-yellow focus:outline-none resize-y min-h-[80px] transition-colors"
           rows={2}
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
@@ -192,216 +291,17 @@ export function StepPrompt({ step, onComplete, loading }: StepPromptProps) {
         />
       </div>
 
-      <div className="step-actions">
-        <button
-          className="btn btn-primary"
+      {/* Actions */}
+      <div className="flex justify-end">
+        <Button
+          variant="primary"
           onClick={handleSubmit}
-          disabled={!isComplete() || loading}
+          disabled={!isComplete()}
+          loading={loading}
         >
           {loading ? 'Saving...' : 'Complete Step'}
-        </button>
+        </Button>
       </div>
-
-      <style>{`
-        .step-prompt {
-          background: var(--bg-card);
-          border: 1px solid var(--border-color);
-          border-radius: 0.75rem;
-          padding: 1.5rem;
-        }
-
-        .step-header {
-          display: flex;
-          align-items: center;
-          gap: 0.75rem;
-          margin-bottom: 1rem;
-        }
-
-        .step-type-badge {
-          background: var(--ql-yellow);
-          color: var(--ql-black);
-          padding: 0.25rem 0.5rem;
-          border-radius: 0.25rem;
-          font-size: 0.625rem;
-          font-weight: 700;
-          text-transform: uppercase;
-        }
-
-        .step-name {
-          font-size: 1.25rem;
-          font-weight: 600;
-          margin: 0;
-        }
-
-        .step-prompt-text {
-          font-size: 1rem;
-          color: var(--text-secondary);
-          margin-bottom: 1rem;
-        }
-
-        .step-help {
-          display: flex;
-          align-items: flex-start;
-          gap: 0.5rem;
-          padding: 0.75rem;
-          background: rgba(67, 150, 253, 0.1);
-          border-radius: 0.5rem;
-          margin-bottom: 1.5rem;
-          font-size: 0.875rem;
-          color: var(--accent-blue);
-        }
-
-        .help-icon {
-          width: 16px;
-          height: 16px;
-          flex-shrink: 0;
-          margin-top: 0.125rem;
-        }
-
-        .step-content {
-          margin-bottom: 1.5rem;
-        }
-
-        .checklist-items {
-          display: flex;
-          flex-direction: column;
-          gap: 0.75rem;
-        }
-
-        .checklist-item {
-          display: flex;
-          align-items: center;
-          gap: 0.75rem;
-          cursor: pointer;
-          padding: 0.75rem 1rem;
-          background: var(--bg-primary);
-          border: 1px solid var(--border-color);
-          border-radius: 0.5rem;
-          transition: all 0.15s ease;
-        }
-
-        .checklist-item:hover {
-          border-color: var(--ql-yellow);
-        }
-
-        .checklist-item input {
-          display: none;
-        }
-
-        .checkmark {
-          width: 20px;
-          height: 20px;
-          border: 2px solid var(--border-color);
-          border-radius: 4px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          transition: all 0.15s ease;
-        }
-
-        .checklist-item input:checked + .checkmark {
-          background: var(--accent-green);
-          border-color: var(--accent-green);
-        }
-
-        .checklist-item input:checked + .checkmark::after {
-          content: '';
-          width: 6px;
-          height: 10px;
-          border: solid white;
-          border-width: 0 2px 2px 0;
-          transform: rotate(45deg);
-        }
-
-        .item-text {
-          flex: 1;
-          font-size: 0.875rem;
-        }
-
-        .input-fields {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-          gap: 1rem;
-        }
-
-        .toggle-label {
-          display: flex;
-          align-items: center;
-          gap: 0.75rem;
-          cursor: pointer;
-        }
-
-        .toggle-label input {
-          display: none;
-        }
-
-        .toggle-switch {
-          width: 44px;
-          height: 24px;
-          background: var(--bg-tertiary);
-          border-radius: 12px;
-          position: relative;
-          transition: background 0.2s ease;
-        }
-
-        .toggle-switch::after {
-          content: '';
-          position: absolute;
-          width: 20px;
-          height: 20px;
-          background: white;
-          border-radius: 50%;
-          top: 2px;
-          left: 2px;
-          transition: transform 0.2s ease;
-        }
-
-        .toggle-label input:checked + .toggle-switch {
-          background: var(--accent-green);
-        }
-
-        .toggle-label input:checked + .toggle-switch::after {
-          transform: translateX(20px);
-        }
-
-        .required {
-          color: var(--accent-red);
-          margin-left: 0.25rem;
-        }
-
-        .confirmation-section {
-          padding: 1.5rem;
-          background: var(--bg-primary);
-          border-radius: 0.5rem;
-          text-align: center;
-        }
-
-        .confirm-checkbox {
-          display: inline-flex;
-          align-items: center;
-          gap: 0.75rem;
-          cursor: pointer;
-          font-size: 1rem;
-        }
-
-        .confirm-checkbox input {
-          display: none;
-        }
-
-        .step-notes {
-          margin-bottom: 1.5rem;
-        }
-
-        .step-notes textarea {
-          resize: vertical;
-          min-height: 60px;
-        }
-
-        .step-actions {
-          display: flex;
-          justify-content: flex-end;
-        }
-      `}</style>
-    </div>
+    </SpotlightCard>
   );
 }

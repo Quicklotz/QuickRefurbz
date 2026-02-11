@@ -1,5 +1,24 @@
+"use client";
 import { useState, useEffect } from 'react';
-import { api } from '../api/client';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  Settings,
+  Warehouse,
+  Workflow,
+  Camera,
+  Bell,
+  Clock,
+  Save,
+  CheckCircle,
+  AlertCircle,
+} from 'lucide-react';
+import { api } from '@/api/client';
+import { SpotlightCard } from '@/components/aceternity/spotlight';
+import { Button } from '@/components/aceternity/button';
+import { Input } from '@/components/aceternity/input';
+import { Label } from '@/components/aceternity/label';
+import { TextGenerateEffect } from '@/components/aceternity/text-generate-effect';
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 
 interface AppSettings {
   warehouseName: string;
@@ -28,6 +47,40 @@ const DEFAULT_SETTINGS: AppSettings = {
   workingHoursStart: '09:00',
   workingHoursEnd: '17:00',
 };
+
+interface ToggleSwitchProps {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  label: string;
+  hint?: string;
+}
+
+function ToggleSwitch({ checked, onChange, label, hint }: ToggleSwitchProps) {
+  return (
+    <div className="space-y-1">
+      <label
+        className="flex items-center gap-3 cursor-pointer group"
+        onClick={() => onChange(!checked)}
+      >
+        <div
+          className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${
+            checked ? 'bg-accent-green' : 'bg-dark-tertiary'
+          }`}
+        >
+          <motion.div
+            className="absolute w-5 h-5 bg-white rounded-full top-0.5 shadow-md"
+            animate={{ left: checked ? '22px' : '2px' }}
+            transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+          />
+        </div>
+        <span className="text-sm font-medium text-white group-hover:text-ql-yellow transition-colors">
+          {label}
+        </span>
+      </label>
+      {hint && <p className="text-xs text-zinc-500 ml-14">{hint}</p>}
+    </div>
+  );
+}
 
 export function SettingsPage() {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
@@ -72,338 +125,266 @@ export function SettingsPage() {
 
   if (loading) {
     return (
-      <div className="loading-state">
-        <div className="spin">Loading settings...</div>
+      <div className="flex items-center justify-center min-h-[400px]">
+        <LoadingSpinner size="xl" text="Loading settings..." />
       </div>
     );
   }
 
   return (
-    <div className="settings-page">
-      <div className="page-header">
-        <h1>Settings</h1>
-        <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-          {saving ? 'Saving...' : 'Save Changes'}
-        </button>
-      </div>
-
-      {message && (
-        <div className={`alert alert-${message.type}`}>
-          {message.text}
+    <div className="max-w-4xl mx-auto space-y-6">
+      {/* Header */}
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="flex justify-between items-center"
+      >
+        <div>
+          <h1 className="text-3xl font-bold text-white mb-2 flex items-center gap-3">
+            <Settings className="w-8 h-8 text-ql-yellow" />
+            Settings
+          </h1>
+          <TextGenerateEffect
+            words="Configure system preferences and workflow options"
+            className="text-zinc-400 text-sm"
+            duration={0.3}
+          />
         </div>
-      )}
+        <Button variant="primary" onClick={handleSave} loading={saving}>
+          <Save size={18} />
+          Save Changes
+        </Button>
+      </motion.div>
 
-      <div className="settings-sections">
-        {/* Warehouse Settings */}
-        <section className="settings-section">
-          <h2>Warehouse</h2>
-          <div className="settings-grid">
-            <div className="form-group">
-              <label className="form-label">Warehouse Name</label>
-              <input
+      {/* Success/Error Message */}
+      <AnimatePresence>
+        {message && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className={`p-4 rounded-lg flex items-center gap-3 ${
+              message.type === 'success'
+                ? 'bg-accent-green/10 border border-accent-green text-accent-green'
+                : 'bg-accent-red/10 border border-accent-red text-accent-red'
+            }`}
+          >
+            {message.type === 'success' ? (
+              <CheckCircle className="w-5 h-5 flex-shrink-0" />
+            ) : (
+              <AlertCircle className="w-5 h-5 flex-shrink-0" />
+            )}
+            <span>{message.text}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Warehouse Settings */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1 }}
+      >
+        <SpotlightCard className="p-6">
+          <div className="flex items-center gap-3 mb-6 pb-4 border-b border-border">
+            <Warehouse className="w-5 h-5 text-ql-yellow" />
+            <h2 className="text-lg font-semibold text-white">Warehouse</h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <Label htmlFor="warehouseName">Warehouse Name</Label>
+              <Input
+                id="warehouseName"
                 type="text"
-                className="form-input"
                 value={settings.warehouseName}
                 onChange={(e) => handleChange('warehouseName', e.target.value)}
                 placeholder="Enter warehouse name"
               />
-              <span className="form-hint">Display name for this refurbishment location</span>
+              <p className="text-xs text-zinc-500 mt-1">Display name for this refurbishment location</p>
             </div>
-
-            <div className="form-group">
-              <label className="form-label">Warehouse ID</label>
-              <input
+            <div>
+              <Label htmlFor="warehouseId">Warehouse ID</Label>
+              <Input
+                id="warehouseId"
                 type="text"
-                className="form-input"
                 value={settings.warehouseId}
                 onChange={(e) => handleChange('warehouseId', e.target.value)}
                 placeholder="e.g., WH001"
               />
-              <span className="form-hint">Unique identifier used in barcodes and tracking</span>
+              <p className="text-xs text-zinc-500 mt-1">Unique identifier used in barcodes and tracking</p>
             </div>
           </div>
-        </section>
+        </SpotlightCard>
+      </motion.div>
 
-        {/* Workflow Settings */}
-        <section className="settings-section">
-          <h2>Workflow</h2>
-          <div className="settings-grid">
-            <div className="form-group">
-              <label className="form-label">Default Priority</label>
+      {/* Workflow Settings */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.2 }}
+      >
+        <SpotlightCard className="p-6">
+          <div className="flex items-center gap-3 mb-6 pb-4 border-b border-border">
+            <Workflow className="w-5 h-5 text-ql-yellow" />
+            <h2 className="text-lg font-semibold text-white">Workflow</h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <Label htmlFor="defaultPriority">Default Priority</Label>
               <select
-                className="form-select"
+                id="defaultPriority"
                 value={settings.defaultPriority}
                 onChange={(e) => handleChange('defaultPriority', e.target.value)}
+                className="w-full bg-dark-tertiary border border-border rounded-lg px-4 py-2.5 text-white focus:border-ql-yellow focus:outline-none transition-colors"
               >
                 <option value="LOW">Low</option>
                 <option value="NORMAL">Normal</option>
                 <option value="HIGH">High</option>
                 <option value="URGENT">Urgent</option>
               </select>
-              <span className="form-hint">Default priority for new jobs</span>
+              <p className="text-xs text-zinc-500 mt-1">Default priority for new jobs</p>
             </div>
-
-            <div className="form-group">
-              <label className="form-label">Max Retest Attempts</label>
-              <input
+            <div>
+              <Label htmlFor="maxRetestAttempts">Max Retest Attempts</Label>
+              <Input
+                id="maxRetestAttempts"
                 type="number"
-                className="form-input"
                 value={settings.maxRetestAttempts}
                 onChange={(e) => handleChange('maxRetestAttempts', parseInt(e.target.value) || 2)}
                 min={1}
                 max={5}
               />
-              <span className="form-hint">Maximum times a device can fail final test before disposition</span>
+              <p className="text-xs text-zinc-500 mt-1">Maximum times a device can fail final test before disposition</p>
             </div>
-
-            <div className="form-group">
-              <label className="toggle-container">
-                <input
-                  type="checkbox"
-                  checked={settings.autoAssignTechnician}
-                  onChange={(e) => handleChange('autoAssignTechnician', e.target.checked)}
-                />
-                <span className="toggle-switch"></span>
-                <span className="toggle-label">Auto-assign technician</span>
-              </label>
-              <span className="form-hint">Automatically assign jobs to available technicians</span>
+            <div className="md:col-span-2">
+              <ToggleSwitch
+                checked={settings.autoAssignTechnician}
+                onChange={(checked) => handleChange('autoAssignTechnician', checked)}
+                label="Auto-assign technician"
+                hint="Automatically assign jobs to available technicians"
+              />
             </div>
           </div>
-        </section>
+        </SpotlightCard>
+      </motion.div>
 
-        {/* Photo Requirements */}
-        <section className="settings-section">
-          <h2>Photo Requirements</h2>
-          <div className="settings-grid">
-            <div className="form-group">
-              <label className="toggle-container">
-                <input
-                  type="checkbox"
-                  checked={settings.requirePhotoOnDiagnosis}
-                  onChange={(e) => handleChange('requirePhotoOnDiagnosis', e.target.checked)}
-                />
-                <span className="toggle-switch"></span>
-                <span className="toggle-label">Require photo on diagnosis</span>
-              </label>
-              <span className="form-hint">Technicians must take photos when diagnosing defects</span>
-            </div>
-
-            <div className="form-group">
-              <label className="toggle-container">
-                <input
-                  type="checkbox"
-                  checked={settings.requirePhotoOnRepair}
-                  onChange={(e) => handleChange('requirePhotoOnRepair', e.target.checked)}
-                />
-                <span className="toggle-switch"></span>
-                <span className="toggle-label">Require photo after repair</span>
-              </label>
-              <span className="form-hint">Technicians must take photos after completing repairs</span>
-            </div>
+      {/* Photo Requirements */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.3 }}
+      >
+        <SpotlightCard className="p-6">
+          <div className="flex items-center gap-3 mb-6 pb-4 border-b border-border">
+            <Camera className="w-5 h-5 text-ql-yellow" />
+            <h2 className="text-lg font-semibold text-white">Photo Requirements</h2>
           </div>
-        </section>
-
-        {/* Notifications */}
-        <section className="settings-section">
-          <h2>Notifications</h2>
-          <div className="settings-grid">
-            <div className="form-group">
-              <label className="toggle-container">
-                <input
-                  type="checkbox"
-                  checked={settings.enableNotifications}
-                  onChange={(e) => handleChange('enableNotifications', e.target.checked)}
-                />
-                <span className="toggle-switch"></span>
-                <span className="toggle-label">Enable email notifications</span>
-              </label>
-              <span className="form-hint">Send email alerts for blocked/escalated jobs</span>
-            </div>
-
-            {settings.enableNotifications && (
-              <div className="form-group">
-                <label className="form-label">Notification Email</label>
-                <input
-                  type="email"
-                  className="form-input"
-                  value={settings.notificationEmail}
-                  onChange={(e) => handleChange('notificationEmail', e.target.value)}
-                  placeholder="manager@example.com"
-                />
-                <span className="form-hint">Email address for notifications</span>
-              </div>
-            )}
+          <div className="space-y-6">
+            <ToggleSwitch
+              checked={settings.requirePhotoOnDiagnosis}
+              onChange={(checked) => handleChange('requirePhotoOnDiagnosis', checked)}
+              label="Require photo on diagnosis"
+              hint="Technicians must take photos when diagnosing defects"
+            />
+            <ToggleSwitch
+              checked={settings.requirePhotoOnRepair}
+              onChange={(checked) => handleChange('requirePhotoOnRepair', checked)}
+              label="Require photo after repair"
+              hint="Technicians must take photos after completing repairs"
+            />
           </div>
-        </section>
+        </SpotlightCard>
+      </motion.div>
 
-        {/* Working Hours */}
-        <section className="settings-section">
-          <h2>Working Hours</h2>
-          <div className="settings-grid">
-            <div className="form-group">
-              <label className="form-label">Start Time</label>
-              <input
+      {/* Notifications */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.4 }}
+      >
+        <SpotlightCard className="p-6">
+          <div className="flex items-center gap-3 mb-6 pb-4 border-b border-border">
+            <Bell className="w-5 h-5 text-ql-yellow" />
+            <h2 className="text-lg font-semibold text-white">Notifications</h2>
+          </div>
+          <div className="space-y-6">
+            <ToggleSwitch
+              checked={settings.enableNotifications}
+              onChange={(checked) => handleChange('enableNotifications', checked)}
+              label="Enable email notifications"
+              hint="Send email alerts for blocked/escalated jobs"
+            />
+            <AnimatePresence>
+              {settings.enableNotifications && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="ml-14"
+                >
+                  <Label htmlFor="notificationEmail">Notification Email</Label>
+                  <Input
+                    id="notificationEmail"
+                    type="email"
+                    value={settings.notificationEmail}
+                    onChange={(e) => handleChange('notificationEmail', e.target.value)}
+                    placeholder="manager@example.com"
+                  />
+                  <p className="text-xs text-zinc-500 mt-1">Email address for notifications</p>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </SpotlightCard>
+      </motion.div>
+
+      {/* Working Hours */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.5 }}
+      >
+        <SpotlightCard className="p-6">
+          <div className="flex items-center gap-3 mb-6 pb-4 border-b border-border">
+            <Clock className="w-5 h-5 text-ql-yellow" />
+            <h2 className="text-lg font-semibold text-white">Working Hours</h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <Label htmlFor="workingHoursStart">Start Time</Label>
+              <Input
+                id="workingHoursStart"
                 type="time"
-                className="form-input"
                 value={settings.workingHoursStart}
                 onChange={(e) => handleChange('workingHoursStart', e.target.value)}
               />
             </div>
-
-            <div className="form-group">
-              <label className="form-label">End Time</label>
-              <input
+            <div>
+              <Label htmlFor="workingHoursEnd">End Time</Label>
+              <Input
+                id="workingHoursEnd"
                 type="time"
-                className="form-input"
                 value={settings.workingHoursEnd}
                 onChange={(e) => handleChange('workingHoursEnd', e.target.value)}
               />
             </div>
           </div>
-          <span className="form-hint section-hint">Used for scheduling and reporting purposes</span>
-        </section>
-      </div>
+          <p className="text-xs text-zinc-500 mt-4">Used for scheduling and reporting purposes</p>
+        </SpotlightCard>
+      </motion.div>
 
-      <style>{`
-        .settings-page {
-          max-width: 900px;
-        }
-
-        .page-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 1.5rem;
-        }
-
-        .alert {
-          padding: 0.75rem 1rem;
-          border-radius: 0.5rem;
-          margin-bottom: 1.5rem;
-          font-size: 0.875rem;
-        }
-
-        .alert-success {
-          background: rgba(2, 219, 168, 0.15);
-          color: var(--accent-green);
-          border: 1px solid var(--accent-green);
-        }
-
-        .alert-error {
-          background: rgba(235, 61, 59, 0.15);
-          color: var(--accent-red);
-          border: 1px solid var(--accent-red);
-        }
-
-        .settings-sections {
-          display: flex;
-          flex-direction: column;
-          gap: 1.5rem;
-        }
-
-        .settings-section {
-          background: var(--bg-card);
-          border: 1px solid var(--border-color);
-          border-radius: 0.75rem;
-          padding: 1.5rem;
-        }
-
-        .settings-section h2 {
-          font-size: 1rem;
-          font-weight: 600;
-          color: var(--ql-yellow);
-          margin: 0 0 1.25rem 0;
-          padding-bottom: 0.75rem;
-          border-bottom: 1px solid var(--border-color);
-        }
-
-        .settings-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-          gap: 1.25rem;
-        }
-
-        .form-hint {
-          display: block;
-          font-size: 0.75rem;
-          color: var(--text-muted);
-          margin-top: 0.375rem;
-        }
-
-        .section-hint {
-          margin-top: 1rem;
-        }
-
-        .toggle-container {
-          display: flex;
-          align-items: center;
-          gap: 0.75rem;
-          cursor: pointer;
-        }
-
-        .toggle-container input {
-          display: none;
-        }
-
-        .toggle-switch {
-          width: 44px;
-          height: 24px;
-          background: var(--bg-tertiary);
-          border-radius: 12px;
-          position: relative;
-          transition: background 0.2s ease;
-          flex-shrink: 0;
-        }
-
-        .toggle-switch::after {
-          content: '';
-          position: absolute;
-          width: 20px;
-          height: 20px;
-          background: white;
-          border-radius: 50%;
-          top: 2px;
-          left: 2px;
-          transition: transform 0.2s ease;
-        }
-
-        .toggle-container input:checked + .toggle-switch {
-          background: var(--accent-green);
-        }
-
-        .toggle-container input:checked + .toggle-switch::after {
-          transform: translateX(20px);
-        }
-
-        .toggle-label {
-          font-size: 0.875rem;
-          font-weight: 500;
-        }
-
-        .loading-state {
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          min-height: 200px;
-          color: var(--text-muted);
-        }
-
-        @media (max-width: 640px) {
-          .settings-grid {
-            grid-template-columns: 1fr;
-          }
-
-          .page-header {
-            flex-direction: column;
-            gap: 1rem;
-            align-items: flex-start;
-          }
-
-          .page-header .btn {
-            width: 100%;
-          }
-        }
-      `}</style>
+      {/* Bottom Save Button (Mobile) */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.6 }}
+        className="md:hidden pb-6"
+      >
+        <Button variant="primary" onClick={handleSave} loading={saving} className="w-full">
+          <Save size={18} />
+          Save Changes
+        </Button>
+      </motion.div>
     </div>
   );
 }
