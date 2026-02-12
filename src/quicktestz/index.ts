@@ -49,5 +49,8 @@ export * as testRunManager from './services/testRunManager.js';
 export * as readingsCollector from './services/readingsCollector.js';
 export * as safetyMonitor from './services/safetyMonitor.js';
 
+// SCPI Instrument Adapter (re-export from hardware-diag bridge)
+export { ScpiInstrumentAdapter } from '../hardware-diag/quicktestz-bridge/scpiAdapter.js';
+
 // Seed
 export { seedEquipmentAndProfiles } from './seed/equipmentSeed.js';

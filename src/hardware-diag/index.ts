@@ -25,3 +25,6 @@ export { MeasurementValidator } from './testing/measurementValidator.js';
 export { ResultRecorder } from './testing/resultRecorder.js';
 export { TestPlanLoader } from './testing/testPlanLoader.js';
 export { HardwareTestRunner } from './testing/testRunner.js';
+
+// QuickTestz Bridge
+export { QuickTestzBridge, ScpiInstrumentAdapter, mapMeasurementToReading } from './quicktestz-bridge/index.js';

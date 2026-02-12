@@ -763,6 +763,72 @@ async function initializePostgres(db: DatabaseAdapter): Promise<void> {
 
   await db.query(`CREATE INDEX IF NOT EXISTS idx_data_wipe_qlid ON data_wipe_reports(qlid)`);
 
+  // Data wipe certificates (structured certificates for NIST/DoD compliance)
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS data_wipe_certificates (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      certificate_number TEXT UNIQUE NOT NULL,
+      qlid TEXT NOT NULL,
+      device_info JSONB NOT NULL,
+      wipe_method TEXT NOT NULL,
+      wipe_started_at TIMESTAMPTZ NOT NULL,
+      wipe_completed_at TIMESTAMPTZ NOT NULL,
+      verification_method TEXT NOT NULL,
+      verification_passed BOOLEAN NOT NULL DEFAULT true,
+      technician_id TEXT NOT NULL,
+      technician_name TEXT,
+      verification_code TEXT UNIQUE NOT NULL,
+      notes TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_wipe_certs_qlid ON data_wipe_certificates(qlid)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_wipe_certs_cert_number ON data_wipe_certificates(certificate_number)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_wipe_certs_verification ON data_wipe_certificates(verification_code)`);
+
+  // Webhook subscriptions for data feeds
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS webhook_subscriptions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      name TEXT NOT NULL,
+      url TEXT NOT NULL,
+      secret TEXT NOT NULL,
+      events JSONB NOT NULL DEFAULT '[]',
+      format TEXT NOT NULL DEFAULT 'json',
+      headers JSONB,
+      is_active BOOLEAN NOT NULL DEFAULT true,
+      retry_count INTEGER NOT NULL DEFAULT 0,
+      last_triggered_at TIMESTAMPTZ,
+      last_status INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_webhook_subs_active ON webhook_subscriptions(is_active)`);
+
+  // Webhook deliveries (delivery log and retry queue)
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS webhook_deliveries (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      subscription_id UUID NOT NULL REFERENCES webhook_subscriptions(id) ON DELETE CASCADE,
+      event TEXT NOT NULL,
+      payload JSONB NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      status_code INTEGER,
+      response TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      next_retry_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      delivered_at TIMESTAMPTZ
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_sub ON webhook_deliveries(subscription_id)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_status ON webhook_deliveries(status)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_retry ON webhook_deliveries(next_retry_at) WHERE status = 'pending'`);
+
   // Parts suppliers
   await db.query(`
     CREATE TABLE IF NOT EXISTS parts_suppliers (
@@ -1166,7 +1232,7 @@ async function initializePostgres(db: DatabaseAdapter): Promise<void> {
       name TEXT NOT NULL,
       location TEXT,
       controller_type TEXT NOT NULL,
-      controller_base_url_or_ip TEXT,
+      controller_base_url TEXT,
       network_type TEXT,
       safety_flags JSONB NOT NULL DEFAULT '{}',
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -2047,7 +2113,7 @@ async function initializeSQLite(db: DatabaseAdapter): Promise<void> {
       name TEXT NOT NULL,
       location TEXT,
       controller_type TEXT NOT NULL,
-      controller_base_url_or_ip TEXT,
+      controller_base_url TEXT,
       network_type TEXT,
       safety_flags TEXT NOT NULL DEFAULT '{}',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -2138,6 +2204,251 @@ async function initializeSQLite(db: DatabaseAdapter): Promise<void> {
   `);
 
   await db.query(`CREATE INDEX IF NOT EXISTS idx_test_readings_run_ts ON test_readings(test_run_id, ts)`);
+
+  // ==================== PRODUCTION ENHANCEMENT TABLES ====================
+
+  // UPC lookup cache
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS upc_lookup_cache (
+      id TEXT PRIMARY KEY,
+      upc TEXT UNIQUE NOT NULL,
+      brand TEXT,
+      model TEXT,
+      title TEXT,
+      category TEXT,
+      msrp REAL,
+      image_url TEXT,
+      raw_response TEXT,
+      provider TEXT DEFAULT 'manual',
+      cached_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      expires_at TEXT
+    )
+  `);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_upc_cache_upc ON upc_lookup_cache(upc)`);
+
+  // Item photos
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS item_photos (
+      id TEXT PRIMARY KEY,
+      qlid TEXT NOT NULL,
+      stage TEXT NOT NULL,
+      photo_type TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      thumbnail_path TEXT,
+      storage_provider TEXT DEFAULT 'local',
+      metadata TEXT DEFAULT '{}',
+      captured_by TEXT,
+      captured_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_item_photos_qlid ON item_photos(qlid)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_item_photos_stage ON item_photos(qlid, stage)`);
+
+  // Grading rubrics (category-specific criteria)
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS grading_rubrics (
+      id TEXT PRIMARY KEY,
+      category TEXT NOT NULL,
+      grade TEXT NOT NULL,
+      min_score INTEGER NOT NULL,
+      max_score INTEGER NOT NULL,
+      criteria TEXT NOT NULL,
+      cosmetic_requirements TEXT,
+      functional_requirements TEXT,
+      max_defect_count INTEGER,
+      warranty_eligible INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(category, grade)
+    )
+  `);
+
+  // Grading assessments
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS grading_assessments (
+      id TEXT PRIMARY KEY,
+      qlid TEXT NOT NULL,
+      job_id TEXT,
+      category TEXT NOT NULL,
+      criteria_results TEXT NOT NULL,
+      cosmetic_score INTEGER,
+      functional_score INTEGER,
+      overall_score INTEGER,
+      calculated_grade TEXT NOT NULL,
+      final_grade TEXT,
+      override_reason TEXT,
+      assessed_by TEXT NOT NULL,
+      assessed_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_grading_assessments_qlid ON grading_assessments(qlid)`);
+
+  // Parts usage tracking
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS parts_usage (
+      id TEXT PRIMARY KEY,
+      qlid TEXT NOT NULL,
+      job_id TEXT,
+      diagnosis_id TEXT,
+      part_id TEXT NOT NULL,
+      part_sku TEXT,
+      part_name TEXT,
+      quantity INTEGER NOT NULL DEFAULT 1,
+      unit_cost REAL NOT NULL DEFAULT 0,
+      total_cost REAL NOT NULL DEFAULT 0,
+      reason TEXT,
+      used_by TEXT NOT NULL,
+      used_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_parts_usage_qlid ON parts_usage(qlid)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_parts_usage_part ON parts_usage(part_id)`);
+
+  // Labor tracking
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS labor_entries (
+      id TEXT PRIMARY KEY,
+      qlid TEXT NOT NULL,
+      job_id TEXT,
+      technician_id TEXT NOT NULL,
+      technician_name TEXT,
+      stage TEXT NOT NULL,
+      task_type TEXT,
+      start_time TEXT,
+      end_time TEXT,
+      duration_minutes INTEGER,
+      labor_rate REAL,
+      labor_cost REAL,
+      notes TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_labor_entries_qlid ON labor_entries(qlid)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_labor_entries_technician ON labor_entries(technician_id)`);
+
+  // Cost summary (materialized view equivalent)
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS refurb_costs (
+      id TEXT PRIMARY KEY,
+      qlid TEXT UNIQUE NOT NULL,
+      job_id TEXT,
+      unit_cogs REAL DEFAULT 0,
+      parts_cost REAL DEFAULT 0,
+      labor_cost REAL DEFAULT 0,
+      overhead_cost REAL DEFAULT 0,
+      total_cost REAL DEFAULT 0,
+      estimated_value REAL,
+      profit_margin REAL,
+      last_calculated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_refurb_costs_qlid ON refurb_costs(qlid)`);
+
+  // Data wipe certificates (structured certificates for NIST/DoD compliance)
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS data_wipe_certificates (
+      id TEXT PRIMARY KEY,
+      certificate_number TEXT UNIQUE NOT NULL,
+      qlid TEXT NOT NULL,
+      device_info TEXT NOT NULL,
+      wipe_method TEXT NOT NULL,
+      wipe_started_at TEXT NOT NULL,
+      wipe_completed_at TEXT NOT NULL,
+      verification_method TEXT NOT NULL,
+      verification_passed INTEGER NOT NULL DEFAULT 1,
+      technician_id TEXT NOT NULL,
+      technician_name TEXT,
+      verification_code TEXT UNIQUE NOT NULL,
+      notes TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_wipe_certs_qlid ON data_wipe_certificates(qlid)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_wipe_certs_cert_number ON data_wipe_certificates(certificate_number)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_wipe_certs_verification ON data_wipe_certificates(verification_code)`);
+
+  // Webhook subscriptions for data feeds
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS webhook_subscriptions (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      url TEXT NOT NULL,
+      secret TEXT NOT NULL,
+      events TEXT NOT NULL DEFAULT '[]',
+      format TEXT NOT NULL DEFAULT 'json',
+      headers TEXT,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      retry_count INTEGER NOT NULL DEFAULT 0,
+      last_triggered_at TEXT,
+      last_status INTEGER,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_webhook_subs_active ON webhook_subscriptions(is_active)`);
+
+  // Webhook deliveries (delivery log and retry queue)
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS webhook_deliveries (
+      id TEXT PRIMARY KEY,
+      subscription_id TEXT NOT NULL,
+      event TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      status_code INTEGER,
+      response TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      next_retry_at TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      delivered_at TEXT,
+      FOREIGN KEY (subscription_id) REFERENCES webhook_subscriptions(id) ON DELETE CASCADE
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_sub ON webhook_deliveries(subscription_id)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_status ON webhook_deliveries(status)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_retry ON webhook_deliveries(next_retry_at)`);
+
+  // Seed default grading rubrics if empty
+  const rubricCheck = await db.query(`SELECT COUNT(*) as count FROM grading_rubrics`);
+  if (parseInt(rubricCheck.rows[0].count as string) === 0) {
+    await seedDefaultGradingRubrics(db);
+  }
+}
+
+// Seed default grading rubrics for common categories
+async function seedDefaultGradingRubrics(db: DatabaseAdapter): Promise<void> {
+  const categories = ['PHONE', 'TABLET', 'LAPTOP', 'DESKTOP', 'TV', 'MONITOR', 'AUDIO', 'GAMING', 'WEARABLE', 'APPLIANCE', 'OTHER'];
+  const grades = [
+    { grade: 'A', min: 90, max: 100, warranty: 1, maxDefects: 0, cosmetic: 'Like new, no visible wear', functional: 'All features working perfectly' },
+    { grade: 'B', min: 75, max: 89, warranty: 1, maxDefects: 2, cosmetic: 'Minor scratches or wear', functional: 'All core features working' },
+    { grade: 'C', min: 60, max: 74, warranty: 1, maxDefects: 4, cosmetic: 'Visible wear, light scratches', functional: 'Functional with minor issues' },
+    { grade: 'D', min: 40, max: 59, warranty: 0, maxDefects: 6, cosmetic: 'Significant cosmetic damage', functional: 'Functional but needs repair' },
+    { grade: 'F', min: 0, max: 39, warranty: 0, maxDefects: 99, cosmetic: 'Heavy damage', functional: 'Parts only or non-functional' },
+  ];
+
+  for (const category of categories) {
+    for (const g of grades) {
+      const id = randomUUID();
+      const criteria = JSON.stringify([
+        { name: 'Screen/Display', weight: 25, type: 'score' },
+        { name: 'Body/Housing', weight: 20, type: 'score' },
+        { name: 'Buttons/Ports', weight: 15, type: 'score' },
+        { name: 'Battery/Power', weight: 20, type: 'score' },
+        { name: 'Functionality', weight: 20, type: 'score' },
+      ]);
+      await db.query(`
+        INSERT OR IGNORE INTO grading_rubrics (id, category, grade, min_score, max_score, criteria, cosmetic_requirements, functional_requirements, max_defect_count, warranty_eligible)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `, [id, category, g.grade, g.min, g.max, criteria, g.cosmetic, g.functional, g.maxDefects, g.warranty]);
+    }
+  }
 }
 
 // ==================== SHARED ITEM MODEL ACCESS ====================

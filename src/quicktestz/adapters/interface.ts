@@ -44,6 +44,10 @@ export function getAdapter(controllerType: string): PowerControllerAdapter {
       return new SnmpPduAdapter();
     case 'MANUAL':
       return new ManualAdapter();
+    case 'SCPI_INSTRUMENT':
+      throw new Error(
+        'SCPI_INSTRUMENT requires an instrumentId. Use ScpiInstrumentAdapter constructor directly.'
+      );
     default:
       throw new Error(`Unknown controller type: ${controllerType}`);
   }

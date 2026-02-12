@@ -13,7 +13,8 @@ export type ControllerType =
   | 'SHELLY_GEN2_HTTP'
   | 'IOTAWATT_HTTP'
   | 'SNMP_PDU'
-  | 'MANUAL';
+  | 'MANUAL'
+  | 'SCPI_INSTRUMENT';
 
 export type NetworkType = 'LAN' | 'WiFi' | 'None';
 
@@ -21,7 +22,8 @@ export type IntegrationType =
   | 'SHELLY_GEN2_HTTP'
   | 'IOTAWATT_HTTP'
   | 'SNMP_PDU'
-  | 'MANUAL';
+  | 'MANUAL'
+  | 'SCPI_INSTRUMENT';
 
 // ==================== EQUIPMENT CATALOG ====================
 
@@ -259,6 +261,7 @@ export const CONTROLLER_TYPE_DISPLAY: Record<ControllerType, string> = {
   IOTAWATT_HTTP: 'IoTaWatt (HTTP)',
   SNMP_PDU: 'SNMP PDU',
   MANUAL: 'Manual',
+  SCPI_INSTRUMENT: 'SCPI Instrument',
 };
 
 export const TEST_RUN_STATUS_DISPLAY: Record<TestRunStatus, string> = {
