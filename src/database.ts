@@ -91,10 +91,12 @@ class SQLiteAdapter implements DatabaseAdapter {
     const finalSQL = convertedSQL || sql;
     const finalParams = expandedParams.length > 0 ? expandedParams : params;
 
-    // Convert BigInt params to strings for SQLite
-    const sqliteParams = finalParams.map(p =>
-      typeof p === 'bigint' ? p.toString() : p
-    );
+    // Convert BigInt and Boolean params for SQLite compatibility
+    const sqliteParams = finalParams.map(p => {
+      if (typeof p === 'bigint') return p.toString();
+      if (typeof p === 'boolean') return p ? 1 : 0;
+      return p;
+    });
 
     const upperSQL = finalSQL.trim().toUpperCase();
 
@@ -419,9 +421,9 @@ async function initializePostgres(db: DatabaseAdapter): Promise<void> {
   // Ensure shared sequences exist
   await ensureSequences();
 
-  // Create pallets table
+  // Create refurb_pallets table (renamed to avoid conflict with shared QuickWMS pallets table)
   await db.query(`
-    CREATE TABLE IF NOT EXISTS pallets (
+    CREATE TABLE IF NOT EXISTS refurb_pallets (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       pallet_id TEXT UNIQUE NOT NULL,
       retailer TEXT NOT NULL,
@@ -450,7 +452,7 @@ async function initializePostgres(db: DatabaseAdapter): Promise<void> {
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       qlid_tick BIGINT UNIQUE NOT NULL,
       qlid TEXT UNIQUE NOT NULL,
-      qr_pallet_id TEXT REFERENCES pallets(pallet_id),
+      qr_pallet_id TEXT REFERENCES refurb_pallets(pallet_id),
       pallet_id TEXT NOT NULL,
       barcode_value TEXT,
       intake_employee_id TEXT NOT NULL,
@@ -1321,6 +1323,46 @@ async function initializePostgres(db: DatabaseAdapter): Promise<void> {
   `);
 
   await db.query(`CREATE INDEX IF NOT EXISTS idx_test_readings_run_ts ON test_readings(test_run_id, ts)`);
+
+  // Station logins - track station activity and heartbeats
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS station_logins (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID REFERENCES users(id),
+      station_id TEXT NOT NULL,
+      event TEXT NOT NULL,
+      ip_address TEXT,
+      user_agent TEXT,
+      metadata JSONB DEFAULT '{}',
+      created_at TIMESTAMPTZ DEFAULT now()
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_station_logins_station ON station_logins(station_id)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_station_logins_user ON station_logins(user_id)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_station_logins_event ON station_logins(event)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_station_logins_created ON station_logins(created_at)`);
+
+  // Printer settings - saved printer configurations per user/station
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS printer_settings (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID REFERENCES users(id),
+      station_id TEXT,
+      printer_ip TEXT NOT NULL,
+      printer_name TEXT,
+      printer_model TEXT,
+      label_width_mm NUMERIC NOT NULL DEFAULT 50.8,
+      label_height_mm NUMERIC NOT NULL DEFAULT 25.4,
+      print_density_dpi INTEGER NOT NULL DEFAULT 203,
+      is_default BOOLEAN DEFAULT true,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_printer_settings_user ON printer_settings(user_id)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_printer_settings_station ON printer_settings(station_id)`);
 }
 
 async function initializeSQLite(db: DatabaseAdapter): Promise<void> {
@@ -1361,9 +1403,9 @@ async function initializeSQLite(db: DatabaseAdapter): Promise<void> {
     )
   `);
 
-  // Pallets table (for SQLite mode)
+  // Refurb pallets table (for SQLite mode - renamed to avoid conflict with shared QuickWMS pallets table)
   await db.query(`
-    CREATE TABLE IF NOT EXISTS pallets (
+    CREATE TABLE IF NOT EXISTS refurb_pallets (
       id TEXT PRIMARY KEY,
       pallet_id TEXT UNIQUE NOT NULL,
       retailer TEXT NOT NULL,
@@ -1392,7 +1434,7 @@ async function initializeSQLite(db: DatabaseAdapter): Promise<void> {
       id TEXT PRIMARY KEY,
       qlid_tick INTEGER UNIQUE NOT NULL,
       qlid TEXT UNIQUE NOT NULL,
-      qr_pallet_id TEXT REFERENCES pallets(pallet_id),
+      qr_pallet_id TEXT REFERENCES refurb_pallets(pallet_id),
       pallet_id TEXT NOT NULL,
       barcode_value TEXT,
       intake_employee_id TEXT NOT NULL,
@@ -2414,6 +2456,48 @@ async function initializeSQLite(db: DatabaseAdapter): Promise<void> {
   await db.query(`CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_sub ON webhook_deliveries(subscription_id)`);
   await db.query(`CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_status ON webhook_deliveries(status)`);
   await db.query(`CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_retry ON webhook_deliveries(next_retry_at)`);
+
+  // Station logins - track station activity and heartbeats
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS station_logins (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      station_id TEXT NOT NULL,
+      event TEXT NOT NULL,
+      ip_address TEXT,
+      user_agent TEXT,
+      metadata TEXT DEFAULT '{}',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_station_logins_station ON station_logins(station_id)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_station_logins_user ON station_logins(user_id)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_station_logins_event ON station_logins(event)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_station_logins_created ON station_logins(created_at)`);
+
+  // Printer settings - saved printer configurations per user/station
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS printer_settings (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      station_id TEXT,
+      printer_ip TEXT NOT NULL,
+      printer_name TEXT,
+      printer_model TEXT,
+      label_width_mm REAL NOT NULL DEFAULT 50.8,
+      label_height_mm REAL NOT NULL DEFAULT 25.4,
+      print_density_dpi INTEGER NOT NULL DEFAULT 203,
+      is_default INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `);
+
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_printer_settings_user ON printer_settings(user_id)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_printer_settings_station ON printer_settings(station_id)`);
 
   // Seed default grading rubrics if empty
   const rubricCheck = await db.query(`SELECT COUNT(*) as count FROM grading_rubrics`);

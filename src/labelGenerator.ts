@@ -10,6 +10,13 @@ import bwipjs from 'bwip-js';
 import type { LabelData, RefurbLabelData } from './types.js';
 import { getRetailerFromPalletId, RETAILER_DISPLAY, GRADE_DISPLAY, CATEGORY_DISPLAY } from './types.js';
 
+export const LABEL_PRESETS: Record<string, { widthMm: number; heightMm: number; dpi: number; name: string }> = {
+  '2x1':   { widthMm: 50.8, heightMm: 25.4, dpi: 203, name: '2" x 1"' },
+  '2x1.5': { widthMm: 50.8, heightMm: 38.1, dpi: 203, name: '2" x 1.5"' },
+  '4x2':   { widthMm: 101.6, heightMm: 50.8, dpi: 203, name: '4" x 2"' },
+  '4x6':   { widthMm: 101.6, heightMm: 152.4, dpi: 203, name: '4" x 6"' },
+};
+
 export interface LabelOptions {
   width?: number;      // Label width in mm (default: 50)
   height?: number;     // Label height in mm (default: 25)
@@ -63,7 +70,7 @@ export async function generateLabel(
 /**
  * Generate ZPL (Zebra Programming Language) for direct thermal printing
  */
-function generateZPL(labelData: LabelData, widthDots: number, heightDots: number): string {
+export function generateZPL(labelData: LabelData, widthDots: number, heightDots: number): string {
   const retailer = getRetailerFromPalletId(labelData.palletId);
   const retailerName = RETAILER_DISPLAY[retailer];
   const timestamp = labelData.timestamp.toISOString().replace('T', ' ').slice(0, 19);
@@ -191,18 +198,23 @@ export async function generatePalletLabel(pallet: PalletLabelData): Promise<{ pn
 /**
  * Generate ZPL for pallet-only label
  */
-export function generatePalletZPL(pallet: PalletLabelData): string {
+export function generatePalletZPL(pallet: PalletLabelData, widthDots?: number, heightDots?: number): string {
   const retailerName = RETAILER_DISPLAY[pallet.retailer as keyof typeof RETAILER_DISPLAY] || pallet.retailer;
   const sourceName = pallet.liquidationSource;
 
-  // ZPL for 2" x 1" label at 203 DPI
+  const w = widthDots || 406; // default 2" at 203 DPI
+  const h = heightDots || 203; // default 1" at 203 DPI
+  const sx = w / 406;
+  const sy = h / 203;
+
+  // ZPL for label at given size (default 2" x 1" at 203 DPI)
   return `
 ^XA
-^FO20,15^A0N,28,28^FD${pallet.palletId}^FS
-^FO20,50^BY3^BCN,70,Y,N,N^FD${pallet.palletId}^FS
-^FO20,135^A0N,20,20^FD${retailerName}^FS
-^FO20,160^A0N,18,18^FD${sourceName}^FS
-^FO20,185^A0N,16,16^FDItems: ${pallet.receivedItems} / ${pallet.expectedItems}^FS
+^FO${Math.round(20*sx)},${Math.round(15*sy)}^A0N,${Math.round(28*sy)},${Math.round(28*sx)}^FD${pallet.palletId}^FS
+^FO${Math.round(20*sx)},${Math.round(50*sy)}^BY3^BCN,${Math.round(70*sy)},Y,N,N^FD${pallet.palletId}^FS
+^FO${Math.round(20*sx)},${Math.round(135*sy)}^A0N,${Math.round(20*sy)},${Math.round(20*sx)}^FD${retailerName}^FS
+^FO${Math.round(20*sx)},${Math.round(160*sy)}^A0N,${Math.round(18*sy)},${Math.round(18*sx)}^FD${sourceName}^FS
+^FO${Math.round(20*sx)},${Math.round(185*sy)}^A0N,${Math.round(16*sy)},${Math.round(16*sx)}^FDItems: ${pallet.receivedItems} / ${pallet.expectedItems}^FS
 ^XZ
 `.trim();
 }
@@ -258,29 +270,90 @@ export async function generateRefurbLabel(item: RefurbLabelData): Promise<{ png:
 }
 
 /**
- * Generate ZPL for refurbished item label
+ * Generate ZPL for refurbished item label with enhanced grade badge
  * 2" x 1.5" label format at 203 DPI
  */
-export function generateRefurbZPL(item: RefurbLabelData): string {
+export function generateRefurbZPL(item: RefurbLabelData, widthDots?: number, heightDots?: number): string {
   const gradeDisplay = GRADE_DISPLAY[item.finalGrade] || item.finalGrade;
   const categoryDisplay = CATEGORY_DISPLAY[item.category] || item.category;
   const retailerDisplay = item.retailer ? (RETAILER_DISPLAY[item.retailer] || item.retailer) : '';
-  const warrantyText = item.warrantyEligible ? 'WARRANTY ELIGIBLE' : '';
+  const warrantyText = item.warrantyEligible ? 'WARRANTY' : '';
   const dateStr = item.completedAt.toISOString().split('T')[0];
 
-  // ZPL for 2" x 1.5" label at 203 DPI
+  const w = widthDots || 406; // default 2" at 203 DPI
+  const h = heightDots || 305; // default 1.5" at 203 DPI
+  const sx = w / 406;
+  const sy = h / 305;
+
+  // Grade badge - prominent box with grade letter
+  const gradeBadge = `
+^FO${Math.round(350*sx)},${Math.round(10*sy)}^GB${Math.round(50*sx)},${Math.round(50*sy)},${Math.round(50*sx)},B^FS
+^FO${Math.round(350*sx)},${Math.round(10*sy)}^FR^A0N,${Math.round(44*sy)},${Math.round(44*sx)}^FW1^FD${item.finalGrade}^FS
+  `.trim();
+
+  // Warranty badge if eligible
+  const warrantyBadge = item.warrantyEligible ? `
+^FO${Math.round(350*sx)},${Math.round(70*sy)}^GB${Math.round(50*sx)},${Math.round(20*sy)},2,B^FS
+^FO${Math.round(352*sx)},${Math.round(72*sy)}^A0N,${Math.round(14*sy)},${Math.round(14*sx)}^FDWARRANTY^FS
+  `.trim() : '';
+
+  // ZPL for label at given size (default 2" x 1.5" at 203 DPI) with QR code
+  // QR code links to item lookup URL
+  const qrData = item.certificationId
+    ? `${process.env.PUBLIC_URL || 'https://quickrefurbz.com'}/verify/${item.certificationId}`
+    : item.qsku;
+
   return `
 ^XA
-^FO20,10^A0N,24,24^FDREFURBISHED^FS
-^FO20,40^BY3^BCN,60,Y,N,N^FD${item.qsku}^FS
-^FO20,115^A0N,20,20^FD${item.manufacturer} ${item.model}^FS
-^FO20,140^A0N,18,18^FD${categoryDisplay}${retailerDisplay ? ` | ${retailerDisplay}` : ''}^FS
-^FO20,165^A0N,22,22^FDGrade: ${gradeDisplay}^FS
-${warrantyText ? `^FO250,165^A0N,18,18^FD${warrantyText}^FS` : ''}
-^FO20,195^A0N,14,14^FD${dateStr}${item.serialNumber ? ` | S/N: ${item.serialNumber}` : ''}^FS
-${item.certificationId ? `^FO20,215^A0N,12,12^FDCert: ${item.certificationId}^FS` : ''}
+^FO${Math.round(20*sx)},${Math.round(10*sy)}^A0N,${Math.round(24*sy)},${Math.round(24*sx)}^FDREFURBISHED^FS
+${gradeBadge}
+${warrantyBadge}
+^FO${Math.round(20*sx)},${Math.round(40*sy)}^BY2,3.0^BCN,${Math.round(50*sy)},Y,N,N^FD${item.qsku}^FS
+^FO${Math.round(20*sx)},${Math.round(105*sy)}^A0N,${Math.round(18*sy)},${Math.round(18*sx)}^FD${(item.manufacturer + ' ' + item.model).slice(0, 30)}^FS
+^FO${Math.round(20*sx)},${Math.round(128*sy)}^A0N,${Math.round(14*sy)},${Math.round(14*sx)}^FD${categoryDisplay}${retailerDisplay ? ` | ${retailerDisplay}` : ''}^FS
+^FO${Math.round(20*sx)},${Math.round(150*sy)}^A0N,${Math.round(12*sy)},${Math.round(12*sx)}^FD${dateStr}${item.serialNumber ? ` | S/N: ${item.serialNumber}` : ''}^FS
+^FO${Math.round(20*sx)},${Math.round(170*sy)}^A0N,${Math.round(10*sy)},${Math.round(10*sx)}^FDGrade ${gradeDisplay} | ${item.certificationId || 'Pending Cert'}^FS
+^FO${Math.round(300*sx)},${Math.round(100*sy)}^BQN,2,3^FDLA,${qrData}^FS
 ^XZ
 `.trim();
+}
+
+/**
+ * Generate enhanced refurb label with QR code
+ */
+export async function generateEnhancedRefurbLabel(item: RefurbLabelData): Promise<{
+  png: Buffer;
+  qrPng: Buffer;
+  zpl: string;
+}> {
+  // Generate main Code128 barcode
+  const png = await bwipjs.toBuffer({
+    bcid: 'code128',
+    text: item.qsku,
+    scale: 4,
+    height: 12,
+    includetext: true,
+    textxalign: 'center',
+    textsize: 10,
+    paddingwidth: 4,
+    paddingheight: 4
+  });
+
+  // Generate QR code for quick lookup
+  const qrData = item.certificationId
+    ? `${process.env.PUBLIC_URL || 'https://quickrefurbz.com'}/verify/${item.certificationId}`
+    : item.qsku;
+
+  const qrPng = await bwipjs.toBuffer({
+    bcid: 'qrcode',
+    text: qrData,
+    scale: 3,
+    padding: 2
+  } as any);
+
+  const zpl = generateRefurbZPL(item);
+
+  return { png, qrPng, zpl };
 }
 
 /**

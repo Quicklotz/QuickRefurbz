@@ -33,11 +33,13 @@ export async function generateRfbQlid(): Promise<{ tick: bigint; qlid: string }>
     const result = await db.query<{ nextval: string }>(
       "SELECT nextval('qlid_sequence') as nextval"
     );
+    if (!result.rows.length) throw new Error('Failed to generate QLID: sequence returned no rows');
     tick = BigInt(result.rows[0].nextval);
   } else {
     // SQLite: use local sequence
     await db.query('INSERT INTO qlid_sequence (placeholder) VALUES (1)');
     const result = await db.query<{ id: number }>('SELECT last_insert_rowid() as id');
+    if (!result.rows.length) throw new Error('Failed to generate QLID: last_insert_rowid returned no rows');
     tick = BigInt(result.rows[0].id);
   }
 
@@ -62,10 +64,12 @@ export async function generateRfbPalletId(retailer: Retailer): Promise<string> {
     const result = await db.query<{ nextval: string }>(
       "SELECT nextval('rfb_pallet_sequence') as nextval"
     );
+    if (!result.rows.length) throw new Error('Failed to generate pallet ID: sequence returned no rows');
     num = parseInt(result.rows[0].nextval);
   } else {
     await db.query('INSERT INTO rfb_pallet_sequence (placeholder) VALUES (1)');
     const result = await db.query<{ id: number }>('SELECT last_insert_rowid() as id');
+    if (!result.rows.length) throw new Error('Failed to generate pallet ID: last_insert_rowid returned no rows');
     num = result.rows[0].id;
   }
 

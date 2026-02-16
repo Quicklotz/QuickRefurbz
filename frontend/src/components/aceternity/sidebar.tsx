@@ -303,6 +303,43 @@ export const SidebarToggle = ({ className }: { className?: string }) => {
   );
 };
 
+export const SidebarSection = ({
+  title,
+  children,
+  className,
+}: {
+  title: string;
+  children: React.ReactNode;
+  className?: string;
+}) => {
+  const { open, animate } = useSidebar();
+
+  return (
+    <div className={cn("mb-4", className)}>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: animate ? 0.15 : 0 }}
+            className="px-3 mb-2"
+          >
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+              {title}
+            </span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      <div className="space-y-0.5">{children}</div>
+    </div>
+  );
+};
+
+export const SidebarDivider = ({ className }: { className?: string }) => {
+  return <div className={cn("h-px bg-border mx-3 my-3", className)} />;
+};
+
 export const SidebarUserSection = ({
   avatar,
   name,

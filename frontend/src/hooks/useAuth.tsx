@@ -1,17 +1,19 @@
+"use client";
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { api } from '../api/client';
+import { api } from '@/api/client';
 
 interface User {
   id: string;
-  email: string;
+  username: string;
   name: string;
-  role: string;
+  email: string;
+  role: 'admin' | 'technician' | 'viewer';
 }
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -22,12 +24,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = api.getToken();
+    // Check for existing session on mount
+    const token = localStorage.getItem('auth_token');
     if (token) {
-      api.me()
-        .then(({ user }) => setUser(user))
+      api.getCurrentUser()
+        .then(setUser)
         .catch(() => {
-          api.setToken(null);
+          localStorage.removeItem('auth_token');
         })
         .finally(() => setLoading(false));
     } else {
@@ -35,13 +38,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const login = async (email: string, password: string) => {
-    const { user } = await api.login(email, password);
-    setUser(user);
+  const login = async (username: string, password: string) => {
+    const response = await api.login(username, password);
+    localStorage.setItem('auth_token', response.token);
+    setUser(response.user);
   };
 
   const logout = () => {
-    api.logout();
+    localStorage.removeItem('auth_token');
     setUser(null);
   };
 

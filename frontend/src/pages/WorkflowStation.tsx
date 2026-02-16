@@ -12,7 +12,10 @@ import {
   ChevronRight,
   Ban,
   RotateCcw,
-  Printer
+  Printer,
+  Camera,
+  Upload,
+  Trash2,
 } from 'lucide-react';
 import { api } from '@/api/client';
 import { ProgressIndicator } from '@/components/workflow/ProgressIndicator';
@@ -23,7 +26,6 @@ import { Input } from '@/components/aceternity/input';
 import { Label } from '@/components/aceternity/label';
 import { Button } from '@/components/aceternity/button';
 import { AnimatedModal } from '@/components/aceternity/animated-modal';
-import { TextGenerateEffect } from '@/components/aceternity/text-generate-effect';
 import { PriorityBadge } from '@/components/shared/Badge';
 import { cn } from '@/lib/utils';
 
@@ -74,6 +76,9 @@ export function WorkflowStation() {
   const [certifyData, setCertifyData] = useState({ finalGrade: 'B', warrantyEligible: true, notes: '' });
   const [showBlockModal, setShowBlockModal] = useState(false);
   const [showCertifyModal, setShowCertifyModal] = useState(false);
+  const [refurbPhotos, setRefurbPhotos] = useState<File[]>([]);
+  const [photoPreviewUrls, setPhotoPreviewUrls] = useState<string[]>([]);
+  const [uploadingPhotos, setUploadingPhotos] = useState(false);
   const [showRefurbLabelModal, setShowRefurbLabelModal] = useState(false);
 
   const loadPrompt = useCallback(async (qlid: string) => {
@@ -188,22 +193,50 @@ export function WorkflowStation() {
     }
   };
 
+  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    setRefurbPhotos(prev => [...prev, ...files]);
+    const urls = files.map(f => URL.createObjectURL(f));
+    setPhotoPreviewUrls(prev => [...prev, ...urls]);
+  };
+
+  const removePhoto = (index: number) => {
+    URL.revokeObjectURL(photoPreviewUrls[index]);
+    setRefurbPhotos(prev => prev.filter((_, i) => i !== index));
+    setPhotoPreviewUrls(prev => prev.filter((_, i) => i !== index));
+  };
+
   const handleCertify = async () => {
     if (!prompt) return;
 
     setActionLoading(true);
     try {
+      // Upload photos first if any
+      if (refurbPhotos.length > 0) {
+        setUploadingPhotos(true);
+        await api.uploadRefurbPhotos(prompt.job.qlid, refurbPhotos);
+        setUploadingPhotos(false);
+      }
+
       await api.certifyJob(prompt.job.qlid, {
         finalGrade: certifyData.finalGrade,
         warrantyEligible: certifyData.warrantyEligible,
         notes: certifyData.notes
       });
+
+      // Clean up photo previews
+      photoPreviewUrls.forEach(url => URL.revokeObjectURL(url));
+      setRefurbPhotos([]);
+      setPhotoPreviewUrls([]);
+
       setShowCertifyModal(false);
       await loadPrompt(prompt.job.qlid);
       // Show the refurb label modal after certification completes
       setShowRefurbLabelModal(true);
     } catch (err: any) {
       setError(err.message);
+      setUploadingPhotos(false);
     } finally {
       setActionLoading(false);
     }
@@ -435,17 +468,10 @@ export function WorkflowStation() {
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       {/* Header */}
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-      >
-        <h1 className="text-3xl font-bold text-white mb-2">Workflow Station</h1>
-        <TextGenerateEffect
-          words="Scan an item to begin the refurbishment process"
-          className="text-zinc-400 text-sm"
-          duration={0.3}
-        />
-      </motion.div>
+      <div>
+        <h1 className="text-2xl font-bold text-white">Workflow Station</h1>
+        <p className="text-zinc-400 text-sm mt-1">Scan an item to begin refurbishment</p>
+      </div>
 
       {/* Scan Input */}
       <AnimatePresence>
@@ -620,13 +646,62 @@ export function WorkflowStation() {
             />
           </div>
 
+          {/* Refurb Photos */}
+          <div>
+            <Label className="mb-2 block">Refurbished Product Photos</Label>
+            <p className="text-xs text-zinc-500 mb-3">Take photos of the completed refurbishment (front, back, any notable details)</p>
+
+            {/* Photo grid */}
+            {photoPreviewUrls.length > 0 && (
+              <div className="grid grid-cols-3 gap-2 mb-3">
+                {photoPreviewUrls.map((url, i) => (
+                  <div key={i} className="relative group aspect-square rounded-lg overflow-hidden border border-border">
+                    <img src={url} alt={`Photo ${i + 1}`} className="w-full h-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => removePhoto(i)}
+                      className="absolute top-1 right-1 w-6 h-6 bg-black/70 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <Trash2 size={12} className="text-white" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Upload button */}
+            <label className="flex items-center justify-center gap-2 px-4 py-3 rounded-lg border-2 border-dashed border-border hover:border-ql-yellow/50 cursor-pointer transition-colors bg-dark-tertiary/50">
+              <Camera size={18} className="text-zinc-400" />
+              <span className="text-sm text-zinc-400">
+                {photoPreviewUrls.length > 0 ? 'Add more photos' : 'Take or upload photos'}
+              </span>
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                capture="environment"
+                onChange={handlePhotoSelect}
+                className="sr-only"
+              />
+            </label>
+          </div>
+
           <div className="flex justify-end gap-3">
             <Button variant="secondary" onClick={() => setShowCertifyModal(false)}>
               Cancel
             </Button>
-            <Button variant="primary" onClick={handleCertify} loading={actionLoading}>
-              <Award size={16} />
-              Certify Item
+            <Button variant="primary" onClick={handleCertify} loading={actionLoading || uploadingPhotos}>
+              {uploadingPhotos ? (
+                <>
+                  <Upload size={16} />
+                  Uploading photos...
+                </>
+              ) : (
+                <>
+                  <Award size={16} />
+                  Certify Item{refurbPhotos.length > 0 ? ` (${refurbPhotos.length} photos)` : ''}
+                </>
+              )}
             </Button>
           </div>
         </div>

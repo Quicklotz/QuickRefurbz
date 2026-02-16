@@ -1,5 +1,16 @@
+"use client";
 import { useState } from 'react';
 import { api } from '../api/client';
+import { Input } from '@/components/aceternity/input';
+import { Label } from '@/components/aceternity/label';
+import { Button } from '@/components/aceternity/button';
+import {
+  IconUser,
+  IconDeviceDesktop,
+  IconBuilding,
+  IconAlertCircle,
+  IconArrowRight,
+} from '@tabler/icons-react';
 
 interface SessionPromptProps {
   onSessionStarted: (session: any) => void;
@@ -37,199 +48,142 @@ export function SessionPrompt({ onSessionStarted }: SessionPromptProps) {
   };
 
   return (
-    <div className="session-prompt-overlay">
-      <div className="session-prompt">
-        <div className="session-header">
-          <h1>QuickRefurbz</h1>
-          <p className="session-date">{today}</p>
+    <div className="fixed inset-0 bg-[var(--color-dark-primary)] flex items-center justify-center p-4 z-[2000]">
+      {/* Subtle background pattern */}
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(212,168,0,0.05),transparent_50%)]" />
+
+      <div className="relative z-10 w-full max-w-md">
+        <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-dark-card)] overflow-hidden shadow-2xl">
+          {/* Header */}
+          <div className="bg-gradient-to-r from-[var(--color-ql-yellow)] to-[#E5C040] px-6 py-5">
+            <div className="text-center">
+              <h1 className="text-3xl font-bold text-black tracking-tight">
+                QuickRefurbz
+              </h1>
+              <p className="text-black/70 text-sm mt-1 font-medium">{today}</p>
+            </div>
+          </div>
+
+          {/* Body */}
+          <div className="p-6">
+            <div className="text-center mb-6">
+              <h2 className="text-xl font-semibold text-white">
+                Start Your Work Session
+              </h2>
+              <p className="text-zinc-400 text-sm mt-1">
+                Enter your session details to continue
+              </p>
+            </div>
+
+            {/* Error Message */}
+            {error && (
+              <div className="flex items-center gap-3 p-4 mb-4 bg-[var(--color-accent-red)]/10 border border-[var(--color-accent-red)]/30 rounded-xl">
+                <IconAlertCircle size={18} className="text-[var(--color-accent-red)] flex-shrink-0" />
+                <span className="text-sm text-[var(--color-accent-red)]">{error}</span>
+              </div>
+            )}
+
+            {/* Form */}
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <Label htmlFor="employeeId" className="mb-2 block">
+                  Employee ID
+                </Label>
+                <div className="relative">
+                  <Input
+                    id="employeeId"
+                    type="text"
+                    value={formData.employeeId}
+                    onChange={(e) => setFormData({ ...formData, employeeId: e.target.value })}
+                    placeholder="Enter your employee ID"
+                    className="pl-10"
+                    autoFocus
+                    required
+                  />
+                  <IconUser
+                    size={18}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <Label htmlFor="workstationId" className="mb-2 block">
+                  Workstation ID
+                </Label>
+                <div className="relative">
+                  <Input
+                    id="workstationId"
+                    type="text"
+                    value={formData.workstationId}
+                    onChange={(e) => setFormData({ ...formData, workstationId: e.target.value })}
+                    placeholder="e.g., WS-001"
+                    className="pl-10"
+                    required
+                  />
+                  <IconDeviceDesktop
+                    size={18}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500"
+                  />
+                </div>
+                <p className="text-xs text-zinc-500 mt-1.5 ml-1">
+                  The workstation you are working at
+                </p>
+              </div>
+
+              <div>
+                <Label htmlFor="warehouseId" className="mb-2 block">
+                  Warehouse ID
+                </Label>
+                <div className="relative">
+                  <Input
+                    id="warehouseId"
+                    type="text"
+                    value={formData.warehouseId}
+                    onChange={(e) => setFormData({ ...formData, warehouseId: e.target.value })}
+                    placeholder="e.g., WH-001"
+                    className="pl-10"
+                    required
+                  />
+                  <IconBuilding
+                    size={18}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500"
+                  />
+                </div>
+                <p className="text-xs text-zinc-500 mt-1.5 ml-1">
+                  The warehouse location
+                </p>
+              </div>
+
+              <div className="pt-3">
+                <Button
+                  type="submit"
+                  variant="primary"
+                  className="w-full group"
+                  loading={loading}
+                >
+                  {loading ? (
+                    'Starting Session...'
+                  ) : (
+                    <>
+                      Start Session
+                      <IconArrowRight
+                        size={18}
+                        className="ml-2 group-hover:translate-x-1 transition-transform"
+                      />
+                    </>
+                  )}
+                </Button>
+              </div>
+            </form>
+          </div>
         </div>
 
-        <div className="session-body">
-          <h2>Start Your Work Session</h2>
-          <p className="session-subtitle">Please enter your session details to continue</p>
-
-          {error && (
-            <div className="session-error">
-              {error}
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit}>
-            <div className="form-group">
-              <label className="form-label">Employee ID *</label>
-              <input
-                type="text"
-                className="form-input"
-                value={formData.employeeId}
-                onChange={(e) => setFormData({ ...formData, employeeId: e.target.value })}
-                placeholder="Enter your employee ID"
-                autoFocus
-                required
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Workstation ID *</label>
-              <input
-                type="text"
-                className="form-input"
-                value={formData.workstationId}
-                onChange={(e) => setFormData({ ...formData, workstationId: e.target.value })}
-                placeholder="e.g., WS-001"
-                required
-              />
-              <span className="form-hint">The workstation you are working at</span>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Warehouse ID *</label>
-              <input
-                type="text"
-                className="form-input"
-                value={formData.warehouseId}
-                onChange={(e) => setFormData({ ...formData, warehouseId: e.target.value })}
-                placeholder="e.g., WH-001"
-                required
-              />
-              <span className="form-hint">The warehouse location</span>
-            </div>
-
-            <button type="submit" className="btn btn-primary btn-full" disabled={loading}>
-              {loading ? 'Starting Session...' : 'Start Session'}
-            </button>
-          </form>
-        </div>
+        {/* Subtle footer */}
+        <p className="text-center text-zinc-600 text-xs mt-4">
+          Refurbishment Management System
+        </p>
       </div>
-
-      <style>{`
-        .session-prompt-overlay {
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background: var(--bg-primary);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 2000;
-        }
-
-        .session-prompt {
-          background: var(--bg-card);
-          border: 1px solid var(--border-color);
-          border-radius: 1rem;
-          width: 90%;
-          max-width: 420px;
-          overflow: hidden;
-        }
-
-        .session-header {
-          background: var(--ql-yellow);
-          color: #000;
-          padding: 1.5rem;
-          text-align: center;
-        }
-
-        .session-header h1 {
-          margin: 0;
-          font-size: 1.75rem;
-          font-weight: 700;
-        }
-
-        .session-date {
-          margin: 0.5rem 0 0 0;
-          font-size: 0.875rem;
-          opacity: 0.8;
-        }
-
-        .session-body {
-          padding: 1.5rem;
-        }
-
-        .session-body h2 {
-          margin: 0;
-          font-size: 1.25rem;
-          text-align: center;
-        }
-
-        .session-subtitle {
-          text-align: center;
-          color: var(--text-muted);
-          margin: 0.5rem 0 1.5rem 0;
-          font-size: 0.875rem;
-        }
-
-        .session-error {
-          background: rgba(235, 61, 59, 0.15);
-          color: var(--accent-red);
-          border: 1px solid var(--accent-red);
-          padding: 0.75rem 1rem;
-          border-radius: 0.5rem;
-          margin-bottom: 1rem;
-          font-size: 0.875rem;
-        }
-
-        .form-group {
-          margin-bottom: 1rem;
-        }
-
-        .form-label {
-          display: block;
-          margin-bottom: 0.5rem;
-          font-size: 0.875rem;
-          font-weight: 500;
-        }
-
-        .form-input {
-          width: 100%;
-          padding: 0.75rem 1rem;
-          font-size: 1rem;
-          border: 1px solid var(--border-color);
-          border-radius: 0.5rem;
-          background: var(--bg-tertiary);
-          color: var(--text-primary);
-        }
-
-        .form-input:focus {
-          outline: none;
-          border-color: var(--ql-yellow);
-          box-shadow: 0 0 0 2px rgba(255, 199, 0, 0.2);
-        }
-
-        .form-hint {
-          display: block;
-          font-size: 0.75rem;
-          color: var(--text-muted);
-          margin-top: 0.25rem;
-        }
-
-        .btn-full {
-          width: 100%;
-          margin-top: 1rem;
-        }
-
-        .btn-primary {
-          background: var(--ql-yellow);
-          color: #000;
-          border: none;
-          padding: 0.875rem 1.5rem;
-          font-size: 1rem;
-          font-weight: 600;
-          border-radius: 0.5rem;
-          cursor: pointer;
-          transition: opacity 0.2s;
-        }
-
-        .btn-primary:hover {
-          opacity: 0.9;
-        }
-
-        .btn-primary:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
-        }
-      `}</style>
     </div>
   );
 }

@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>QuickRefurbz - Test Bench Equipment &amp; Setup Guide</title>
+<style>
+  @page { margin: 0.75in; size: letter; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    color: #1a1a1a;
+    line-height: 1.5;
+    max-width: 8.5in;
+    margin: 0 auto;
+    padding: 0.5in;
+    font-size: 11pt;
+  }
+  .header {
+    text-align: center;
+    border-bottom: 3px solid #2563eb;
+    padding-bottom: 16px;
+    margin-bottom: 24px;
+  }
+  .header h1 { margin: 0; font-size: 22pt; color: #1e40af; }
+  .header p { margin: 4px 0 0; color: #6b7280; font-size: 10pt; }
+  h2 {
+    color: #1e40af;
+    border-bottom: 1px solid #dbeafe;
+    padding-bottom: 4px;
+    margin-top: 28px;
+    font-size: 14pt;
+  }
+  h3 { color: #1e3a5f; margin-top: 18px; font-size: 12pt; }
+  .item {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin-bottom: 16px;
+    page-break-inside: avoid;
+  }
+  .item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 6px;
+  }
+  .item-header h3 { margin: 0; }
+  .price { font-weight: bold; color: #059669; font-size: 13pt; }
+  .product-name { font-weight: 600; font-size: 11pt; color: #374151; }
+  .specs { margin: 8px 0; }
+  .specs li { margin-bottom: 2px; font-size: 10pt; }
+  .buy-links { margin: 8px 0 0; }
+  .buy-links a {
+    display: inline-block;
+    background: #2563eb;
+    color: white;
+    padding: 4px 12px;
+    border-radius: 4px;
+    text-decoration: none;
+    font-size: 9pt;
+    margin-right: 6px;
+    margin-bottom: 4px;
+  }
+  .buy-links a:hover { background: #1d4ed8; }
+  .buy-links a.alt {
+    background: white;
+    color: #2563eb;
+    border: 1px solid #2563eb;
+  }
+  .why {
+    font-size: 9.5pt;
+    color: #6b7280;
+    font-style: italic;
+    margin-top: 8px;
+    border-top: 1px dashed #e2e8f0;
+    padding-top: 6px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: 10pt;
+  }
+  th {
+    background: #1e40af;
+    color: white;
+    padding: 8px 10px;
+    text-align: left;
+  }
+  td { padding: 8px 10px; border-bottom: 1px solid #e2e8f0; }
+  tr:nth-child(even) { background: #f8fafc; }
+  .total-row { font-weight: bold; background: #dbeafe !important; }
+  .setup-step {
+    counter-increment: step;
+    padding-left: 36px;
+    position: relative;
+    margin-bottom: 12px;
+  }
+  .setup-step::before {
+    content: counter(step);
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 24px;
+    height: 24px;
+    background: #2563eb;
+    color: white;
+    border-radius: 50%;
+    text-align: center;
+    line-height: 24px;
+    font-size: 10pt;
+    font-weight: bold;
+  }
+  .setup-section { counter-reset: step; }
+  code {
+    background: #f1f5f9;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 9.5pt;
+    font-family: 'SF Mono', 'Menlo', monospace;
+  }
+  pre {
+    background: #1e293b;
+    color: #e2e8f0;
+    padding: 12px 16px;
+    border-radius: 6px;
+    font-size: 9pt;
+    overflow-x: auto;
+    font-family: 'SF Mono', 'Menlo', monospace;
+  }
+  .footer {
+    margin-top: 32px;
+    padding-top: 12px;
+    border-top: 2px solid #2563eb;
+    font-size: 9pt;
+    color: #6b7280;
+    text-align: center;
+  }
+  .note {
+    background: #fef3c7;
+    border-left: 4px solid #f59e0b;
+    padding: 8px 14px;
+    margin: 12px 0;
+    font-size: 10pt;
+    border-radius: 0 6px 6px 0;
+  }
+  .pagebreak { page-break-before: always; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>QuickRefurbz Test Bench</h1>
+  <p>Equipment List, Purchase Links &amp; Setup Guide</p>
+  <p>Prepared February 2026 | Upscaled LLC</p>
+</div>
+
+<h2>Equipment List</h2>
+
+<div class="item">
+  <div class="item-header">
+    <h3>1. SCPI Multimeter</h3>
+    <span class="price">~$493</span>
+  </div>
+  <div class="product-name">Rigol DM3058E &mdash; 5.5-Digit Benchtop Digital Multimeter</div>
+  <ul class="specs">
+    <li>5.5-digit resolution (240,000 counts), True RMS, up to 123 readings/sec</li>
+    <li>Measures: DC/AC Voltage (1000V), DC/AC Current (10A), Resistance, Capacitance, Frequency</li>
+    <li>Interfaces: USB Device, USB Host, RS-232 &mdash; full SCPI command support</li>
+    <li>Compatible with Fluke and Keysight/Agilent command sets</li>
+  </ul>
+  <div class="buy-links">
+    <a href="https://www.amazon.com/Rigol-DM3058E-Digital-Multimeter/dp/B00KBZK1QW">Amazon</a>
+    <a href="https://www.saelig.com/product/dm3058e.htm" class="alt">Saelig</a>
+    <a href="https://www.digikey.com/en/products/detail/rigol-technologies/DM3058E/10468132" class="alt">DigiKey</a>
+  </div>
+  <div class="why">Why: Gold standard budget SCPI benchtop multimeter. Full programmatic control via USB for automated voltage, current, and resistance measurements during refurbishment testing.</div>
+</div>
+
+<div class="item">
+  <div class="item-header">
+    <h3>2. Smart Power Controller</h3>
+    <span class="price">$107</span>
+  </div>
+  <div class="product-name">Shelly Pro 4PM &mdash; DIN-Rail 4-Channel Smart Switch with Power Metering</div>
+  <ul class="specs">
+    <li>4 independent relay channels, 16A per channel (40A total)</li>
+    <li>Per-channel power metering (W, kWh, voltage, current)</li>
+    <li>Wi-Fi, LAN (Ethernet), and Bluetooth connectivity</li>
+    <li>HTTP/REST API and MQTT for automation</li>
+    <li>DIN-rail mountable, 1.8" color display, overpower auto-shutoff</li>
+  </ul>
+  <div class="buy-links">
+    <a href="https://us.shelly.com/products/shelly-pro-4pm">Shelly Official</a>
+    <a href="https://www.amazon.com/Shelly-3800235268049-Pro-4PM/dp/B09CKVZSDY" class="alt">Amazon</a>
+    <a href="https://www.homedepot.com/p/329460285" class="alt">Home Depot</a>
+  </div>
+  <div class="why">Why: Programmatically turn outlets on/off and read power consumption per channel via HTTP. Turn on a refurbished appliance, measure its power draw, and auto-shut-off if anomalous. 4 channels = 4 simultaneous tests.</div>
+</div>
+
+<div class="item">
+  <div class="item-header">
+    <h3>3. Energy Monitor (Optional)</h3>
+    <span class="price">~$300&ndash;389</span>
+  </div>
+  <div class="product-name">IoTaWatt V6.4 &mdash; Open WiFi Electric Power Monitor (Basic Kit)</div>
+  <ul class="specs">
+    <li>14 CT (current transformer) input channels</li>
+    <li>WiFi connected, local HTTP API, open-source firmware</li>
+    <li>Supports split-phase 120/240V (US standard)</li>
+    <li>Outputs to InfluxDB, Emoncms &mdash; no cloud dependency</li>
+  </ul>
+  <div class="buy-links">
+    <a href="https://circuitiq.ai/products/iotawatt-monitoring-basic-kit">CircuitIQ</a>
+    <a href="https://www.amazon.com/dp/B0CTCNH859" class="alt">Amazon</a>
+  </div>
+  <div class="why">Why: Complement to the Shelly. IoTaWatt is monitor-only with 14 channels for detailed per-circuit logging. Start with just the Shelly if budget is tight&mdash;it does both switching and metering.</div>
+</div>
+
+<div class="item">
+  <div class="item-header">
+    <h3>4. GFCI Protected Power Strip</h3>
+    <span class="price">~$50&ndash;108</span>
+  </div>
+  <div class="product-name">Tripp Lite TLM812GF &mdash; 8-Outlet Safety Power Strip with GFCI Plug</div>
+  <ul class="specs">
+    <li>8 outlets with GFCI 5-15P plug, trips at 5mA ground fault</li>
+    <li>All-metal industrial housing, OSHA yellow color</li>
+    <li>12-foot heavy-duty cord, hang holes for bench mounting</li>
+    <li>15A / 120V rating</li>
+  </ul>
+  <div class="buy-links">
+    <a href="https://www.amazon.com/Tripp-Lite-Outlet-Safety-TLM812GF/dp/B000WJ7R4G">Amazon</a>
+    <a href="https://www.homedepot.com/p/334900243" class="alt">Home Depot</a>
+    <a href="https://www.lowes.com/pd/5000870833" class="alt">Lowe's</a>
+  </div>
+  <div class="why">Why: Critical safety device. Refurbished appliances may have ground faults&mdash;the GFCI trips instantly to protect operators. All-metal housing survives shop environments.</div>
+</div>
+
+<div class="item">
+  <div class="item-header">
+    <h3>5. Logic Analyzer</h3>
+    <span class="price">~$18</span>
+  </div>
+  <div class="product-name">SparkFun USB Logic Analyzer &mdash; 24MHz/8-Channel (sigrok compatible)</div>
+  <ul class="specs">
+    <li>8 digital channels, up to 24MHz sampling rate</li>
+    <li>USB Type-C, input voltage 0V&ndash;5.25V</li>
+    <li>Full sigrok/PulseView compatibility, 100+ protocol decoders</li>
+    <li>Protocol decoders: UART, I2C, SPI, and more</li>
+  </ul>
+  <div class="buy-links">
+    <a href="https://www.sparkfun.com/usb-logic-analyzer-24mhz-8-channel.html">SparkFun</a>
+    <a href="https://www.amazon.com/SparkFun-PID-15033-Logic-Analyzer/dp/B07JPKYGPZ" class="alt">Amazon</a>
+    <a href="https://www.amazon.com/HiLetgo-Analyzer-Ferrite-Channel-Arduino/dp/B077LSG5P2" class="alt">Budget Alt (~$12)</a>
+  </div>
+  <div class="why">Why: Debug UART, I2C, SPI communications between test bench components. At under $20 it's disposable-cheap yet fully capable via the sigrok ecosystem.</div>
+</div>
+
+<div class="item">
+  <div class="item-header">
+    <h3>6. Powered USB Hub</h3>
+    <span class="price">$50</span>
+  </div>
+  <div class="product-name">Anker 7-Port USB 3.0 Data Hub with 36W Power Adapter (A7505)</div>
+  <ul class="specs">
+    <li>7 USB 3.0 data ports (5Gbps per port) + 1 charging port</li>
+    <li>36W external power adapter &mdash; no power sag to instruments</li>
+    <li>VIA VL812-B2 chipset &mdash; reliable Mac/PC/Linux support</li>
+  </ul>
+  <div class="buy-links">
+    <a href="https://www.amazon.com/Anker-7-Port-Adapter-Charging-iPhone/dp/B014ZQ07NE">Amazon</a>
+    <a href="https://www.anker.com/products/a7505" class="alt">Anker Official</a>
+  </div>
+  <div class="why">Why: External 36W power supply ensures the multimeter, logic analyzer, and label printer all get clean, stable power without drawing from the host computer's USB bus.</div>
+</div>
+
+<div class="item">
+  <div class="item-header">
+    <h3>7. Current Clamp Meter</h3>
+    <span class="price">$88</span>
+  </div>
+  <div class="product-name">KAIWEETS HT208D &mdash; 1000A AC/DC Inrush Clamp Meter</div>
+  <ul class="specs">
+    <li>AC/DC current up to 1000A, True RMS, 6000 counts</li>
+    <li>Inrush current mode &mdash; critical for motor/compressor startup testing</li>
+    <li>VFD filtering, LoZ (ghost voltage elimination), NCV detection</li>
+    <li>Measures: Current, Voltage, Resistance, Capacitance, Frequency, Temperature</li>
+  </ul>
+  <div class="buy-links">
+    <a href="https://www.amazon.com/KAIWEETS-Temperature-Capacitance-Resistance-Continuity/dp/B08CX6VHWV">Amazon</a>
+    <a href="https://kaiweets.com/products/ht208d-1000a-inrush-clamp-meter" class="alt">KAIWEETS Official</a>
+  </div>
+  <div class="why">Why: Inrush current mode is critical for appliance refurbishment. Captures motor startup peaks non-invasively. AC/DC capability covers mains-powered appliances and DC electronics.</div>
+</div>
+
+<div class="item">
+  <div class="item-header">
+    <h3>8. Label Printer</h3>
+    <span class="price">$170</span>
+  </div>
+  <div class="product-name">Brother QL-810W &mdash; Ultra-Fast Label Printer with Wi-Fi</div>
+  <ul class="specs">
+    <li>110 labels/minute, 300x600 dpi resolution</li>
+    <li>Two-color printing (black + red) &mdash; perfect for PASS/FAIL labels</li>
+    <li>USB + Wi-Fi (802.11b/g/n), AirPrint compatible</li>
+    <li>Automatic cutter, uses standard DK label rolls (no proprietary lock-in)</li>
+  </ul>
+  <div class="buy-links">
+    <a href="https://www.amazon.com/Brother-QL-810W-Ultra-Fast-Wireless-Networking/dp/B01MTWGMRR">Amazon</a>
+    <a href="https://www.brother-usa.com/products/ql810w" class="alt">Brother Official</a>
+    <a href="https://www.bestbuy.com/site/5870905.p" class="alt">Best Buy</a>
+  </div>
+  <div class="note">Avoid DYMO LabelWriter 550 series &mdash; it requires proprietary RFID-tagged label rolls, locking you into DYMO's pricing. The Brother QL-810W uses standard DK rolls with third-party availability.</div>
+  <div class="why">Why: Two-color printing is perfect for test result labels (red for FAIL, black for PASS). Wi-Fi means the printer can be shared across the test bench. Standard label rolls keep costs low.</div>
+</div>
+
+<div class="pagebreak"></div>
+
+<h2>Cost Summary</h2>
+
+<table>
+  <tr>
+    <th>#</th>
+    <th>Item</th>
+    <th>Product</th>
+    <th style="text-align:right">Price</th>
+  </tr>
+  <tr><td>1</td><td>SCPI Multimeter</td><td>Rigol DM3058E</td><td style="text-align:right">$493</td></tr>
+  <tr><td>2</td><td>Smart Power Controller</td><td>Shelly Pro 4PM</td><td style="text-align:right">$107</td></tr>
+  <tr><td>3</td><td>Energy Monitor (optional)</td><td>IoTaWatt V6.4 Basic</td><td style="text-align:right">$300&ndash;389</td></tr>
+  <tr><td>4</td><td>GFCI Power Strip</td><td>Tripp Lite TLM812GF</td><td style="text-align:right">$50&ndash;108</td></tr>
+  <tr><td>5</td><td>Logic Analyzer</td><td>SparkFun 24MHz/8CH</td><td style="text-align:right">$18</td></tr>
+  <tr><td>6</td><td>Powered USB Hub</td><td>Anker 7-Port A7505</td><td style="text-align:right">$50</td></tr>
+  <tr><td>7</td><td>Current Clamp Meter</td><td>KAIWEETS HT208D</td><td style="text-align:right">$88</td></tr>
+  <tr><td>8</td><td>Label Printer</td><td>Brother QL-810W</td><td style="text-align:right">$170</td></tr>
+  <tr class="total-row"><td></td><td colspan="2"><strong>Estimated Total (with IoTaWatt)</strong></td><td style="text-align:right"><strong>$1,275&ndash;1,425</strong></td></tr>
+  <tr class="total-row"><td></td><td colspan="2"><strong>Estimated Total (without IoTaWatt)</strong></td><td style="text-align:right"><strong>$975&ndash;1,035</strong></td></tr>
+</table>
+
+<div class="note"><strong>Budget tip:</strong> Start with items 1, 2, 4, 6, and 8 (~$870). These are the core test bench components. Add the current clamp (#7), logic analyzer (#5), and IoTaWatt (#3) as you scale up.</div>
+
+<h2>Setup Instructions</h2>
+
+<h3>Phase 1: Physical Setup</h3>
+<div class="setup-section">
+  <div class="setup-step">
+    <strong>Mount the GFCI power strip</strong> to your test bench using the hang holes. All test devices plug into this strip. Test the GFCI by pressing the TEST button&mdash;it should trip immediately.
+  </div>
+  <div class="setup-step">
+    <strong>Install the Shelly Pro 4PM</strong> in a DIN-rail enclosure near the bench. Wire it between the GFCI strip and 4 dedicated test outlets. Each channel controls one outlet. Follow Shelly's wiring guide for your electrical configuration (have an electrician verify if needed).
+  </div>
+  <div class="setup-step">
+    <strong>Connect the Shelly to your network</strong> via Ethernet (recommended) or Wi-Fi. Open the Shelly app or navigate to its IP address to configure. Note the IP&mdash;you'll need it for QuickRefurbz.
+  </div>
+  <div class="setup-step">
+    <strong>Set up the USB hub</strong> on the bench near your computer. Plug in the 36W power adapter. Connect the multimeter, logic analyzer, and label printer via USB.
+  </div>
+  <div class="setup-step">
+    <strong>Connect the Rigol DM3058E</strong> via the USB Device port on the rear panel. The instrument should appear as a serial device (e.g., <code>/dev/ttyUSB0</code> on Linux/Mac).
+  </div>
+</div>
+
+<h3>Phase 2: Software Setup</h3>
+<div class="setup-section">
+  <div class="setup-step">
+    <strong>Clone and build QuickRefurbz:</strong>
+    <pre>git clone https://github.com/Quicklotz/QuickRefurbz.git
+cd QuickRefurbz
+npm install
+npm run build</pre>
+  </div>
+  <div class="setup-step">
+    <strong>Initialize the database:</strong>
+    <pre>node dist/enhanced-cli.js init</pre>
+  </div>
+  <div class="setup-step">
+    <strong>Scan for connected instruments:</strong>
+    <pre>node dist/enhanced-cli.js scan</pre>
+    This should detect the Rigol DM3058E on its USB serial port.
+  </div>
+  <div class="setup-step">
+    <strong>Register the multimeter:</strong>
+    <pre>node dist/enhanced-cli.js instrument add</pre>
+    Follow the interactive prompts. Select "SCPI Multimeter", enter the connection path from the scan output.
+  </div>
+  <div class="setup-step">
+    <strong>Verify communication:</strong>
+    <pre>node dist/enhanced-cli.js measure &lt;instrumentId&gt; "*IDN?"</pre>
+    Should return the instrument's identity string (manufacturer, model, serial, firmware).
+  </div>
+  <div class="setup-step">
+    <strong>Install sigrok-cli</strong> (for the logic analyzer):
+    <pre># macOS
+brew install sigrok-cli
+
+# Ubuntu/Debian
+sudo apt install sigrok-cli</pre>
+  </div>
+  <div class="setup-step">
+    <strong>Install Brother printer drivers</strong> from <a href="https://www.brother-usa.com/support/ql810w">brother-usa.com/support/ql810w</a>. The QL-810W works over USB or Wi-Fi.
+  </div>
+</div>
+
+<h3>Phase 3: Create a Test Station</h3>
+<div class="setup-section">
+  <div class="setup-step">
+    <strong>Create a station</strong> via the QuickTestz API or web UI. Set:
+    <ul>
+      <li><strong>Name:</strong> "Bench 1" (or whatever you call it)</li>
+      <li><strong>Controller Type:</strong> SHELLY_GEN2_HTTP</li>
+      <li><strong>Controller Base URL:</strong> http://&lt;shelly-ip&gt; (e.g., http://192.168.1.100)</li>
+      <li><strong>Safety Flags:</strong> GFCI Present = true, Acknowledged By = your name</li>
+    </ul>
+  </div>
+  <div class="setup-step">
+    <strong>Add outlets</strong> to the station (one per Shelly channel):
+    <ul>
+      <li>Channel 0: "Outlet A", Max Amps: 15, On/Off: Yes, Metering: Yes</li>
+      <li>Channel 1: "Outlet B", etc.</li>
+    </ul>
+  </div>
+  <div class="setup-step">
+    <strong>Verify the station:</strong>
+    <pre>node dist/enhanced-cli.js station list
+node dist/enhanced-cli.js station health &lt;stationId&gt;</pre>
+  </div>
+</div>
+
+<h3>Phase 4: Run Your First Integrated Test</h3>
+<div class="setup-section">
+  <div class="setup-step">
+    <strong>Check the overview dashboard:</strong>
+    <pre>node dist/enhanced-cli.js overview</pre>
+    Verify your station, instruments, and any active runs are displayed.
+  </div>
+  <div class="setup-step">
+    <strong>Run an integrated test</strong> (hardware-diag + QuickTestz):
+    <pre>node dist/enhanced-cli.js test start QLID000001 \
+  -c VACUUM \
+  --station &lt;stationId&gt;</pre>
+    This will: energize the outlet via Shelly, run the SCPI test plan, record all readings, compute a PASS/FAIL score, and de-energize.
+  </div>
+  <div class="setup-step">
+    <strong>Review results:</strong>
+    <pre>node dist/enhanced-cli.js testrun list
+node dist/enhanced-cli.js testrun readings &lt;runId&gt;
+node dist/enhanced-cli.js test result QLID000001</pre>
+  </div>
+</div>
+
+<div class="pagebreak"></div>
+
+<h2>Architecture Diagram</h2>
+
+<pre style="font-size: 8pt; line-height: 1.4;">
+  +-------------------+        +-------------------+
+  |   Operator's Mac  |        |   Shelly Pro 4PM  |
+  |  (QuickRefurbz)   |  HTTP  |  (4-Ch Relay +    |
+  |                   |------->|   Power Metering)  |
+  |  qr-enhanced CLI  |        |                   |
+  +--------+----------+        +--------+----------+
+           |                            |
+           | USB                        | 120V AC
+           v                            v
+  +-------------------+        +-------------------+
+  |  Rigol DM3058E    |        |  GFCI Power Strip |
+  |  SCPI Multimeter  |        |  (Tripp Lite)     |
+  |  (Voltage/Current |        |                   |
+  |   Measurement)    |        |  Outlet -> DUT    |
+  +-------------------+        +-------------------+
+
+  +-------------------+        +-------------------+
+  |  Brother QL-810W  |        |  SparkFun Logic   |
+  |  Label Printer    |        |  Analyzer (sigrok)|
+  |  (PASS/FAIL tags) |        |  (Protocol debug) |
+  +-------------------+        +-------------------+
+           |                            |
+           +------------ USB -----------+
+                         |
+                +-------------------+
+                |  Anker USB Hub    |
+                |  (36W Powered)    |
+                +-------------------+
+
+  Data Flow:
+  1. CLI sends HTTP to Shelly -> energize outlet -> appliance powers on
+  2. Shelly polls power (W/V/A) -> recorded as test_readings
+  3. Rigol measures via SCPI -> recorded as hardware_test_step_results
+  4. SCPI results also mapped -> additional test_readings
+  5. Safety monitor watches for spikes -> auto-shutdown if threshold exceeded
+  6. Test completes -> PASS/FAIL computed -> label printed
+</pre>
+
+<h2>Key CLI Commands Reference</h2>
+
+<table>
+  <tr><th>Command</th><th>Description</th></tr>
+  <tr><td><code>qr-enhanced scan</code></td><td>Scan USB/serial ports for instruments</td></tr>
+  <tr><td><code>qr-enhanced instrument add</code></td><td>Register a new instrument (interactive)</td></tr>
+  <tr><td><code>qr-enhanced instrument list</code></td><td>List all registered instruments</td></tr>
+  <tr><td><code>qr-enhanced station list</code></td><td>List test stations with outlets</td></tr>
+  <tr><td><code>qr-enhanced station health &lt;id&gt;</code></td><td>Health-check a station's controller</td></tr>
+  <tr><td><code>qr-enhanced overview</code></td><td>Unified dashboard of everything</td></tr>
+  <tr><td><code>qr-enhanced test start &lt;qlid&gt; -c VACUUM --station &lt;id&gt;</code></td><td>Run integrated test</td></tr>
+  <tr><td><code>qr-enhanced testrun list</code></td><td>List recent test runs</td></tr>
+  <tr><td><code>qr-enhanced testrun status &lt;id&gt;</code></td><td>Show run status + readings</td></tr>
+  <tr><td><code>qr-enhanced testrun readings &lt;id&gt;</code></td><td>Show readings table</td></tr>
+</table>
+
+<div class="footer">
+  <p><strong>QuickRefurbz</strong> by Upscaled LLC | GitHub: github.com/Quicklotz/QuickRefurbz</p>
+  <p>Generated February 2026</p>
+</div>
+
+</body>
+</html>

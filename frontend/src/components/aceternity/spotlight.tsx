@@ -1,50 +1,24 @@
 "use client";
-import React, { useRef, useState } from "react";
-import { motion } from "framer-motion";
+import React from "react";
 import { cn } from "@/lib/utils";
 
-type SpotlightProps = {
-  children: React.ReactNode;
+interface SpotlightProps {
   className?: string;
   spotlightColor?: string;
-};
+  children?: React.ReactNode;
+}
 
 export const Spotlight = ({
-  children,
   className,
-  spotlightColor = "rgba(241, 196, 15, 0.15)",
+  spotlightColor = "rgba(255, 255, 255, 0.1)",
+  children,
 }: SpotlightProps) => {
-  const divRef = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState({ x: 0, y: 0 });
-  const [opacity, setOpacity] = useState(0);
-
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!divRef.current) return;
-    const rect = divRef.current.getBoundingClientRect();
-    setPosition({ x: e.clientX - rect.left, y: e.clientY - rect.top });
-  };
-
-  const handleMouseEnter = () => {
-    setOpacity(1);
-  };
-
-  const handleMouseLeave = () => {
-    setOpacity(0);
-  };
-
   return (
-    <div
-      ref={divRef}
-      onMouseMove={handleMouseMove}
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
-      className={cn("relative overflow-hidden", className)}
-    >
-      <motion.div
-        className="pointer-events-none absolute -inset-px transition-opacity duration-300"
+    <div className={cn("relative overflow-hidden", className)}>
+      <div
+        className="pointer-events-none absolute inset-0 z-10 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
         style={{
-          opacity,
-          background: `radial-gradient(600px circle at ${position.x}px ${position.y}px, ${spotlightColor}, transparent 40%)`,
+          background: `radial-gradient(600px circle at var(--mouse-x, 50%) var(--mouse-y, 50%), ${spotlightColor}, transparent 40%)`,
         }}
       />
       {children}
@@ -52,16 +26,38 @@ export const Spotlight = ({
   );
 };
 
-export const SpotlightCard = ({
-  children,
-  className,
-}: {
-  children: React.ReactNode;
+interface SpotlightCardProps {
   className?: string;
-}) => {
+  children?: React.ReactNode;
+}
+
+export const SpotlightCard = ({
+  className,
+  children,
+}: SpotlightCardProps) => {
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    e.currentTarget.style.setProperty("--mouse-x", `${x}px`);
+    e.currentTarget.style.setProperty("--mouse-y", `${y}px`);
+  };
+
   return (
-    <Spotlight className={cn("rounded-xl border border-border bg-dark-card", className)}>
+    <div
+      onMouseMove={handleMouseMove}
+      className={cn(
+        "group relative overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-dark-card)] transition-colors",
+        className
+      )}
+    >
+      <div
+        className="pointer-events-none absolute inset-0 z-10 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+        style={{
+          background: `radial-gradient(600px circle at var(--mouse-x, 50%) var(--mouse-y, 50%), rgba(241, 196, 15, 0.06), transparent 40%)`,
+        }}
+      />
       {children}
-    </Spotlight>
+    </div>
   );
 };

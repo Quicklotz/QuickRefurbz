@@ -1,5 +1,5 @@
-import { useState, useEffect, createContext, useContext, useCallback } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { useState, useEffect, useRef, createContext, useContext, useCallback } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { PalletSessionProvider } from './contexts/PalletSessionContext';
 import { AppLayout } from './components/layout/AppLayout';
@@ -24,7 +24,12 @@ import { Certifications } from './pages/Certifications';
 import { TestPlans } from './pages/TestPlans';
 import { DeviceDatabase } from './pages/DeviceDatabase';
 import { Verify } from './pages/Verify';
+import Monitor from './pages/Monitor';
+import { Download } from './pages/Download';
+import { StationMonitor } from './pages/StationMonitor';
+import { Help } from './pages/Help';
 import { SessionPrompt } from './components/SessionPrompt';
+import { SetupWizard } from './components/SetupWizard';
 import { Loader } from './components/aceternity/loader';
 import { ToastProvider } from './components/aceternity/toast';
 import { api } from './api/client';
@@ -123,6 +128,70 @@ function SessionProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+// Heartbeat hook — sends station heartbeat every 30s
+function HeartbeatProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const location = useLocation();
+  const locationRef = useRef(location.pathname);
+
+  useEffect(() => {
+    locationRef.current = location.pathname;
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    // Derive station ID from email (station01@quickrefurbz.local → RFB-01)
+    const stationMatch = user.email?.match(/station(\d+)@quickrefurbz\.local/);
+    const stationId = stationMatch ? `RFB-${stationMatch[1]}` : undefined;
+
+    if (!stationId) return; // Only station accounts send heartbeats
+
+    const startTime = Date.now();
+
+    const sendHeartbeat = () => {
+      api.stationHeartbeat({
+        station_id: stationId,
+        current_page: locationRef.current,
+        uptime: Math.floor((Date.now() - startTime) / 1000),
+      }).catch(() => { /* swallow — non-critical */ });
+    };
+
+    // Send immediately, then every 30s
+    sendHeartbeat();
+    const interval = setInterval(sendHeartbeat, 30000);
+    return () => clearInterval(interval);
+  }, [user]);
+
+  return <>{children}</>;
+}
+
+// Setup wizard gate — shows wizard on first login for station accounts
+function SetupWizardGate({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const [needsSetup, setNeedsSetup] = useState(false);
+  const [checked, setChecked] = useState(false);
+
+  useEffect(() => {
+    if (!user) {
+      setChecked(true);
+      return;
+    }
+    const isStation = user.email?.endsWith('@quickrefurbz.local');
+    const setupDone = localStorage.getItem('rfb_setup_complete');
+    setNeedsSetup(!!isStation && !setupDone);
+    setChecked(true);
+  }, [user]);
+
+  if (!checked) return null;
+
+  if (needsSetup) {
+    return <SetupWizard onComplete={() => setNeedsSetup(false)} />;
+  }
+
+  return <>{children}</>;
+}
+
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
 
@@ -138,17 +207,35 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     return <Navigate to="/login" replace />;
   }
 
-  return <SessionProvider>{children}</SessionProvider>;
+  return (
+    <SessionProvider>
+      <SetupWizardGate>
+        {children}
+      </SetupWizardGate>
+    </SessionProvider>
+  );
+}
+
+// Admin-only route wrapper
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  if (user?.role !== 'admin') return <Navigate to="/" replace />;
+  return <>{children}</>;
 }
 
 function AppRoutes() {
   return (
     <Routes>
+      {/* Public routes */}
       <Route path="/login" element={<Login />} />
+      <Route path="/download" element={<Download />} />
       <Route path="/accept-invite" element={<AcceptInvite />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/verify/:certificationId" element={<Verify />} />
+      <Route path="/help" element={<Help />} />
+      <Route path="/help/:section" element={<Help />} />
+      <Route path="/help/:section/:article" element={<Help />} />
       <Route
         path="/"
         element={
@@ -172,7 +259,25 @@ function AppRoutes() {
         <Route path="device-database" element={<DeviceDatabase />} />
         <Route path="users" element={<UserManagement />} />
         <Route path="settings" element={<SettingsPage />} />
+        <Route path="monitor" element={<Monitor />} />
+        <Route
+          path="stations"
+          element={
+            <AdminRoute>
+              <StationMonitor />
+            </AdminRoute>
+          }
+        />
       </Route>
+      {/* Standalone monitor route for monitor.quickrefurbz.com */}
+      <Route
+        path="/monitor-standalone"
+        element={
+          <ProtectedRoute>
+            <Monitor />
+          </ProtectedRoute>
+        }
+      />
     </Routes>
   );
 }
@@ -183,7 +288,9 @@ export default function App() {
       <ToastProvider>
         <PageErrorBoundary>
           <AuthProvider>
-            <AppRoutes />
+            <HeartbeatProvider>
+              <AppRoutes />
+            </HeartbeatProvider>
           </AuthProvider>
         </PageErrorBoundary>
       </ToastProvider>

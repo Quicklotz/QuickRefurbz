@@ -486,6 +486,9 @@ export interface RefurbLabelData {
   completedAt: Date;
   retailer?: Retailer;                 // Original retailer
   serialNumber?: string;
+  rack?: number;                       // Warehouse rack number
+  shelf?: number;                      // Shelf number within rack
+  fullRfbSku?: string;                 // Extended RFB cert SKU: RFB-P1BBY-QLID100001Z-A-R14S06
 }
 
 // ==================== HELPER FUNCTIONS ====================

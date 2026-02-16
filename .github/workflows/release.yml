@@ -1,0 +1,286 @@
+name: Release QuickTestz
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job 1: Build all packages, backend, and frontend
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Build packages/database
+        run: |
+          cd packages/database
+          npm ci
+          npm run build
+
+      - name: Build packages/api
+        run: |
+          cd packages/api
+          npm ci
+          npm run build
+
+      - name: Install backend dependencies
+        run: npm ci
+
+      - name: Build backend
+        run: npm run build
+
+      - name: Install frontend dependencies
+        run: cd frontend && npm ci
+
+      - name: Build frontend
+        run: cd frontend && npm run build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: |
+            dist/
+            frontend/dist/
+            packages/
+            package.json
+            package-lock.json
+            src/
+            scripts/
+          retention-days: 3
+
+  # ---------------------------------------------------------------------------
+  # Job 2: Package macOS .app and .dmg
+  # ---------------------------------------------------------------------------
+  package-macos:
+    name: Package macOS
+    runs-on: macos-latest
+    needs: build
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-output
+          path: .
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install production dependencies
+        run: npm ci --omit=dev
+
+      - name: Determine tag name
+        id: tag
+        run: echo "TAG=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Create macOS .app bundle
+        run: |
+          chmod +x scripts/create-macos-app.sh
+          bash scripts/create-macos-app.sh
+
+      - name: Codesign .app bundle
+        if: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION != '' }}
+        env:
+          DEVELOPER_ID: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION }}
+        run: |
+          codesign --force --deep --sign "$DEVELOPER_ID" QuickTestz.app
+
+      - name: Prepare DMG staging
+        run: |
+          mkdir -p dmg-staging
+          cp -R QuickTestz.app dmg-staging/
+          # Add a symlink to /Applications for drag-and-drop install
+          ln -s /Applications dmg-staging/Applications
+
+      - name: Create DMG
+        env:
+          TAG: ${{ steps.tag.outputs.TAG }}
+        run: |
+          hdiutil create \
+            -volname "QuickTestz" \
+            -srcfolder dmg-staging \
+            -ov \
+            -format UDZO \
+            "QuickTestz-${TAG}.dmg"
+
+      - name: Codesign DMG
+        if: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION != '' }}
+        env:
+          DEVELOPER_ID: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION }}
+        run: |
+          codesign --force --sign "$DEVELOPER_ID" "QuickTestz-${{ steps.tag.outputs.TAG }}.dmg"
+
+      - name: Notarize DMG
+        if: ${{ secrets.APPLE_ID != '' && secrets.APPLE_TEAM_ID != '' && secrets.APPLE_APP_PASSWORD != '' }}
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          TAG: ${{ steps.tag.outputs.TAG }}
+        run: |
+          xcrun notarytool submit "QuickTestz-${TAG}.dmg" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD" \
+            --wait
+
+          xcrun stapler staple "QuickTestz-${TAG}.dmg"
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: QuickTestz-${{ steps.tag.outputs.TAG }}.dmg
+          retention-days: 3
+
+  # ---------------------------------------------------------------------------
+  # Job 3: Package Windows .zip
+  # ---------------------------------------------------------------------------
+  package-windows:
+    name: Package Windows
+    runs-on: windows-latest
+    needs: build
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-output
+          path: .
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install production dependencies
+        run: npm ci --omit=dev
+
+      - name: Determine tag name
+        id: tag
+        shell: bash
+        run: echo "TAG=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Create Windows zip
+        shell: pwsh
+        env:
+          TAG: ${{ steps.tag.outputs.TAG }}
+        run: |
+          $stagingDir = "QuickTestz-win"
+          New-Item -ItemType Directory -Force -Path $stagingDir
+
+          # Copy required directories and files
+          Copy-Item -Recurse -Force "dist" "$stagingDir/dist"
+
+          if (Test-Path "frontend/dist") {
+            New-Item -ItemType Directory -Force -Path "$stagingDir/frontend"
+            Copy-Item -Recurse -Force "frontend/dist" "$stagingDir/frontend/dist"
+          }
+
+          if (Test-Path "scripts") {
+            Copy-Item -Recurse -Force "scripts" "$stagingDir/scripts"
+          }
+
+          Copy-Item -Force "package.json" "$stagingDir/package.json"
+
+          # Copy install.bat if it exists
+          if (Test-Path "install.bat") {
+            Copy-Item -Force "install.bat" "$stagingDir/install.bat"
+          }
+
+          # Copy node_modules for offline install
+          if (Test-Path "node_modules") {
+            Copy-Item -Recurse -Force "node_modules" "$stagingDir/node_modules"
+          }
+
+          # Copy local packages
+          if (Test-Path "packages") {
+            Copy-Item -Recurse -Force "packages" "$stagingDir/packages"
+          }
+
+          Compress-Archive -Path "$stagingDir/*" -DestinationPath "QuickTestz-$env:TAG-windows.zip" -Force
+
+      - name: Upload Windows zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-zip
+          path: QuickTestz-${{ steps.tag.outputs.TAG }}-windows.zip
+          retention-days: 3
+
+  # ---------------------------------------------------------------------------
+  # Job 4: Create GitHub Release with all assets
+  # ---------------------------------------------------------------------------
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [package-macos, package-windows]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download macOS DMG
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-dmg
+          path: release-assets/
+
+      - name: Download Windows zip
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-zip
+          path: release-assets/
+
+      - name: List release assets
+        run: ls -lh release-assets/
+
+      - name: Create GitHub Release
+        id: create_release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" \
+            --title "QuickTestz $TAG" \
+            --generate-notes \
+            release-assets/*
+
+          RELEASE_URL=$(gh release view "$TAG" --json url --jq '.url')
+          echo "release_url=${RELEASE_URL}" >> "$GITHUB_OUTPUT"
+          echo "Release created: ${RELEASE_URL}"
+
+      - name: Output release URL
+        run: echo "Release URL -> ${{ steps.create_release.outputs.release_url }}"

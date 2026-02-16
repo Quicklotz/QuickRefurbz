@@ -37,7 +37,7 @@ export async function createPallet(options: CreatePalletOptions): Promise<Pallet
   const id = generateUUID();
 
   const result = await db.query(`
-    INSERT INTO pallets (
+    INSERT INTO refurb_pallets (
       id, pallet_id, retailer, liquidation_source,
       source_pallet_id, source_order_id, source_manifest_url,
       purchase_date, total_cogs, expected_items,
@@ -59,6 +59,7 @@ export async function createPallet(options: CreatePalletOptions): Promise<Pallet
     options.notes || null
   ]);
 
+  if (!result.rows.length) throw new Error('Failed to insert pallet: INSERT RETURNING returned no rows');
   return rowToPallet(result.rows[0]);
 }
 
@@ -67,7 +68,7 @@ export async function createPallet(options: CreatePalletOptions): Promise<Pallet
 export async function getPalletById(palletId: string): Promise<Pallet | null> {
   const db = getPool();
   const result = await db.query(`
-    SELECT * FROM pallets
+    SELECT * FROM refurb_pallets
     WHERE id = $1 OR pallet_id = $1 OR source_pallet_id = $1
   `, [palletId]);
 
@@ -109,7 +110,7 @@ export async function listPallets(options: ListPalletsOptions = {}): Promise<Pal
     params.push(options.warehouseId);
   }
 
-  let query = 'SELECT * FROM pallets';
+  let query = 'SELECT * FROM refurb_pallets';
   if (conditions.length > 0) {
     query += ' WHERE ' + conditions.join(' AND ');
   }
@@ -204,10 +205,11 @@ export async function updatePallet(
 
   params.push(pallet.id);
   const result = await db.query(
-    `UPDATE pallets SET ${setClause.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
+    `UPDATE refurb_pallets SET ${setClause.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
     params
   );
 
+  if (!result.rows.length) throw new Error('Failed to update pallet: UPDATE RETURNING returned no rows');
   return rowToPallet(result.rows[0]);
 }
 
@@ -275,12 +277,12 @@ export async function deletePallet(palletId: string): Promise<boolean> {
     'SELECT COUNT(*) as count FROM refurb_items WHERE qr_pallet_id = $1',
     [pallet.palletId]
   );
-  const itemCount = parseInt(itemsResult.rows[0].count);
+  const itemCount = itemsResult.rows[0] ? parseInt(itemsResult.rows[0].count) : 0;
   if (itemCount > 0) {
     throw new Error(`Cannot delete pallet with ${itemCount} items. Remove items first.`);
   }
 
-  const result = await db.query('DELETE FROM pallets WHERE id = $1', [pallet.id]);
+  const result = await db.query('DELETE FROM refurb_pallets WHERE id = $1', [pallet.id]);
   return (result.rowCount ?? 0) > 0;
 }
 
@@ -334,13 +336,13 @@ export async function getPalletStats(): Promise<PalletStats> {
   };
 
   // Total count
-  const totalResult = await db.query<{ count: string }>('SELECT COUNT(*) as count FROM pallets');
-  stats.total = parseInt(totalResult.rows[0].count);
+  const totalResult = await db.query<{ count: string }>('SELECT COUNT(*) as count FROM refurb_pallets');
+  stats.total = totalResult.rows[0] ? parseInt(totalResult.rows[0].count) : 0;
 
   // By status
   const statusResult = await db.query<{ status: string; count: string }>(`
     SELECT status, COUNT(*) as count
-    FROM pallets
+    FROM refurb_pallets
     GROUP BY status
   `);
   for (const row of statusResult.rows) {
@@ -350,7 +352,7 @@ export async function getPalletStats(): Promise<PalletStats> {
   // By retailer
   const retailerResult = await db.query<{ retailer: string; count: string }>(`
     SELECT retailer, COUNT(*) as count
-    FROM pallets
+    FROM refurb_pallets
     GROUP BY retailer
   `);
   for (const row of retailerResult.rows) {
@@ -360,7 +362,7 @@ export async function getPalletStats(): Promise<PalletStats> {
   // By source
   const sourceResult = await db.query<{ liquidation_source: string; count: string }>(`
     SELECT liquidation_source, COUNT(*) as count
-    FROM pallets
+    FROM refurb_pallets
     GROUP BY liquidation_source
   `);
   for (const row of sourceResult.rows) {
@@ -369,15 +371,15 @@ export async function getPalletStats(): Promise<PalletStats> {
 
   // Total COGS
   const cogsResult = await db.query<{ total: string }>(`
-    SELECT COALESCE(SUM(total_cogs), 0) as total FROM pallets
+    SELECT COALESCE(SUM(total_cogs), 0) as total FROM refurb_pallets
   `);
-  stats.totalCogs = parseFloat(cogsResult.rows[0].total);
+  stats.totalCogs = cogsResult.rows[0] ? parseFloat(cogsResult.rows[0].total) : 0;
 
   // Avg items per pallet
   const avgResult = await db.query<{ avg: string }>(`
-    SELECT COALESCE(AVG(received_items), 0) as avg FROM pallets WHERE received_items > 0
+    SELECT COALESCE(AVG(received_items), 0) as avg FROM refurb_pallets WHERE received_items > 0
   `);
-  stats.avgItemsPerPallet = parseFloat(avgResult.rows[0].avg);
+  stats.avgItemsPerPallet = avgResult.rows[0] ? parseFloat(avgResult.rows[0].avg) : 0;
 
   return stats;
 }

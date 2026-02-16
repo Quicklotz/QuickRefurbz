@@ -53,6 +53,13 @@ import type {
   JobPriority,
   FinalGrade
 } from '../types.js';
+import {
+  STAGE_ORDER,
+  STAGE_DISPLAY,
+  REFURB_STATE_ORDER,
+  REFURB_STATE_DISPLAY,
+  REFURB_STATE_TYPE
+} from '../types.js';
 import type { CertificationLevel } from '../certification/types.js';
 import type { TestResult, ExternalCheckType, ExternalCheckProvider } from '../diagnostics/types.js';
 import { getTestByCode } from '../diagnostics/testDefinitions.js';
@@ -497,6 +504,47 @@ router.get('/defect-codes/:code', (req: Request, res: Response) => {
   } catch (error) {
     console.error('Get defect code error:', error);
     res.status(500).json({ error: 'Failed to get defect code' });
+  }
+});
+
+// ==================== STAGES ====================
+
+/**
+ * GET /api/workflow/stages
+ * Get all workflow stages and their display metadata
+ */
+router.get('/stages', (_req: Request, res: Response) => {
+  try {
+    // Build simple 6-stage list
+    const simpleStages = STAGE_ORDER.map((stage, index) => ({
+      code: stage,
+      name: STAGE_DISPLAY[stage],
+      order: index
+    }));
+
+    // Build detailed 15-state list (full state machine)
+    const detailedStates = REFURB_STATE_ORDER.map((state, index) => ({
+      code: state,
+      name: REFURB_STATE_DISPLAY[state],
+      type: REFURB_STATE_TYPE[state],
+      order: index
+    }));
+
+    // Include all states (including escape/terminal not in REFURB_STATE_ORDER)
+    const allStates = Object.keys(REFURB_STATE_DISPLAY).map(state => ({
+      code: state,
+      name: REFURB_STATE_DISPLAY[state as RefurbState],
+      type: REFURB_STATE_TYPE[state as RefurbState],
+    }));
+
+    res.json({
+      stages: simpleStages,
+      states: detailedStates,
+      allStates
+    });
+  } catch (error) {
+    console.error('Get stages error:', error);
+    res.status(500).json({ error: 'Failed to get workflow stages' });
   }
 });
 

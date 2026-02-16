@@ -1,12 +1,23 @@
 "use client";
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Printer, Monitor, Cpu, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
+import { Printer, Monitor, Cpu, Loader2, CheckCircle, AlertCircle, Settings } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { AnimatedModal } from '@/components/aceternity/animated-modal';
 import { Button } from '@/components/aceternity/button';
 import { Label } from '@/components/aceternity/label';
 import { api } from '@/api/client';
 import type { PalletSession } from '@/contexts/PalletSessionContext';
+
+interface SavedPrinter {
+  id: string;
+  printer_ip: string;
+  printer_name: string | null;
+  printer_model: string | null;
+  label_width_mm: number;
+  label_height_mm: number;
+  is_default: boolean;
+}
 
 type PrintMethod = 'browser' | 'zebra';
 
@@ -33,16 +44,38 @@ export function PalletLabelModal({ isOpen, onClose, session }: PalletLabelModalP
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [printing, setPrinting] = useState(false);
   const [printResult, setPrintResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [savedPrinters, setSavedPrinters] = useState<SavedPrinter[]>([]);
+  const [loadingPrinters, setLoadingPrinters] = useState(false);
 
-  // Load label preview when modal opens
+  // Load label preview and saved printers when modal opens
   useEffect(() => {
     if (isOpen && session) {
       loadPreview();
+      loadSavedPrinters();
     } else {
       setLabelPreview(null);
       setPrintResult(null);
     }
   }, [isOpen, session]);
+
+  const loadSavedPrinters = async () => {
+    setLoadingPrinters(true);
+    try {
+      const result = await api.getPrinterSettings();
+      setSavedPrinters(result.printers);
+      // Pre-select default printer if no IP is set yet
+      if (!printerIp) {
+        const defaultPrinter = result.printers.find((p) => p.is_default);
+        if (defaultPrinter) {
+          setPrinterIp(defaultPrinter.printer_ip);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load saved printers:', err);
+    } finally {
+      setLoadingPrinters(false);
+    }
+  };
 
   const loadPreview = async () => {
     if (!session) return;
@@ -192,25 +225,69 @@ export function PalletLabelModal({ isOpen, onClose, session }: PalletLabelModalP
           </div>
         </div>
 
-        {/* Zebra Printer IP Input */}
+        {/* Zebra Printer Selection */}
         {printMethod === 'zebra' && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
+            className="space-y-3"
           >
-            <Label htmlFor="printerIp">Zebra Printer IP Address</Label>
-            <input
-              id="printerIp"
-              type="text"
-              value={printerIp}
-              onChange={(e) => setPrinterIp(e.target.value)}
-              placeholder="e.g., 192.168.1.100"
-              className="w-full mt-2 bg-dark-tertiary border border-border rounded-lg px-4 py-2.5 text-white font-mono placeholder:text-zinc-600 focus:border-ql-yellow focus:outline-none transition-colors"
-            />
-            <p className="text-xs text-zinc-500 mt-1">
-              Enter the IP address of your Zebra thermal printer
-            </p>
+            <Label>Select Printer</Label>
+            {loadingPrinters ? (
+              <div className="flex items-center gap-2 text-sm text-zinc-500">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Loading saved printers...
+              </div>
+            ) : savedPrinters.length > 0 ? (
+              <div className="space-y-2">
+                {savedPrinters.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setPrinterIp(p.printer_ip)}
+                    className={`w-full flex items-center gap-3 p-3 rounded-lg border-2 transition-all text-left ${
+                      printerIp === p.printer_ip
+                        ? 'border-ql-yellow bg-ql-yellow/10'
+                        : 'border-border bg-dark-tertiary hover:border-zinc-600'
+                    }`}
+                  >
+                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${printerIp === p.printer_ip ? 'bg-accent-green' : 'bg-zinc-600'}`} />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-white truncate">
+                        {p.printer_name || p.printer_ip}
+                      </div>
+                      <div className="text-xs text-zinc-500">
+                        {p.printer_ip} · {p.label_width_mm}×{p.label_height_mm}mm
+                      </div>
+                    </div>
+                    {p.is_default && (
+                      <span className="text-xs text-ql-yellow bg-ql-yellow/10 px-2 py-0.5 rounded">Default</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+
+            {/* Manual IP fallback */}
+            <div>
+              <label className="text-xs text-zinc-500 mb-1 block">Or enter IP manually</label>
+              <input
+                type="text"
+                value={savedPrinters.some(p => p.printer_ip === printerIp) ? '' : printerIp}
+                onChange={(e) => setPrinterIp(e.target.value)}
+                placeholder="e.g., 192.168.1.100"
+                className="w-full bg-dark-tertiary border border-border rounded-lg px-4 py-2.5 text-white font-mono placeholder:text-zinc-600 focus:border-ql-yellow focus:outline-none transition-colors text-sm"
+              />
+            </div>
+
+            <Link
+              to="/settings"
+              className="inline-flex items-center gap-1.5 text-xs text-zinc-500 hover:text-ql-yellow transition-colors"
+            >
+              <Settings size={12} />
+              Manage printers
+            </Link>
           </motion.div>
         )}
 

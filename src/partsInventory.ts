@@ -72,6 +72,7 @@ export async function addPart(options: AddPartOptions): Promise<Part> {
     options.location || null
   ]);
 
+  if (!result.rows.length) throw new Error('Failed to insert part: INSERT RETURNING returned no rows');
   return rowToPart(result.rows[0]);
 }
 
@@ -207,6 +208,7 @@ export async function updatePart(
     params
   );
 
+  if (!result.rows.length) throw new Error('Failed to update part: UPDATE RETURNING returned no rows');
   return rowToPart(result.rows[0]);
 }
 
@@ -338,6 +340,7 @@ export async function useParts(options: UsePartsOptions): Promise<PartsUsage[]> 
       partRequest.notes || null
     ]);
 
+    if (!usageResult.rows.length) throw new Error('Failed to insert parts usage: INSERT RETURNING returned no rows');
     usageRecords.push(rowToPartsUsage(usageResult.rows[0]));
   }
 
@@ -395,7 +398,7 @@ export async function deletePart(partId: string): Promise<boolean> {
     'SELECT COUNT(*) as count FROM parts_usage WHERE part_id = $1',
     [part.id]
   );
-  const usageCount = parseInt(usageResult.rows[0].count);
+  const usageCount = usageResult.rows[0] ? parseInt(usageResult.rows[0].count) : 0;
   if (usageCount > 0) {
     throw new Error(`Cannot delete part with usage history. Part has been used ${usageCount} times.`);
   }
@@ -434,15 +437,15 @@ export async function getPartsStats(): Promise<PartsStats> {
       COALESCE(SUM(quantity_on_hand * unit_cost), 0) as total_value
     FROM parts_inventory
   `);
-  stats.totalParts = parseInt(partsResult.rows[0].count);
-  stats.totalValue = parseFloat(partsResult.rows[0].total_value);
+  stats.totalParts = partsResult.rows[0] ? parseInt(partsResult.rows[0].count) : 0;
+  stats.totalValue = partsResult.rows[0] ? parseFloat(partsResult.rows[0].total_value) : 0;
 
   // Low stock count (separate query for SQLite compatibility)
   const lowStockResult = await db.query<{ count: string }>(`
     SELECT COUNT(*) as count FROM parts_inventory
     WHERE quantity_on_hand <= reorder_point
   `);
-  stats.lowStockCount = parseInt(lowStockResult.rows[0].count);
+  stats.lowStockCount = lowStockResult.rows[0] ? parseInt(lowStockResult.rows[0].count) : 0;
 
   // By category
   const categoryResult = await db.query<{ category: string; count: string }>(`
@@ -461,8 +464,8 @@ export async function getPartsStats(): Promise<PartsStats> {
       COALESCE(SUM(total_cost), 0) as total_cost
     FROM parts_usage
   `);
-  stats.totalUsageCount = parseInt(usageResult.rows[0].total_count);
-  stats.totalUsageCost = parseFloat(usageResult.rows[0].total_cost);
+  stats.totalUsageCount = usageResult.rows[0] ? parseInt(usageResult.rows[0].total_count) : 0;
+  stats.totalUsageCost = usageResult.rows[0] ? parseFloat(usageResult.rows[0].total_cost) : 0;
 
   return stats;
 }

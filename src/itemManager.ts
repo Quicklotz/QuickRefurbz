@@ -168,6 +168,7 @@ export async function receiveItem(options: ReceiveItemOptions): Promise<ReceiveI
     options.notes || null
   ]);
 
+  if (!result.rows.length) throw new Error('Failed to insert refurb item: INSERT RETURNING returned no rows');
   const row = result.rows[0];
   const item = rowToItem(row);
 
@@ -702,7 +703,7 @@ export async function getItemStats(): Promise<ItemStats> {
 
   // Total count
   const totalResult = await db.query<{ count: string }>('SELECT COUNT(*) as count FROM refurb_items');
-  stats.total = parseInt(totalResult.rows[0].count);
+  stats.total = totalResult.rows[0] ? parseInt(totalResult.rows[0].count) : 0;
 
   // By stage
   const stageResult = await db.query<{ current_stage: string; count: string }>(`
@@ -749,13 +750,13 @@ export async function getItemStats(): Promise<ItemStats> {
     SELECT COUNT(*) as count FROM refurb_items
     WHERE date(intake_ts) = date('now')
   `);
-  stats.todayReceived = parseInt(todayReceivedResult.rows[0].count);
+  stats.todayReceived = todayReceivedResult.rows[0] ? parseInt(todayReceivedResult.rows[0].count) : 0;
 
   const todayCompletedResult = await db.query<{ count: string }>(`
     SELECT COUNT(*) as count FROM refurb_items
     WHERE date(completed_at) = date('now')
   `);
-  stats.todayCompleted = parseInt(todayCompletedResult.rows[0].count);
+  stats.todayCompleted = todayCompletedResult.rows[0] ? parseInt(todayCompletedResult.rows[0].count) : 0;
 
   return stats;
 }

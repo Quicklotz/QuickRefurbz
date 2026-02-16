@@ -1,12 +1,8 @@
 "use client";
 import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
 import { api } from '@/api/client';
 import { Badge, StageBadge } from '@/components/shared/Badge';
-import { BentoStatCard } from '@/components/aceternity/bento-grid';
-import { SpotlightCard, Spotlight } from '@/components/aceternity/spotlight';
 import { Loader } from '@/components/aceternity/loader';
-import { TextGenerateEffect } from '@/components/aceternity/text-generate-effect';
 import {
   Package,
   Boxes,
@@ -14,6 +10,7 @@ import {
   Clock,
   Award,
   TrendingUp,
+  TrendingDown,
   Smartphone,
   Tablet,
   Laptop,
@@ -70,6 +67,44 @@ const LEVEL_VARIANTS: Record<string, 'success' | 'info' | 'warning' | 'danger'> 
   NOT_CERTIFIED: 'danger',
 };
 
+interface StatsCardProps {
+  title: string;
+  value: string | number;
+  icon: React.ReactNode;
+  trend?: { value: number; isPositive: boolean };
+  color?: 'default' | 'yellow' | 'green' | 'blue' | 'red';
+}
+
+function StatsCard({ title, value, icon, trend, color = 'default' }: StatsCardProps) {
+  const colorClasses = {
+    default: 'text-white',
+    yellow: 'text-[var(--color-ql-yellow)]',
+    green: 'text-[var(--color-accent-green)]',
+    blue: 'text-[var(--color-accent-blue)]',
+    red: 'text-[var(--color-accent-red)]',
+  };
+
+  return (
+    <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-dark-card)] p-6 transition-colors hover:border-[var(--color-border-light)]">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-zinc-500">{title}</p>
+        <span className="text-zinc-600">{icon}</span>
+      </div>
+      <p className={`mt-3 text-3xl font-semibold tracking-tight ${colorClasses[color]}`}>
+        {value}
+      </p>
+      {trend && (
+        <div className="mt-2 flex items-center gap-1">
+          <span className={`flex items-center gap-1 text-sm ${trend.isPositive ? 'text-[var(--color-accent-green)]' : 'text-[var(--color-accent-red)]'}`}>
+            {trend.isPositive ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+            {Math.abs(trend.value)}%
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [certStats, setCertStats] = useState<CertificationStats | null>(null);
@@ -125,272 +160,224 @@ export function Dashboard() {
       : 0;
 
   return (
-    <div className="space-y-6">
-      {/* Page Header */}
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="page-header"
-      >
-        <h1 className="text-3xl font-bold text-white mb-2">Dashboard</h1>
-        <TextGenerateEffect
-          words="Real-time overview of refurbishment operations"
-          className="text-zinc-400 text-sm"
-          duration={0.3}
-        />
-      </motion.div>
+    <div className="space-y-8">
+      {/* Header */}
+      <div>
+        <h1 className="text-2xl font-semibold text-white">Dashboard</h1>
+        <p className="mt-1 text-zinc-500">Overview of refurbishment operations</p>
+      </div>
 
       {/* Primary Stats */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"
-      >
-        <BentoStatCard
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatsCard
           title="Total Items"
-          value={data.items.total}
-          icon={<Package size={20} />}
-          trend={{ value: data.items.todayReceived, label: "today", direction: "up" }}
-          variant="blue"
+          value={data.items.total.toLocaleString()}
+          icon={<Package size={18} />}
+          trend={data.items.todayReceived > 0 ? { value: data.items.todayReceived, isPositive: true } : undefined}
         />
-        <BentoStatCard
+        <StatsCard
           title="In Progress"
           value={inProgress}
-          icon={<Clock size={20} />}
-          variant="yellow"
+          icon={<Clock size={18} />}
+          color="yellow"
         />
-        <BentoStatCard
+        <StatsCard
           title="Completed Today"
           value={data.items.todayCompleted}
-          icon={<CheckCircle size={20} />}
-          variant="green"
+          icon={<CheckCircle size={18} />}
+          color="green"
         />
-        <BentoStatCard
+        <StatsCard
           title="Active Pallets"
           value={(data.pallets.byStatus['RECEIVING'] || 0) + (data.pallets.byStatus['IN_PROGRESS'] || 0)}
-          icon={<Boxes size={20} />}
-          variant="default"
+          icon={<Boxes size={18} />}
         />
-      </motion.div>
+      </div>
 
       {/* Certification Stats */}
       {certStats && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"
-        >
-          <BentoStatCard
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <StatsCard
             title="Total Certified"
             value={certStats.total}
-            icon={<Award size={20} />}
-            variant="yellow"
+            icon={<Award size={18} />}
+            color="yellow"
           />
-          <BentoStatCard
+          <StatsCard
             title="Excellent Grade"
             value={certStats.byLevel?.EXCELLENT || 0}
-            icon={<CheckCircle size={20} />}
-            variant="green"
+            icon={<CheckCircle size={18} />}
+            color="green"
           />
-          <BentoStatCard
+          <StatsCard
             title="Good Grade"
             value={certStats.byLevel?.GOOD || 0}
-            icon={<TrendingUp size={20} />}
-            variant="blue"
+            icon={<TrendingUp size={18} />}
+            color="blue"
           />
-          <BentoStatCard
+          <StatsCard
             title="Pass Rate"
             value={`${passRate}%`}
-            icon={<TrendingUp size={20} />}
-            variant={passRate >= 80 ? "green" : passRate >= 60 ? "yellow" : "red"}
+            icon={<TrendingUp size={18} />}
+            color={passRate >= 80 ? 'green' : passRate >= 60 ? 'yellow' : 'red'}
           />
-        </motion.div>
+        </div>
       )}
 
-      {/* Category & Recent Certifications */}
-      {certStats && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-          className="grid grid-cols-1 lg:grid-cols-2 gap-4"
-        >
-          {/* By Category */}
-          <SpotlightCard className="p-6">
-            <h2 className="text-lg font-semibold text-white mb-4">Certifications by Category</h2>
-            {Object.entries(certStats.byCategory || {}).length > 0 ? (
-              <div className="space-y-4">
-                {Object.entries(certStats.byCategory).map(([category, count], index) => {
-                  const percentage =
-                    certStats.total > 0 ? (count / certStats.total) * 100 : 0;
-                  return (
-                    <motion.div
-                      key={category}
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: index * 0.05 }}
-                    >
-                      <div className="flex justify-between items-center mb-1.5">
-                        <span className="flex items-center gap-2 text-sm text-zinc-400">
-                          <span className="text-ql-yellow">
-                            {CATEGORY_ICONS[category]}
+      {/* Content Grid */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* Certifications by Category */}
+        {certStats && (
+          <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-dark-card)]">
+            <div className="p-6">
+              <h2 className="text-base font-medium text-white">Certifications by Category</h2>
+            </div>
+            <div className="px-6 pb-6">
+              {Object.entries(certStats.byCategory || {}).length > 0 ? (
+                <div className="space-y-4">
+                  {Object.entries(certStats.byCategory).map(([category, count]) => {
+                    const percentage = certStats.total > 0 ? (count / certStats.total) * 100 : 0;
+                    return (
+                      <div key={category}>
+                        <div className="flex justify-between items-center mb-1.5">
+                          <span className="flex items-center gap-2 text-sm text-zinc-400">
+                            <span className="text-[var(--color-ql-yellow)]">
+                              {CATEGORY_ICONS[category]}
+                            </span>
+                            {category.replace('_', ' ')}
                           </span>
-                          {category.replace('_', ' ')}
-                        </span>
-                        <span className="text-sm font-semibold text-white">{count}</span>
+                          <span className="text-sm font-medium text-white">{count}</span>
+                        </div>
+                        <div className="h-1.5 bg-[var(--color-dark-tertiary)] rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-[var(--color-ql-yellow)] rounded-full transition-all duration-500"
+                            style={{ width: `${percentage}%` }}
+                          />
+                        </div>
                       </div>
-                      <div className="h-2 bg-dark-tertiary rounded-full overflow-hidden">
-                        <motion.div
-                          initial={{ width: 0 }}
-                          animate={{ width: `${percentage}%` }}
-                          transition={{ delay: 0.5 + index * 0.05, duration: 0.5 }}
-                          className="h-full bg-gradient-to-r from-ql-yellow to-ql-yellow/70 rounded-full"
-                        />
-                      </div>
-                    </motion.div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center py-8 text-center">
-                <Award size={32} className="text-zinc-600 mb-2" />
-                <p className="text-sm text-zinc-500">No certifications yet</p>
-              </div>
-            )}
-          </SpotlightCard>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="py-8 text-center text-zinc-500">
+                  No certifications yet
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
-          {/* Recent Certifications */}
-          <SpotlightCard className="p-6">
-            <h2 className="text-lg font-semibold text-white mb-4">Recent Certifications</h2>
-            {recentCerts.length > 0 ? (
-              <div className="space-y-2">
-                {recentCerts.map((cert, index) => (
-                  <motion.div
-                    key={cert.certificationId}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.05 }}
-                  >
-                    <Spotlight
-                      className="flex items-center gap-3 p-3 bg-dark-tertiary/50 rounded-lg"
-                      spotlightColor="rgba(241, 196, 15, 0.08)"
+        {/* Recent Certifications */}
+        {certStats && (
+          <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-dark-card)]">
+            <div className="p-6">
+              <h2 className="text-base font-medium text-white">Recent Certifications</h2>
+            </div>
+            <div className="px-6 pb-6">
+              {recentCerts.length > 0 ? (
+                <div className="space-y-3">
+                  {recentCerts.map((cert) => (
+                    <div
+                      key={cert.certificationId}
+                      className="flex items-center gap-3 rounded-lg border border-[var(--color-border)] p-3"
                     >
-                      <div className="text-ql-yellow">
+                      <div className="w-8 h-8 rounded-lg bg-[var(--color-ql-yellow)]/10 flex items-center justify-center text-[var(--color-ql-yellow)]">
                         {CATEGORY_ICONS[cert.category]}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-zinc-200 truncate">
+                        <p className="text-sm font-medium text-white truncate">
                           {cert.manufacturer} {cert.model}
-                        </div>
-                        <div className="text-xs text-zinc-500 font-mono">
+                        </p>
+                        <p className="text-xs text-zinc-500 font-mono">
                           {cert.qlid}
-                        </div>
+                        </p>
                       </div>
                       <Badge variant={LEVEL_VARIANTS[cert.certificationLevel]} size="sm">
                         {cert.certificationLevel}
                       </Badge>
-                    </Spotlight>
-                  </motion.div>
-                ))}
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center py-8 text-center">
-                <Award size={32} className="text-zinc-600 mb-2" />
-                <p className="text-sm text-zinc-500">No recent certifications</p>
-              </div>
-            )}
-          </SpotlightCard>
-        </motion.div>
-      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="py-8 text-center text-zinc-500">
+                  No recent certifications
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
 
-      {/* Items & Pallets by Stage/Status */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.4 }}
-        className="grid grid-cols-1 lg:grid-cols-2 gap-4"
-      >
+      {/* Items & Pallets Tables */}
+      <div className="grid gap-6 lg:grid-cols-2">
         {/* Items by Stage */}
-        <SpotlightCard className="p-6">
-          <h2 className="text-lg font-semibold text-white mb-4">Items by Stage</h2>
-          <div className="overflow-hidden rounded-lg border border-border">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-dark-tertiary/50">
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Stage</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-zinc-500 uppercase tracking-wider">Count</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {['INTAKE', 'TESTING', 'REPAIR', 'CLEANING', 'FINAL_QC', 'COMPLETE'].map(
-                  (stage, index) => (
-                    <motion.tr
-                      key={stage}
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: 0.5 + index * 0.05 }}
-                      className="hover:bg-dark-tertiary/30 transition-colors"
-                    >
+        <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-dark-card)]">
+          <div className="p-6">
+            <h2 className="text-base font-medium text-white">Items by Stage</h2>
+          </div>
+          <div className="px-6 pb-6">
+            <div className="overflow-hidden rounded-lg border border-[var(--color-border)]">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-[var(--color-dark-tertiary)]/50">
+                    <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Stage</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-zinc-500 uppercase tracking-wider">Count</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--color-border)]">
+                  {['INTAKE', 'TESTING', 'REPAIR', 'CLEANING', 'FINAL_QC', 'COMPLETE'].map((stage) => (
+                    <tr key={stage} className="hover:bg-[var(--color-dark-tertiary)]/30 transition-colors">
                       <td className="px-4 py-3">
                         <StageBadge stage={stage.toLowerCase()} />
                       </td>
-                      <td className="px-4 py-3 text-right font-semibold text-white">
+                      <td className="px-4 py-3 text-right font-medium text-white">
                         {data.items.byStage[stage] || 0}
                       </td>
-                    </motion.tr>
-                  )
-                )}
-              </tbody>
-            </table>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </SpotlightCard>
+        </div>
 
         {/* Pallets by Status */}
-        <SpotlightCard className="p-6">
-          <h2 className="text-lg font-semibold text-white mb-4">Pallets by Status</h2>
-          <div className="overflow-hidden rounded-lg border border-border">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-dark-tertiary/50">
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Status</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-zinc-500 uppercase tracking-wider">Count</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {['RECEIVING', 'IN_PROGRESS', 'COMPLETE'].map((status, index) => (
-                  <motion.tr
-                    key={status}
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: 0.5 + index * 0.05 }}
-                    className="hover:bg-dark-tertiary/30 transition-colors"
-                  >
-                    <td className="px-4 py-3 text-zinc-300">
-                      {status.replace('_', ' ')}
-                    </td>
-                    <td className="px-4 py-3 text-right font-semibold text-white">
-                      {data.pallets.byStatus[status] || 0}
-                    </td>
-                  </motion.tr>
-                ))}
-              </tbody>
-            </table>
+        <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-dark-card)]">
+          <div className="p-6">
+            <h2 className="text-base font-medium text-white">Pallets by Status</h2>
           </div>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.7 }}
-            className="mt-4 pt-4 border-t border-border/30 flex justify-between items-center"
-          >
-            <span className="text-sm text-zinc-500">Total COGS</span>
-            <span className="text-xl font-bold text-ql-yellow">
-              ${data.pallets.totalCogs.toLocaleString()}
-            </span>
-          </motion.div>
-        </SpotlightCard>
-      </motion.div>
+          <div className="px-6 pb-6">
+            <div className="overflow-hidden rounded-lg border border-[var(--color-border)]">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-[var(--color-dark-tertiary)]/50">
+                    <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Status</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-zinc-500 uppercase tracking-wider">Count</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--color-border)]">
+                  {['RECEIVING', 'IN_PROGRESS', 'COMPLETE'].map((status) => (
+                    <tr key={status} className="hover:bg-[var(--color-dark-tertiary)]/30 transition-colors">
+                      <td className="px-4 py-3 text-zinc-300 font-medium">
+                        {status.replace('_', ' ')}
+                      </td>
+                      <td className="px-4 py-3 text-right font-medium text-white">
+                        {data.pallets.byStatus[status] || 0}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-4 pt-4 border-t border-[var(--color-border)]/30 flex justify-between items-center">
+              <span className="text-sm text-zinc-500">Total COGS</span>
+              <span className="text-2xl font-semibold text-[var(--color-ql-yellow)]">
+                ${data.pallets.totalCogs.toLocaleString()}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

@@ -1,589 +1,482 @@
 "use client";
-import { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useState, useEffect } from 'react';
 import {
-  Plus,
   Package,
+  Plus,
+  Search,
+  Boxes,
+  RefreshCw,
   CheckCircle,
   AlertCircle,
-  Barcode,
-  Tag,
-  Box,
-  Printer,
-  RefreshCw
 } from 'lucide-react';
 import { api } from '@/api/client';
-import { SpotlightCard, Spotlight } from '@/components/aceternity/spotlight';
+import { usePalletSession } from '@/contexts/PalletSessionContext';
 import { Input } from '@/components/aceternity/input';
 import { Label } from '@/components/aceternity/label';
 import { Button } from '@/components/aceternity/button';
-import { TextGenerateEffect } from '@/components/aceternity/text-generate-effect';
-import { useToast } from '@/components/aceternity/toast';
+import { Loader } from '@/components/aceternity/loader';
 import { Badge } from '@/components/shared/Badge';
+import { AnimatedModal } from '@/components/aceternity/animated-modal';
+import { PalletSessionCard } from '@/components/pallet-session/PalletSessionCard';
+import { PalletLabelModal } from '@/components/pallet-session/PalletLabelModal';
 
-const CATEGORIES = [
-  { value: 'PHONE', label: 'Phone' },
-  { value: 'TABLET', label: 'Tablet' },
-  { value: 'LAPTOP', label: 'Laptop' },
-  { value: 'DESKTOP', label: 'Desktop' },
-  { value: 'TV', label: 'TV' },
-  { value: 'MONITOR', label: 'Monitor' },
-  { value: 'AUDIO', label: 'Audio' },
-  { value: 'GAMING', label: 'Gaming' },
-  { value: 'WEARABLE', label: 'Wearable' },
-  { value: 'APPLIANCE', label: 'Appliance' },
-  { value: 'OTHER', label: 'Other' },
-];
-
-const PRIORITIES = [
-  { value: 'NORMAL', label: 'Normal' },
-  { value: 'LOW', label: 'Low' },
-  { value: 'HIGH', label: 'High' },
-  { value: 'URGENT', label: 'Urgent' },
-];
-
-// Retailer options for pallet creation
-const RETAILERS = [
-  { value: 'BESTBUY', code: 'BBY', label: 'Best Buy' },
-  { value: 'TARGET', code: 'TGT', label: 'Target' },
-  { value: 'AMAZON', code: 'AMZ', label: 'Amazon' },
-  { value: 'WALMART', code: 'WMT', label: 'Walmart' },
-  { value: 'COSTCO', code: 'COS', label: 'Costco' },
-  { value: 'DIRECTLIQ', code: 'DLQ', label: 'Direct Liquidation' },
-  { value: 'TECHLIQ', code: 'TLQ', label: 'Tech Liquidators' },
-  { value: 'BSTOCK', code: 'BST', label: 'B-Stock' },
-  { value: 'OTHER', code: 'OTH', label: 'Other' },
-];
-
-interface IntakeResult {
-  item: {
-    qlid: string;          // QLID000000001
-    palletId: string;      // P1BBY
-    barcodeValue: string;  // RFB-P1BBY-QLID000000001
-    manufacturer?: string;
-    model?: string;
-    category: string;
-  };
-  labelData: {
-    palletId: string;
-    qlid: string;
-    barcodeValue: string;
-    manufacturer?: string;
-    model?: string;
-    category: string;
-  };
+interface Pallet {
+  palletId: string;
+  status: string;
+  retailer: string;
+  receivedAt: string;
+  totalCogs: number;
+  expectedCount: number;
+  actualCount: number;
 }
 
+interface IntakeItem {
+  qlid: string;
+  palletId: string;
+  manufacturer: string;
+  model: string;
+  category: string;
+  currentStage: string;
+  createdAt: string;
+}
+
+const CATEGORIES = [
+  'PHONE', 'TABLET', 'LAPTOP', 'DESKTOP', 'MONITOR',
+  'APPLIANCE_SMALL', 'APPLIANCE_LARGE', 'ICE_MAKER', 'VACUUM', 'OTHER',
+];
+
 export function Intake() {
-  const toast = useToast();
-  const upcInputRef = useRef<HTMLInputElement>(null);
+  const { session, isActive } = usePalletSession();
 
-  // Pallet state
-  const [pallets, setPallets] = useState<any[]>([]);
-  const [loadingPallets, setLoadingPallets] = useState(true);
-  const [selectedPalletId, setSelectedPalletId] = useState('');
-  const [creatingPallet, setCreatingPallet] = useState(false);
-  const [newPalletRetailer, setNewPalletRetailer] = useState('BESTBUY');
+  const [pallets, setPallets] = useState<Pallet[]>([]);
+  const [recentItems, setRecentItems] = useState<IntakeItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
 
-  // Form state
-  const [formData, setFormData] = useState({
-    upc: '',
-    asin: '',
-    manufacturer: '',
-    model: '',
-    serialNumber: '',
-    category: 'OTHER',
-    priority: 'NORMAL',
-    condition: '',
-    notes: '',
-    warehouseId: 'WH001'
+  // Modals
+  const [showCreatePallet, setShowCreatePallet] = useState(false);
+  const [showAddItem, setShowAddItem] = useState(false);
+  const [showPrintLabel, setShowPrintLabel] = useState(false);
+
+  // Create pallet form
+  const [newPallet, setNewPallet] = useState({
+    palletId: '',
+    retailer: 'BEST_BUY',
+    totalCogs: 0,
+    expectedCount: 0,
   });
 
-  // Submission state
-  const [submitting, setSubmitting] = useState(false);
-  const [lastResult, setLastResult] = useState<IntakeResult | null>(null);
-  const [error, setError] = useState('');
+  // Add item form
+  const [newItem, setNewItem] = useState({
+    manufacturer: '',
+    model: '',
+    category: 'PHONE',
+    upc: '',
+    serialNumber: '',
+  });
 
-  // Load pallets on mount
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
   useEffect(() => {
-    loadPallets();
+    loadData();
   }, []);
 
-  const loadPallets = async () => {
-    setLoadingPallets(true);
+  const loadData = async () => {
+    setLoading(true);
     try {
-      const data = await api.getPallets({ status: 'RECEIVING,IN_PROGRESS' });
-      // Filter for QuickIntakez-compatible pallet IDs (P{num}{code})
-      setPallets(data.filter(p => /^P\d+[A-Z]{3}$/.test(p.palletId)));
+      const [palletsData, itemsData] = await Promise.all([
+        api.getPallets({ status: 'RECEIVING,IN_PROGRESS' }),
+        api.getItems({ stage: 'INTAKE', limit: '10' }),
+      ]);
+      setPallets(palletsData);
+      setRecentItems(itemsData);
     } catch (err) {
-      console.error('Failed to load pallets:', err);
+      console.error('Failed to load data:', err);
     } finally {
-      setLoadingPallets(false);
+      setLoading(false);
     }
   };
 
-  const handleCreatePallet = async () => {
-    setCreatingPallet(true);
-    try {
-      // Generate a new pallet ID with retailer code (e.g., P1BBY)
-      const { palletId } = await api.generateRfbPalletId(newPalletRetailer);
-
-      // Create the pallet
-      await api.createPallet({
-        palletId,
-        retailer: newPalletRetailer,
-        liquidationSource: 'QUICKREFURBZ',
-        sourcePalletId: '',
-        notes: `QuickRefurbz intake pallet (${newPalletRetailer})`
-      });
-
-      // Reload pallets and select the new one
-      await loadPallets();
-      setSelectedPalletId(palletId);
-      toast.success('Pallet Created', `New pallet ${palletId} is ready`);
-    } catch (err: any) {
-      toast.error('Failed to create pallet', err.message);
-    } finally {
-      setCreatingPallet(false);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleCreatePallet = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
-    setLastResult(null);
-
-    if (!selectedPalletId) {
-      setError('Please select or create a pallet first');
-      return;
-    }
-
-    // Validate at least one identifier
-    if (!formData.upc && !formData.asin && !formData.manufacturer && !formData.model && !formData.serialNumber) {
-      setError('Please enter at least one product identifier (UPC, ASIN, Brand, Model, or Serial Number)');
-      return;
-    }
-
     setSubmitting(true);
+    setMessage(null);
     try {
-      const result = await api.createItem({
-        palletId: selectedPalletId,
-        upc: formData.upc || undefined,
-        asin: formData.asin || undefined,
-        manufacturer: formData.manufacturer || undefined,
-        model: formData.model || undefined,
-        serialNumber: formData.serialNumber || undefined,
-        category: formData.category,
-        priority: formData.priority,
-        condition: formData.condition || undefined,
-        notes: formData.notes || undefined,
-        warehouseId: formData.warehouseId
-      });
-
-      setLastResult(result);
-      toast.success('Item Added', `${result.item.qlid} added to ${selectedPalletId}`);
-
-      // Reset form but keep pallet and warehouse selected
-      setFormData(prev => ({
-        ...prev,
-        upc: '',
-        asin: '',
-        manufacturer: '',
-        model: '',
-        serialNumber: '',
-        condition: '',
-        notes: ''
-      }));
-
-      // Focus UPC input for next scan
-      upcInputRef.current?.focus();
-
+      await api.createPallet(newPallet);
+      setMessage({ type: 'success', text: `Pallet ${newPallet.palletId} created successfully` });
+      setShowCreatePallet(false);
+      setNewPallet({ palletId: '', retailer: 'BEST_BUY', totalCogs: 0, expectedCount: 0 });
+      loadData();
     } catch (err: any) {
-      setError(err.message || 'Failed to add item');
+      setMessage({ type: 'error', text: err.message || 'Failed to create pallet' });
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleUpcKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    // Auto-submit on Enter if we have a UPC
-    if (e.key === 'Enter' && formData.upc.trim()) {
-      e.preventDefault();
-      handleSubmit(e as any);
+  const handleAddItem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!session?.palletId) {
+      setMessage({ type: 'error', text: 'Please select a pallet first' });
+      return;
+    }
+    setSubmitting(true);
+    setMessage(null);
+    try {
+      const item = await api.createItem({
+        palletId: session.palletId,
+        ...newItem,
+      });
+      setMessage({ type: 'success', text: `Item ${item.qlid} added successfully` });
+      setShowAddItem(false);
+      setNewItem({ manufacturer: '', model: '', category: 'PHONE', upc: '', serialNumber: '' });
+      loadData();
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message || 'Failed to add item' });
+    } finally {
+      setSubmitting(false);
     }
   };
 
+  const filteredPallets = pallets.filter((p) =>
+    !searchQuery || p.palletId.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const activeCount = pallets.filter((p) => p.status === 'IN_PROGRESS').length;
+  const receivingCount = pallets.filter((p) => p.status === 'RECEIVING').length;
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader size="xl" variant="bars" text="Loading intake data..." />
+      </div>
+    );
+  }
+
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="space-y-8">
       {/* Header */}
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-      >
-        <h1 className="text-3xl font-bold text-white mb-2">Item Intake</h1>
-        <TextGenerateEffect
-          words="Add new items to QuickRefurbz for refurbishment tracking"
-          className="text-zinc-400 text-sm"
-          duration={0.3}
-        />
-      </motion.div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column - Pallet Selection */}
-        <motion.div
-          initial={{ opacity: 0, x: -20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: 0.1 }}
-          className="lg:col-span-1"
-        >
-          <SpotlightCard className="p-5 h-full">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-semibold text-white flex items-center gap-2">
-                <Box size={18} className="text-ql-yellow" />
-                Active Pallet
-              </h2>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={loadPallets}
-                disabled={loadingPallets}
-              >
-                <RefreshCw size={14} className={loadingPallets ? 'animate-spin' : ''} />
-              </Button>
-            </div>
-
-            {/* Pallet Selector */}
-            <div className="space-y-3">
-              <select
-                className="w-full bg-dark-tertiary border border-border rounded-lg px-4 py-2.5 text-white focus:border-ql-yellow focus:outline-none"
-                value={selectedPalletId}
-                onChange={(e) => setSelectedPalletId(e.target.value)}
-              >
-                <option value="">Select a pallet...</option>
-                {pallets.map(p => (
-                  <option key={p.palletId} value={p.palletId}>
-                    {p.palletId} ({p.receivedItems} items)
-                  </option>
-                ))}
-              </select>
-
-              <div className="pt-2 border-t border-border">
-                <Label className="text-xs text-zinc-500 mb-1">Create New Pallet</Label>
-                <select
-                  className="w-full bg-dark-tertiary border border-border rounded-lg px-4 py-2 text-white text-sm focus:border-ql-yellow focus:outline-none mb-2"
-                  value={newPalletRetailer}
-                  onChange={(e) => setNewPalletRetailer(e.target.value)}
-                >
-                  {RETAILERS.map(r => (
-                    <option key={r.value} value={r.value}>
-                      {r.label} ({r.code})
-                    </option>
-                  ))}
-                </select>
-
-                <Button
-                  variant="secondary"
-                  onClick={handleCreatePallet}
-                  loading={creatingPallet}
-                  className="w-full"
-                >
-                  <Plus size={16} />
-                  New Pallet
-                </Button>
-              </div>
-            </div>
-
-            {/* Selected Pallet Info */}
-            {selectedPalletId && (
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="mt-4 p-3 bg-dark-primary rounded-lg border border-accent-green/30"
-              >
-                <div className="flex items-center gap-2 text-accent-green mb-2">
-                  <CheckCircle size={16} />
-                  <span className="text-sm font-medium">Active Pallet</span>
-                </div>
-                <p className="font-mono text-lg text-white">{selectedPalletId}</p>
-              </motion.div>
-            )}
-          </SpotlightCard>
-        </motion.div>
-
-        {/* Right Column - Item Form */}
-        <motion.div
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: 0.2 }}
-          className="lg:col-span-2"
-        >
-          <Spotlight
-            className="bg-dark-card border border-border rounded-xl p-6"
-            spotlightColor="rgba(241, 196, 15, 0.15)"
-          >
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <h2 className="font-semibold text-white flex items-center gap-2 mb-4">
-                <Package size={18} className="text-ql-yellow" />
-                Product Information
-              </h2>
-
-              {/* Row 1: UPC and ASIN */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="upc">UPC Barcode</Label>
-                  <div className="relative mt-1">
-                    <Input
-                      ref={upcInputRef}
-                      id="upc"
-                      type="text"
-                      placeholder="Scan or enter UPC"
-                      value={formData.upc}
-                      onChange={(e) => setFormData({ ...formData, upc: e.target.value })}
-                      onKeyDown={handleUpcKeyDown}
-                      className="pl-10 font-mono"
-                    />
-                    <Barcode className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
-                  </div>
-                </div>
-                <div>
-                  <Label htmlFor="asin">Amazon ASIN</Label>
-                  <Input
-                    id="asin"
-                    type="text"
-                    placeholder="e.g., B08N5WRWNW"
-                    value={formData.asin}
-                    onChange={(e) => setFormData({ ...formData, asin: e.target.value })}
-                    className="font-mono mt-1"
-                  />
-                </div>
-              </div>
-
-              {/* Row 2: Brand and Model */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="manufacturer">Brand / Manufacturer</Label>
-                  <Input
-                    id="manufacturer"
-                    type="text"
-                    placeholder="e.g., Apple, Samsung"
-                    value={formData.manufacturer}
-                    onChange={(e) => setFormData({ ...formData, manufacturer: e.target.value })}
-                    className="mt-1"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="model">Model</Label>
-                  <Input
-                    id="model"
-                    type="text"
-                    placeholder="e.g., iPhone 14 Pro"
-                    value={formData.model}
-                    onChange={(e) => setFormData({ ...formData, model: e.target.value })}
-                    className="mt-1"
-                  />
-                </div>
-              </div>
-
-              {/* Row 3: Serial and Category */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="serialNumber">Serial Number</Label>
-                  <Input
-                    id="serialNumber"
-                    type="text"
-                    placeholder="Device serial number"
-                    value={formData.serialNumber}
-                    onChange={(e) => setFormData({ ...formData, serialNumber: e.target.value })}
-                    className="font-mono mt-1"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="category">Category</Label>
-                  <select
-                    id="category"
-                    className="w-full bg-dark-tertiary border border-border rounded-lg px-4 py-2.5 text-white focus:border-ql-yellow focus:outline-none mt-1"
-                    value={formData.category}
-                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                  >
-                    {CATEGORIES.map(c => (
-                      <option key={c.value} value={c.value}>{c.label}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Row 4: Condition and Priority */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="condition">Initial Condition</Label>
-                  <Input
-                    id="condition"
-                    type="text"
-                    placeholder="e.g., Screen cracked, Powers on"
-                    value={formData.condition}
-                    onChange={(e) => setFormData({ ...formData, condition: e.target.value })}
-                    className="mt-1"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="priority">Priority</Label>
-                  <select
-                    id="priority"
-                    className="w-full bg-dark-tertiary border border-border rounded-lg px-4 py-2.5 text-white focus:border-ql-yellow focus:outline-none mt-1"
-                    value={formData.priority}
-                    onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
-                  >
-                    {PRIORITIES.map(p => (
-                      <option key={p.value} value={p.value}>{p.label}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Notes */}
-              <div>
-                <Label htmlFor="notes">Notes</Label>
-                <Input
-                  id="notes"
-                  type="text"
-                  placeholder="Additional notes"
-                  value={formData.notes}
-                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                  className="mt-1"
-                />
-              </div>
-
-              {/* Submit Button */}
-              <Button
-                type="submit"
-                variant="primary"
-                loading={submitting}
-                disabled={!selectedPalletId}
-                className="w-full"
-              >
-                <Plus size={18} />
-                Add Item to Pallet
-              </Button>
-            </form>
-          </Spotlight>
-        </motion.div>
+      <div className="flex justify-between items-start">
+        <div>
+          <h1 className="text-2xl font-semibold text-white">Intake</h1>
+          <p className="mt-1 text-zinc-500">Receive pallets and add items to the system</p>
+        </div>
+        <div className="flex gap-3">
+          <Button variant="secondary" onClick={loadData}>
+            <RefreshCw size={18} />
+            Refresh
+          </Button>
+          <Button variant="primary" onClick={() => setShowCreatePallet(true)}>
+            <Plus size={18} />
+            New Pallet
+          </Button>
+        </div>
       </div>
 
-      {/* Error Message */}
-      <AnimatePresence>
-        {error && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            className="bg-accent-red/10 border border-accent-red rounded-lg p-4 flex items-center gap-3"
-          >
-            <AlertCircle className="w-5 h-5 text-accent-red flex-shrink-0" />
-            <span className="text-accent-red">{error}</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Stats */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-dark-card)] p-6 transition-colors hover:border-[var(--color-border-light)]">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-zinc-500">Total Pallets</p>
+            <Boxes size={18} className="text-zinc-600" />
+          </div>
+          <p className="mt-3 text-3xl font-semibold text-white">{pallets.length}</p>
+        </div>
+        <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-dark-card)] p-6 transition-colors hover:border-[var(--color-border-light)]">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-zinc-500">Receiving</p>
+            <Package size={18} className="text-zinc-600" />
+          </div>
+          <p className="mt-3 text-3xl font-semibold text-[var(--color-ql-yellow)]">{receivingCount}</p>
+        </div>
+        <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-dark-card)] p-6 transition-colors hover:border-[var(--color-border-light)]">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-zinc-500">In Progress</p>
+            <RefreshCw size={18} className="text-zinc-600" />
+          </div>
+          <p className="mt-3 text-3xl font-semibold text-[var(--color-accent-blue)]">{activeCount}</p>
+        </div>
+        <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-dark-card)] p-6 transition-colors hover:border-[var(--color-border-light)]">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-zinc-500">Recent Items</p>
+            <CheckCircle size={18} className="text-zinc-600" />
+          </div>
+          <p className="mt-3 text-3xl font-semibold text-[var(--color-accent-green)]">{recentItems.length}</p>
+        </div>
+      </div>
 
-      {/* Success Result */}
-      <AnimatePresence>
-        {lastResult && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-          >
-            <SpotlightCard className="p-6 border-accent-green">
-              <div className="flex items-center gap-3 mb-4">
-                <motion.div
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  transition={{ type: "spring", delay: 0.1 }}
-                  className="w-10 h-10 rounded-full bg-accent-green/20 flex items-center justify-center"
-                >
-                  <CheckCircle className="w-5 h-5 text-accent-green" />
-                </motion.div>
-                <div>
-                  <h3 className="font-semibold text-white">Item Added Successfully</h3>
-                  <p className="text-sm text-zinc-400">
-                    Ready for refurbishment workflow
-                  </p>
-                </div>
-              </div>
+      {/* Pallet Session Card */}
+      <PalletSessionCard onPrintLabel={() => setShowPrintLabel(true)} />
 
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                <div>
-                  <span className="text-xs text-zinc-500 uppercase tracking-wide">QLID</span>
-                  <p className="font-mono font-semibold text-ql-yellow">{lastResult.item.qlid}</p>
-                </div>
-                <div>
-                  <span className="text-xs text-zinc-500 uppercase tracking-wide">Pallet</span>
-                  <p className="font-mono text-white">{lastResult.item.palletId}</p>
-                </div>
-                <div className="col-span-2">
-                  <span className="text-xs text-zinc-500 uppercase tracking-wide">Barcode (RFB-prefixed)</span>
-                  <p className="font-mono text-sm text-accent-green break-all">{lastResult.item.barcodeValue}</p>
-                </div>
-              </div>
-              <div className="mb-4">
-                <span className="text-xs text-zinc-500 uppercase tracking-wide">Category</span>
-                <Badge variant="info" size="sm" className="ml-2">
-                  {lastResult.item.category}
-                </Badge>
-              </div>
+      {/* Message */}
+      {message && (
+        <div
+          className={`flex items-center gap-3 p-4 rounded-lg border ${
+            message.type === 'success'
+              ? 'bg-[var(--color-accent-green)]/10 border-[var(--color-accent-green)]/30 text-[var(--color-accent-green)]'
+              : 'bg-[var(--color-accent-red)]/10 border-[var(--color-accent-red)]/30 text-[var(--color-accent-red)]'
+          }`}
+        >
+          {message.type === 'success' ? <CheckCircle size={18} /> : <AlertCircle size={18} />}
+          {message.text}
+        </div>
+      )}
 
-              {(lastResult.item.manufacturer || lastResult.item.model) && (
-                <div className="text-white mb-4">
-                  <span className="text-zinc-400">Product: </span>
-                  {lastResult.item.manufacturer} {lastResult.item.model}
-                </div>
-              )}
-
-              <div className="flex gap-3">
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    // TODO: Implement label printing
-                    toast.info('Print Label', 'Label printing coming soon');
-                  }}
-                >
-                  <Printer size={16} />
-                  Print Label
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => setLastResult(null)}
-                >
-                  Dismiss
-                </Button>
-              </div>
-            </SpotlightCard>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Quick Tips */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3 }}
-      >
-        <SpotlightCard className="p-5">
-          <div className="flex items-start gap-3">
-            <div className="w-8 h-8 rounded-lg bg-ql-yellow/10 flex items-center justify-center flex-shrink-0">
-              <Tag className="w-4 h-4 text-ql-yellow" />
-            </div>
-            <div>
-              <h3 className="font-semibold text-white mb-1">ID Format (QuickIntakez-compatible)</h3>
-              <ul className="text-sm text-zinc-400 space-y-1">
-                <li>Pallet: <span className="font-mono text-zinc-300">P1BBY</span> (P + number + retailer code)</li>
-                <li>QLID: <span className="font-mono text-zinc-300">QLID000000001</span> (same as QuickIntakez)</li>
-                <li>Barcode: <span className="font-mono text-accent-green">RFB-P1BBY-QLID000000001</span></li>
-                <li>The <span className="text-accent-green">RFB-</span> prefix marks items as QuickRefurbz origin for WMS reintegration</li>
-              </ul>
+      {/* Content Grid */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* Pallets List */}
+        <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-dark-card)]">
+          <div className="p-6 flex justify-between items-center">
+            <h2 className="text-base font-medium text-white">Active Pallets</h2>
+            <div className="relative">
+              <Input
+                type="text"
+                placeholder="Search pallets..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10 w-48"
+              />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
             </div>
           </div>
-        </SpotlightCard>
-      </motion.div>
+          <div className="px-6 pb-6">
+            {filteredPallets.length === 0 ? (
+              <div className="py-12 text-center text-zinc-500">
+                <Boxes size={32} className="mx-auto mb-3 text-zinc-600" />
+                <p>No active pallets</p>
+                <p className="text-sm text-zinc-600">Create a new pallet to get started</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {filteredPallets.map((pallet) => (
+                  <div
+                    key={pallet.palletId}
+                    className="flex items-center justify-between rounded-lg border border-[var(--color-border)] p-4 hover:border-[var(--color-border-light)] transition-colors"
+                  >
+                    <div>
+                      <p className="font-mono font-semibold text-[var(--color-ql-yellow)]">{pallet.palletId}</p>
+                      <p className="text-sm text-zinc-500">
+                        {pallet.retailer} | {pallet.actualCount}/{pallet.expectedCount} items
+                      </p>
+                    </div>
+                    <Badge
+                      variant={pallet.status === 'RECEIVING' ? 'warning' : 'info'}
+                      size="sm"
+                    >
+                      {pallet.status}
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Quick Add Item */}
+        <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-dark-card)]">
+          <div className="p-6">
+            <h2 className="text-base font-medium text-white">Quick Add Item</h2>
+            <p className="text-sm text-zinc-500 mt-1">Add an item to the current pallet session</p>
+          </div>
+          <div className="px-6 pb-6">
+            {!isActive ? (
+              <div className="py-12 text-center text-zinc-500">
+                <Package size={32} className="mx-auto mb-3 text-zinc-600" />
+                <p>No active pallet session</p>
+                <p className="text-sm text-zinc-600">Start a pallet session to add items</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-[var(--color-dark-tertiary)]">
+                  <CheckCircle size={16} className="text-[var(--color-accent-green)]" />
+                  <span className="text-sm text-zinc-300">Active: <span className="font-mono text-[var(--color-ql-yellow)]">{session?.palletId}</span></span>
+                </div>
+                <Button variant="primary" className="w-full" onClick={() => setShowAddItem(true)}>
+                  <Plus size={18} />
+                  Add Item to Pallet
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Recent Items */}
+      <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-dark-card)]">
+        <div className="p-6">
+          <h2 className="text-base font-medium text-white">Recent Intake Items</h2>
+        </div>
+        <div className="px-6 pb-6">
+          {recentItems.length === 0 ? (
+            <div className="py-8 text-center text-zinc-500">No recent items</div>
+          ) : (
+            <div className="overflow-hidden rounded-lg border border-[var(--color-border)]">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-[var(--color-dark-tertiary)]/50">
+                    <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">QLID</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Product</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Category</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Pallet</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Time</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--color-border)]">
+                  {recentItems.map((item) => (
+                    <tr key={item.qlid} className="hover:bg-[var(--color-dark-tertiary)]/30 transition-colors">
+                      <td className="px-4 py-3 font-mono text-[var(--color-ql-yellow)]">{item.qlid}</td>
+                      <td className="px-4 py-3 text-white">{item.manufacturer} {item.model}</td>
+                      <td className="px-4 py-3 text-zinc-400">{item.category}</td>
+                      <td className="px-4 py-3 font-mono text-zinc-400">{item.palletId}</td>
+                      <td className="px-4 py-3 text-zinc-500 text-sm">{new Date(item.createdAt).toLocaleTimeString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Create Pallet Modal */}
+      <AnimatedModal isOpen={showCreatePallet} onClose={() => setShowCreatePallet(false)} title="Create New Pallet">
+        <form onSubmit={handleCreatePallet} className="space-y-4">
+          <div>
+            <Label htmlFor="palletId">Pallet ID *</Label>
+            <Input
+              id="palletId"
+              value={newPallet.palletId}
+              onChange={(e) => setNewPallet({ ...newPallet, palletId: e.target.value.toUpperCase() })}
+              placeholder="e.g., P1BBY"
+              className="font-mono"
+              required
+            />
+          </div>
+          <div>
+            <Label htmlFor="retailer">Retailer</Label>
+            <select
+              id="retailer"
+              className="w-full bg-[var(--color-dark-tertiary)] border border-[var(--color-border)] rounded-lg px-4 py-2.5 text-white focus:border-[var(--color-ql-yellow)] focus:outline-none"
+              value={newPallet.retailer}
+              onChange={(e) => setNewPallet({ ...newPallet, retailer: e.target.value })}
+            >
+              <option value="BEST_BUY">Best Buy</option>
+              <option value="TARGET">Target</option>
+              <option value="AMAZON">Amazon</option>
+              <option value="COSTCO">Costco</option>
+              <option value="WALMART">Walmart</option>
+              <option value="OTHER">Other</option>
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="totalCogs">Total COGS ($)</Label>
+              <Input
+                id="totalCogs"
+                type="number"
+                min={0}
+                step={0.01}
+                value={newPallet.totalCogs}
+                onChange={(e) => setNewPallet({ ...newPallet, totalCogs: parseFloat(e.target.value) || 0 })}
+              />
+            </div>
+            <div>
+              <Label htmlFor="expectedCount">Expected Count</Label>
+              <Input
+                id="expectedCount"
+                type="number"
+                min={0}
+                value={newPallet.expectedCount}
+                onChange={(e) => setNewPallet({ ...newPallet, expectedCount: parseInt(e.target.value) || 0 })}
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-3 pt-4 border-t border-[var(--color-border)]">
+            <Button type="button" variant="secondary" onClick={() => setShowCreatePallet(false)}>Cancel</Button>
+            <Button type="submit" variant="primary" loading={submitting}>Create Pallet</Button>
+          </div>
+        </form>
+      </AnimatedModal>
+
+      {/* Add Item Modal */}
+      <AnimatedModal isOpen={showAddItem} onClose={() => setShowAddItem(false)} title="Add Item to Pallet">
+        <form onSubmit={handleAddItem} className="space-y-4">
+          <div className="flex items-center gap-2 p-3 rounded-lg bg-[var(--color-dark-tertiary)]">
+            <Boxes size={16} className="text-[var(--color-ql-yellow)]" />
+            <span className="text-sm text-zinc-300">Adding to: <span className="font-mono text-[var(--color-ql-yellow)]">{session?.palletId}</span></span>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="manufacturer">Manufacturer *</Label>
+              <Input
+                id="manufacturer"
+                value={newItem.manufacturer}
+                onChange={(e) => setNewItem({ ...newItem, manufacturer: e.target.value })}
+                placeholder="e.g., Apple"
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="model">Model *</Label>
+              <Input
+                id="model"
+                value={newItem.model}
+                onChange={(e) => setNewItem({ ...newItem, model: e.target.value })}
+                placeholder="e.g., iPhone 14 Pro"
+                required
+              />
+            </div>
+          </div>
+          <div>
+            <Label htmlFor="category">Category</Label>
+            <select
+              id="category"
+              className="w-full bg-[var(--color-dark-tertiary)] border border-[var(--color-border)] rounded-lg px-4 py-2.5 text-white focus:border-[var(--color-ql-yellow)] focus:outline-none"
+              value={newItem.category}
+              onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
+            >
+              {CATEGORIES.map((cat) => (
+                <option key={cat} value={cat}>{cat.replace(/_/g, ' ')}</option>
+              ))}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="upc">UPC (optional)</Label>
+              <Input
+                id="upc"
+                value={newItem.upc}
+                onChange={(e) => setNewItem({ ...newItem, upc: e.target.value })}
+                placeholder="Barcode"
+              />
+            </div>
+            <div>
+              <Label htmlFor="serialNumber">Serial (optional)</Label>
+              <Input
+                id="serialNumber"
+                value={newItem.serialNumber}
+                onChange={(e) => setNewItem({ ...newItem, serialNumber: e.target.value })}
+                placeholder="Serial number"
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-3 pt-4 border-t border-[var(--color-border)]">
+            <Button type="button" variant="secondary" onClick={() => setShowAddItem(false)}>Cancel</Button>
+            <Button type="submit" variant="primary" loading={submitting}>
+              <Plus size={18} />
+              Add Item
+            </Button>
+          </div>
+        </form>
+      </AnimatedModal>
+
+      {/* Pallet Label Modal */}
+      <PalletLabelModal
+        isOpen={showPrintLabel}
+        onClose={() => setShowPrintLabel(false)}
+        session={session}
+      />
     </div>
   );
 }

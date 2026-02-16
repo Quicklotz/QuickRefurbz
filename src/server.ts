@@ -863,7 +863,8 @@ app.post('/api/items', authMiddleware, async (req: AuthRequest, res: Response) =
   try {
     const result = await itemManager.receiveItem({
       ...req.body,
-      employeeId: req.user?.id || 'system'
+      employeeId: req.body.employeeId || req.user?.id || 'system',
+      warehouseId: req.body.warehouseId || req.body.warehouse_id || 'WH-001'
     });
     res.status(201).json(result);
   } catch (error: any) {
@@ -1016,7 +1017,21 @@ app.get('/api/parts', authMiddleware, async (req: Request, res: Response) => {
 
 app.post('/api/parts', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const part = await partsInventory.addPart(req.body);
+    // Map frontend field names to AddPartOptions interface
+    const body = req.body;
+    const part = await partsInventory.addPart({
+      partNumber: body.partNumber || body.sku || body.rfbSku || body.part_number || `RFB-${Date.now()}`,
+      name: body.name,
+      description: body.description,
+      category: body.category,
+      compatibleCategories: body.compatibleCategories || body.compatible_categories,
+      compatibleManufacturers: body.compatibleManufacturers || body.compatible_manufacturers || body.compatible_devices,
+      quantityOnHand: body.quantityOnHand ?? body.quantity_on_hand ?? body.quantity ?? 0,
+      reorderPoint: body.reorderPoint ?? body.reorder_point ?? body.min_quantity ?? 5,
+      reorderQuantity: body.reorderQuantity ?? body.reorder_quantity ?? 10,
+      unitCost: body.unitCost ?? body.unit_cost ?? body.cost ?? 0,
+      location: body.location,
+    });
     res.status(201).json(part);
   } catch (error: any) {
     console.error('Add part error:', error);
@@ -1036,6 +1051,72 @@ app.post('/api/parts/:id/adjust', authMiddleware, async (req: AuthRequest, res: 
   } catch (error: any) {
     console.error('Adjust stock error:', error);
     res.status(400).json({ error: error.message || 'Failed to adjust stock' });
+  }
+});
+
+// Get parts usage for an item
+app.get('/api/items/:qlid/parts', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const qlid = req.params.qlid as string;
+    const usage = await partsInventory.getPartsUsageForItem(qlid);
+    res.json(usage);
+  } catch (error) {
+    console.error('Get parts usage error:', error);
+    res.status(500).json({ error: 'Failed to get parts usage' });
+  }
+});
+
+// Use parts for an item
+app.post('/api/items/:qlid/parts', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const qlid = req.params.qlid as string;
+    const { parts, ticketId } = req.body;
+
+    if (!parts || !Array.isArray(parts) || parts.length === 0) {
+      return res.status(400).json({ error: 'Parts array is required' });
+    }
+
+    const usage = await partsInventory.useParts({
+      identifier: qlid,
+      ticketId,
+      parts,
+      technicianId: req.user?.id || 'unknown'
+    });
+
+    // Calculate total cost
+    const totalCost = usage.reduce((sum, u) => sum + u.totalCost, 0);
+
+    res.json({
+      usage,
+      totalCost,
+      partsCount: usage.length
+    });
+  } catch (error: any) {
+    console.error('Use parts error:', error);
+    res.status(400).json({ error: error.message || 'Failed to use parts' });
+  }
+});
+
+// Get parts compatible with a category
+app.get('/api/parts/compatible/:category', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const category = req.params.category as string;
+    const parts = await partsInventory.listParts({ compatibleWith: category as any });
+    res.json(parts);
+  } catch (error) {
+    console.error('Get compatible parts error:', error);
+    res.status(500).json({ error: 'Failed to get compatible parts' });
+  }
+});
+
+// Get parts stats
+app.get('/api/parts/stats', authMiddleware, async (_req: Request, res: Response) => {
+  try {
+    const stats = await partsInventory.getPartsStats();
+    res.json(stats);
+  } catch (error) {
+    console.error('Get parts stats error:', error);
+    res.status(500).json({ error: 'Failed to get parts stats' });
   }
 });
 
@@ -1146,6 +1227,481 @@ app.put('/api/settings', authMiddleware, async (req: Request, res: Response) => 
   } catch (error) {
     console.error('Update settings error:', error);
     res.status(500).json({ error: 'Failed to update settings' });
+  }
+});
+
+// ==================== UPC LOOKUP API ====================
+
+import * as upcLookupService from './services/upcLookupService.js';
+
+// Look up product by UPC
+app.get('/api/upc/:upc', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const upc = req.params.upc as string;
+
+    if (!upc || upc.length < 8) {
+      return res.status(400).json({ error: 'Invalid UPC format' });
+    }
+
+    const result = await upcLookupService.lookupUPC(upc);
+
+    if (!result) {
+      return res.status(404).json({ error: 'UPC not found', upc });
+    }
+
+    res.json(result);
+  } catch (error) {
+    console.error('UPC lookup error:', error);
+    res.status(500).json({ error: 'Failed to lookup UPC' });
+  }
+});
+
+// Manually add UPC data
+app.post('/api/upc/manual', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { upc, brand, model, title, category, msrp, imageUrl } = req.body;
+
+    if (!upc) {
+      return res.status(400).json({ error: 'UPC is required' });
+    }
+
+    const result = await upcLookupService.addManualUPC({
+      upc,
+      brand,
+      model,
+      title,
+      category,
+      msrp,
+      imageUrl
+    });
+
+    res.json(result);
+  } catch (error) {
+    console.error('Manual UPC add error:', error);
+    res.status(500).json({ error: 'Failed to add UPC data' });
+  }
+});
+
+// Search cached UPCs
+app.get('/api/upc/search', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const query = queryString(req.query.q) || '';
+    const limit = parseInt(queryString(req.query.limit) || '20');
+
+    const results = await upcLookupService.searchCachedUPCs(query, limit);
+
+    res.json(results);
+  } catch (error) {
+    console.error('UPC search error:', error);
+    res.status(500).json({ error: 'Failed to search UPCs' });
+  }
+});
+
+// Get UPC cache stats
+app.get('/api/upc/stats', authMiddleware, async (_req: Request, res: Response) => {
+  try {
+    const stats = await upcLookupService.getUPCCacheStats();
+    res.json(stats);
+  } catch (error) {
+    console.error('UPC stats error:', error);
+    res.status(500).json({ error: 'Failed to get UPC stats' });
+  }
+});
+
+// ==================== PHOTO API ====================
+
+import multer from 'multer';
+import * as photoService from './services/photoService.js';
+
+// Configure multer for memory storage
+const photoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB max
+    files: 10 // Max 10 files per request
+  },
+  fileFilter: (_req, file, cb) => {
+    // Accept only images
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed'));
+    }
+  }
+});
+
+// Upload photos for an item
+app.post('/api/photos/:qlid', authMiddleware, photoUpload.array('photos', 10), async (req: AuthRequest, res: Response) => {
+  try {
+    const qlid = req.params.qlid as string;
+    const { stage, photoType, caption } = req.body;
+    const files = req.files as Express.Multer.File[];
+
+    if (!files || files.length === 0) {
+      return res.status(400).json({ error: 'No photos provided' });
+    }
+
+    const validStages = ['INTAKE', 'TESTING', 'REPAIR', 'CLEANING', 'FINAL_QC', 'COMPLETE'];
+    const validTypes = ['INTAKE', 'DEFECT', 'REPAIR', 'SERIAL', 'FINAL', 'BEFORE', 'AFTER'];
+
+    if (!stage || !validStages.includes(stage)) {
+      return res.status(400).json({ error: 'Invalid or missing stage' });
+    }
+
+    if (!photoType || !validTypes.includes(photoType)) {
+      return res.status(400).json({ error: 'Invalid or missing photoType' });
+    }
+
+    const uploadedPhotos = [];
+    for (const file of files) {
+      const photo = await photoService.uploadPhoto({
+        qlid,
+        stage: stage as photoService.PhotoStage,
+        photoType: photoType as photoService.PhotoType,
+        buffer: file.buffer,
+        filename: file.originalname,
+        mimeType: file.mimetype,
+        capturedBy: req.user?.id,
+        caption
+      });
+      uploadedPhotos.push(photo);
+    }
+
+    res.json({ photos: uploadedPhotos, count: uploadedPhotos.length });
+  } catch (error) {
+    console.error('Photo upload error:', error);
+    res.status(500).json({ error: 'Failed to upload photos' });
+  }
+});
+
+// Get all photos for an item
+app.get('/api/photos/:qlid', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const qlid = req.params.qlid as string;
+    const stage = queryString(req.query.stage);
+
+    let photos;
+    if (stage) {
+      photos = await photoService.getPhotosByStage(qlid, stage as photoService.PhotoStage);
+    } else {
+      photos = await photoService.getPhotosForItem(qlid);
+    }
+
+    res.json(photos);
+  } catch (error) {
+    console.error('Get photos error:', error);
+    res.status(500).json({ error: 'Failed to get photos' });
+  }
+});
+
+// Get photo file content
+app.get('/api/photos/file/:photoId', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const photoId = req.params.photoId as string;
+    const result = await photoService.getPhotoFile(photoId);
+
+    if (!result) {
+      return res.status(404).json({ error: 'Photo not found' });
+    }
+
+    res.set('Content-Type', result.mimeType);
+    res.send(result.buffer);
+  } catch (error) {
+    console.error('Get photo file error:', error);
+    res.status(500).json({ error: 'Failed to get photo file' });
+  }
+});
+
+// Get photo count for an item
+app.get('/api/photos/:qlid/count', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const qlid = req.params.qlid as string;
+    const count = await photoService.getPhotoCount(qlid);
+    res.json(count);
+  } catch (error) {
+    console.error('Get photo count error:', error);
+    res.status(500).json({ error: 'Failed to get photo count' });
+  }
+});
+
+// Update photo caption
+app.patch('/api/photos/file/:photoId', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const photoId = req.params.photoId as string;
+    const { caption } = req.body;
+
+    const photo = await photoService.updatePhotoCaption(photoId, caption);
+    if (!photo) {
+      return res.status(404).json({ error: 'Photo not found' });
+    }
+
+    res.json(photo);
+  } catch (error) {
+    console.error('Update photo error:', error);
+    res.status(500).json({ error: 'Failed to update photo' });
+  }
+});
+
+// Delete a photo
+app.delete('/api/photos/file/:photoId', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const photoId = req.params.photoId as string;
+    const deleted = await photoService.deletePhoto(photoId);
+
+    if (!deleted) {
+      return res.status(404).json({ error: 'Photo not found' });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Delete photo error:', error);
+    res.status(500).json({ error: 'Failed to delete photo' });
+  }
+});
+
+// ==================== GRADING API ====================
+
+import * as gradingService from './services/gradingService.js';
+
+// Get grading rubric for a category
+app.get('/api/grading/rubric/:category', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const category = req.params.category as string;
+    const rubric = await gradingService.getRubric(category);
+
+    if (!rubric) {
+      return res.status(404).json({ error: 'Rubric not found' });
+    }
+
+    res.json(rubric);
+  } catch (error) {
+    console.error('Get rubric error:', error);
+    res.status(500).json({ error: 'Failed to get rubric' });
+  }
+});
+
+// Get all rubrics
+app.get('/api/grading/rubrics', authMiddleware, async (_req: Request, res: Response) => {
+  try {
+    const rubrics = await gradingService.getAllRubrics();
+    res.json(rubrics);
+  } catch (error) {
+    console.error('Get all rubrics error:', error);
+    res.status(500).json({ error: 'Failed to get rubrics' });
+  }
+});
+
+// Create grading assessment
+app.post('/api/grading/assess', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const { qlid, category, criteriaResults, gradeOverride } = req.body;
+
+    if (!qlid || !category || !criteriaResults) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const assessment = await gradingService.createAssessment({
+      qlid,
+      category,
+      criteriaResults,
+      assessedBy: req.user?.id || 'unknown',
+      gradeOverride
+    });
+
+    res.json(assessment);
+  } catch (error) {
+    console.error('Create assessment error:', error);
+    res.status(500).json({ error: 'Failed to create assessment' });
+  }
+});
+
+// Get assessment for an item
+app.get('/api/grading/assessment/:qlid', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const qlid = req.params.qlid as string;
+    const assessment = await gradingService.getAssessment(qlid);
+
+    if (!assessment) {
+      return res.status(404).json({ error: 'Assessment not found' });
+    }
+
+    res.json(assessment);
+  } catch (error) {
+    console.error('Get assessment error:', error);
+    res.status(500).json({ error: 'Failed to get assessment' });
+  }
+});
+
+// Get assessment history for an item
+app.get('/api/grading/history/:qlid', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const qlid = req.params.qlid as string;
+    const history = await gradingService.getAssessmentHistory(qlid);
+    res.json(history);
+  } catch (error) {
+    console.error('Get assessment history error:', error);
+    res.status(500).json({ error: 'Failed to get assessment history' });
+  }
+});
+
+// Get grading statistics
+app.get('/api/grading/stats', authMiddleware, async (_req: Request, res: Response) => {
+  try {
+    const stats = await gradingService.getGradeStats();
+    res.json(stats);
+  } catch (error) {
+    console.error('Get grading stats error:', error);
+    res.status(500).json({ error: 'Failed to get grading stats' });
+  }
+});
+
+// ==================== COST TRACKING API ====================
+
+import * as costTracker from './services/costTracker.js';
+
+// Record labor entry
+app.post('/api/costs/labor', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const { qlid, stage, durationMinutes, laborRate, startedAt, endedAt } = req.body;
+
+    if (!qlid || !stage || !durationMinutes) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const labor = await costTracker.recordLabor({
+      qlid,
+      technicianId: req.user?.id || 'unknown',
+      stage,
+      durationMinutes,
+      laborRate,
+      startedAt,
+      endedAt
+    });
+
+    res.json(labor);
+  } catch (error) {
+    console.error('Record labor error:', error);
+    res.status(500).json({ error: 'Failed to record labor' });
+  }
+});
+
+// Get labor entries for an item
+app.get('/api/costs/labor/:qlid', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const qlid = req.params.qlid as string;
+    const labor = await costTracker.getLaborForItem(qlid);
+    res.json(labor);
+  } catch (error) {
+    console.error('Get labor error:', error);
+    res.status(500).json({ error: 'Failed to get labor entries' });
+  }
+});
+
+// Calculate/recalculate costs for an item
+app.post('/api/costs/calculate/:qlid', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const qlid = req.params.qlid as string;
+    const { unitCogs } = req.body;
+
+    const costs = await costTracker.calculateCosts(qlid, unitCogs || 0);
+    res.json(costs);
+  } catch (error) {
+    console.error('Calculate costs error:', error);
+    res.status(500).json({ error: 'Failed to calculate costs' });
+  }
+});
+
+// Get cost breakdown for an item
+app.get('/api/costs/breakdown/:qlid', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const qlid = req.params.qlid as string;
+    const breakdown = await costTracker.getCostBreakdown(qlid);
+
+    if (!breakdown) {
+      return res.status(404).json({ error: 'Cost data not found' });
+    }
+
+    res.json(breakdown);
+  } catch (error) {
+    console.error('Get cost breakdown error:', error);
+    res.status(500).json({ error: 'Failed to get cost breakdown' });
+  }
+});
+
+// Get cost summary for an item
+app.get('/api/costs/summary/:qlid', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const qlid = req.params.qlid as string;
+    const summary = await costTracker.getCostSummary(qlid);
+
+    if (!summary) {
+      // Return empty cost structure if not calculated yet
+      res.json({
+        qlid,
+        unitCogs: 0,
+        partsCost: 0,
+        laborCost: 0,
+        overheadCost: 0,
+        totalCost: 0,
+        estimatedValue: null,
+        profitMargin: null,
+        calculatedAt: null
+      });
+      return;
+    }
+
+    res.json(summary);
+  } catch (error) {
+    console.error('Get cost summary error:', error);
+    res.status(500).json({ error: 'Failed to get cost summary' });
+  }
+});
+
+// Set unit COGS for an item
+app.post('/api/costs/cogs/:qlid', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const qlid = req.params.qlid as string;
+    const { unitCogs } = req.body;
+
+    if (unitCogs === undefined || unitCogs < 0) {
+      return res.status(400).json({ error: 'Valid unitCogs is required' });
+    }
+
+    const costs = await costTracker.setUnitCogs(qlid, unitCogs);
+    res.json(costs);
+  } catch (error) {
+    console.error('Set COGS error:', error);
+    res.status(500).json({ error: 'Failed to set COGS' });
+  }
+});
+
+// Set estimated value for an item
+app.post('/api/costs/value/:qlid', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const qlid = req.params.qlid as string;
+    const { estimatedValue } = req.body;
+
+    if (estimatedValue === undefined || estimatedValue < 0) {
+      return res.status(400).json({ error: 'Valid estimatedValue is required' });
+    }
+
+    await costTracker.setEstimatedValue(qlid, estimatedValue);
+    const summary = await costTracker.getCostSummary(qlid);
+    res.json(summary);
+  } catch (error) {
+    console.error('Set estimated value error:', error);
+    res.status(500).json({ error: 'Failed to set estimated value' });
+  }
+});
+
+// Get cost statistics
+app.get('/api/costs/stats', authMiddleware, async (_req: Request, res: Response) => {
+  try {
+    const stats = await costTracker.getCostStats();
+    res.json(stats);
+  } catch (error) {
+    console.error('Get cost stats error:', error);
+    res.status(500).json({ error: 'Failed to get cost stats' });
   }
 });
 
@@ -1402,8 +1958,17 @@ app.post('/api/parts/import', authMiddleware, async (req: Request, res: Response
     for (const partData of parts) {
       try {
         const part = await partsInventory.addPart({
-          ...partData,
-          source: source || 'SYNCED'
+          partNumber: partData.partNumber || partData.sku || partData.rfbSku || partData.part_number || `RFB-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          name: partData.name,
+          description: partData.description,
+          category: partData.category,
+          compatibleCategories: partData.compatibleCategories || partData.compatible_categories,
+          compatibleManufacturers: partData.compatibleManufacturers || partData.compatible_manufacturers || partData.compatible_devices,
+          quantityOnHand: partData.quantityOnHand ?? partData.quantity_on_hand ?? partData.quantity ?? 0,
+          reorderPoint: partData.reorderPoint ?? partData.reorder_point ?? partData.min_quantity ?? 5,
+          reorderQuantity: partData.reorderQuantity ?? partData.reorder_quantity ?? 10,
+          unitCost: partData.unitCost ?? partData.unit_cost ?? partData.cost ?? 0,
+          location: partData.location,
         });
         imported.push(part);
       } catch (err) {
@@ -1523,6 +2088,10 @@ app.post('/api/session/end', authMiddleware, async (req: AuthRequest, res: Respo
 // ==================== PALLET LABELS API ====================
 
 import * as labelGenerator from './labelGenerator.js';
+import { discoverPrinters, checkPrinterStatus, getPrinterLabelSize } from './printerDiscovery.js';
+import * as certificateGenerator from './services/certificateGenerator.js';
+import * as batchExporter from './services/batchExporter.js';
+import * as dataFeedService from './services/dataFeedService.js';
 
 // Generate pallet-only label
 app.get('/api/labels/pallet/:palletId', authMiddleware, async (req: AuthRequest, res: Response) => {
@@ -1705,6 +2274,1133 @@ app.post('/api/labels/refurb/print-zpl', authMiddleware, async (req: AuthRequest
   } catch (error: any) {
     console.error('Print refurb ZPL error:', error);
     res.status(500).json({ error: error.message || 'Failed to print refurb label' });
+  }
+});
+
+// ==================== PRINTER MANAGEMENT ====================
+
+// Discover printers on the network
+app.get('/api/printers/discover', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const subnet = req.query.subnet as string | undefined;
+    const printers = await discoverPrinters(subnet);
+    res.json({ printers });
+  } catch (err: any) {
+    console.error('Printer discovery error:', err);
+    res.status(500).json({ error: 'Printer discovery failed', details: err.message });
+  }
+});
+
+// Check single printer status
+app.get('/api/printers/status/:ip', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const status = await checkPrinterStatus(req.params.ip as string);
+    res.json(status);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to check printer status', details: err.message });
+  }
+});
+
+// Get saved printer settings for current user
+app.get('/api/printers/settings', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getPool();
+    const result = await db.query(
+      `SELECT * FROM printer_settings WHERE user_id = $1 ORDER BY is_default DESC, updated_at DESC`,
+      [req.user!.id]
+    );
+    res.json({ printers: result.rows });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to get printer settings', details: err.message });
+  }
+});
+
+// Save printer settings
+app.post('/api/printers/settings', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const { printer_ip, printer_name, printer_model, label_width_mm, label_height_mm, print_density_dpi, station_id, is_default } = req.body;
+
+    if (!printer_ip) {
+      return res.status(400).json({ error: 'printer_ip is required' });
+    }
+
+    const db = getPool();
+
+    // If setting as default, unset other defaults for this user
+    if (is_default !== false) {
+      await db.query(
+        `UPDATE printer_settings SET is_default = false WHERE user_id = $1`,
+        [req.user!.id]
+      );
+    }
+
+    // Upsert by user + printer IP
+    const existing = await db.query(
+      `SELECT id FROM printer_settings WHERE user_id = $1 AND printer_ip = $2`,
+      [req.user!.id, printer_ip]
+    );
+
+    let result;
+    if (existing.rows.length > 0) {
+      result = await db.query(
+        `UPDATE printer_settings SET
+          printer_name = $1, printer_model = $2, label_width_mm = $3, label_height_mm = $4,
+          print_density_dpi = $5, station_id = $6, is_default = $7, updated_at = NOW()
+        WHERE id = $8 RETURNING *`,
+        [printer_name || null, printer_model || null, label_width_mm || 50.8, label_height_mm || 25.4,
+         print_density_dpi || 203, station_id || null, is_default !== false, existing.rows[0].id]
+      );
+    } else {
+      result = await db.query(
+        `INSERT INTO printer_settings (user_id, station_id, printer_ip, printer_name, printer_model, label_width_mm, label_height_mm, print_density_dpi, is_default)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+        [req.user!.id, station_id || null, printer_ip, printer_name || null, printer_model || null,
+         label_width_mm || 50.8, label_height_mm || 25.4, print_density_dpi || 203, is_default !== false]
+      );
+    }
+
+    res.json({ printer: result.rows[0] });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to save printer settings', details: err.message });
+  }
+});
+
+// Delete printer settings
+app.delete('/api/printers/settings/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getPool();
+    await db.query(
+      `DELETE FROM printer_settings WHERE id = $1 AND user_id = $2`,
+      [req.params.id, req.user!.id]
+    );
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to delete printer settings', details: err.message });
+  }
+});
+
+// Test print - send a test label to a printer
+app.post('/api/printers/test', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const { printer_ip, label_width_mm, label_height_mm } = req.body;
+
+    if (!printer_ip) {
+      return res.status(400).json({ error: 'printer_ip is required' });
+    }
+
+    const dpi = 203;
+    const widthDots = Math.round(((label_width_mm || 50.8) / 25.4) * dpi);
+    const heightDots = Math.round(((label_height_mm || 25.4) / 25.4) * dpi);
+
+    // Generate a test label ZPL
+    const testZpl = `
+^XA
+^FO${Math.round(widthDots * 0.05)},${Math.round(heightDots * 0.1)}^A0N,${Math.round(heightDots * 0.15)},${Math.round(widthDots * 0.06)}^FDQuickRefurbz^FS
+^FO${Math.round(widthDots * 0.05)},${Math.round(heightDots * 0.35)}^A0N,${Math.round(heightDots * 0.1)},${Math.round(widthDots * 0.04)}^FDTest Label^FS
+^FO${Math.round(widthDots * 0.05)},${Math.round(heightDots * 0.55)}^A0N,${Math.round(heightDots * 0.08)},${Math.round(widthDots * 0.03)}^FD${new Date().toISOString().slice(0, 19)}^FS
+^FO${Math.round(widthDots * 0.05)},${Math.round(heightDots * 0.75)}^A0N,${Math.round(heightDots * 0.08)},${Math.round(widthDots * 0.03)}^FDSize: ${label_width_mm || 50.8}mm x ${label_height_mm || 25.4}mm^FS
+^XZ
+`.trim();
+
+    await labelGenerator.sendZplToPrinter(printer_ip, testZpl);
+    res.json({ ok: true, message: 'Test label sent' });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Test print failed', details: err.message });
+  }
+});
+
+// Get printer label size from printer
+app.get('/api/printers/label-size/:ip', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const labelSize = await getPrinterLabelSize(req.params.ip as string);
+    res.json(labelSize);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to get label size', details: err.message });
+  }
+});
+
+// Get label presets
+app.get('/api/printers/label-presets', authMiddleware, async (_req: AuthRequest, res: Response) => {
+  res.json({ presets: labelGenerator.LABEL_PRESETS });
+});
+
+// ==================== DATA WIPE CERTIFICATES API ====================
+
+// Create a new data wipe certificate
+app.post('/api/certificates', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const {
+      qlid,
+      deviceInfo,
+      wipeMethod,
+      wipeStartedAt,
+      wipeCompletedAt,
+      verificationMethod,
+      verificationPassed,
+      notes
+    } = req.body;
+
+    if (!qlid || !deviceInfo || !wipeMethod || !wipeStartedAt || !wipeCompletedAt || !verificationMethod) {
+      res.status(400).json({ error: 'Missing required fields' });
+      return;
+    }
+
+    const certificate = await certificateGenerator.createCertificate({
+      qlid,
+      deviceInfo,
+      wipeMethod,
+      wipeStartedAt,
+      wipeCompletedAt,
+      verificationMethod,
+      verificationPassed: verificationPassed ?? true,
+      technicianId: req.user?.id || 'unknown',
+      notes
+    });
+
+    res.status(201).json(certificate);
+  } catch (error) {
+    console.error('Create certificate error:', error);
+    res.status(500).json({ error: 'Failed to create certificate' });
+  }
+});
+
+// Get certificate by ID or certificate number
+app.get('/api/certificates/:identifier', async (req: Request, res: Response) => {
+  try {
+    const identifier = req.params.identifier as string;
+    const certificate = await certificateGenerator.getCertificate(identifier);
+
+    if (!certificate) {
+      res.status(404).json({ error: 'Certificate not found' });
+      return;
+    }
+
+    res.json(certificate);
+  } catch (error) {
+    console.error('Get certificate error:', error);
+    res.status(500).json({ error: 'Failed to get certificate' });
+  }
+});
+
+// Get certificate for a specific QLID
+app.get('/api/certificates/item/:qlid', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const qlid = req.params.qlid as string;
+    const certificate = await certificateGenerator.getCertificateForItem(qlid);
+
+    if (!certificate) {
+      res.status(404).json({ error: 'No certificate found for this item' });
+      return;
+    }
+
+    res.json(certificate);
+  } catch (error) {
+    console.error('Get item certificate error:', error);
+    res.status(500).json({ error: 'Failed to get certificate' });
+  }
+});
+
+// Verify a certificate
+app.post('/api/certificates/verify', async (req: Request, res: Response) => {
+  try {
+    const { certificateNumber, verificationCode } = req.body;
+
+    if (!certificateNumber || !verificationCode) {
+      res.status(400).json({ error: 'Certificate number and verification code required' });
+      return;
+    }
+
+    const result = await certificateGenerator.verifyCertificate(certificateNumber, verificationCode);
+    res.json(result);
+  } catch (error) {
+    console.error('Verify certificate error:', error);
+    res.status(500).json({ error: 'Failed to verify certificate' });
+  }
+});
+
+// Get certificate as text (for printing/display)
+app.get('/api/certificates/:identifier/text', async (req: Request, res: Response) => {
+  try {
+    const identifier = req.params.identifier as string;
+    const certificate = await certificateGenerator.getCertificate(identifier);
+
+    if (!certificate) {
+      res.status(404).json({ error: 'Certificate not found' });
+      return;
+    }
+
+    const text = certificateGenerator.generateCertificateText(certificate);
+    res.setHeader('Content-Type', 'text/plain');
+    res.send(text);
+  } catch (error) {
+    console.error('Get certificate text error:', error);
+    res.status(500).json({ error: 'Failed to generate certificate text' });
+  }
+});
+
+// Get certificate content (for PDF generation)
+app.get('/api/certificates/:identifier/content', async (req: Request, res: Response) => {
+  try {
+    const identifier = req.params.identifier as string;
+    const certificate = await certificateGenerator.getCertificate(identifier);
+
+    if (!certificate) {
+      res.status(404).json({ error: 'Certificate not found' });
+      return;
+    }
+
+    const content = certificateGenerator.generateCertificateContent(certificate);
+    res.json({ certificate, content });
+  } catch (error) {
+    console.error('Get certificate content error:', error);
+    res.status(500).json({ error: 'Failed to generate certificate content' });
+  }
+});
+
+// List certificates with optional filtering
+app.get('/api/certificates', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const limit = req.query.limit ? parseInt(queryString(req.query.limit) || '50') : undefined;
+    const wipeMethod = queryString(req.query.wipeMethod) as certificateGenerator.WipeMethod | undefined;
+
+    const certificates = await certificateGenerator.listCertificates({ limit, wipeMethod });
+    res.json(certificates);
+  } catch (error) {
+    console.error('List certificates error:', error);
+    res.status(500).json({ error: 'Failed to list certificates' });
+  }
+});
+
+// Get certificate statistics
+app.get('/api/certificates/stats/summary', authMiddleware, async (_req: Request, res: Response) => {
+  try {
+    const stats = await certificateGenerator.getCertificateStats();
+    res.json(stats);
+  } catch (error) {
+    console.error('Get certificate stats error:', error);
+    res.status(500).json({ error: 'Failed to get certificate stats' });
+  }
+});
+
+// ==================== BATCH EXPORT API ====================
+
+// Export data to CSV/XLSX in batches of 50
+app.post('/api/exports', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const { type, format, batchSize, filters } = req.body;
+
+    if (!type || !format) {
+      res.status(400).json({ error: 'Type and format are required' });
+      return;
+    }
+
+    const validTypes = ['items', 'pallets', 'certificates', 'grading', 'parts_usage', 'labor', 'costs', 'full_report'];
+    const validFormats = ['csv', 'xlsx'];
+
+    if (!validTypes.includes(type)) {
+      res.status(400).json({ error: `Invalid type. Must be one of: ${validTypes.join(', ')}` });
+      return;
+    }
+
+    if (!validFormats.includes(format)) {
+      res.status(400).json({ error: 'Invalid format. Must be csv or xlsx' });
+      return;
+    }
+
+    let result;
+    if (type === 'full_report') {
+      result = await batchExporter.exportFullReport({
+        format: format as batchExporter.ExportFormat,
+        batchSize: batchSize || 50,
+        filters
+      });
+    } else {
+      result = await batchExporter.exportBatch({
+        type: type as batchExporter.ExportType,
+        format: format as batchExporter.ExportFormat,
+        batchSize: batchSize || 50,
+        filters
+      });
+    }
+
+    res.json(result);
+  } catch (error) {
+    console.error('Export error:', error);
+    res.status(500).json({ error: 'Failed to export data' });
+  }
+});
+
+// List available exports
+app.get('/api/exports', authMiddleware, async (_req: Request, res: Response) => {
+  try {
+    const exports = await batchExporter.listExports();
+    res.json(exports);
+  } catch (error) {
+    console.error('List exports error:', error);
+    res.status(500).json({ error: 'Failed to list exports' });
+  }
+});
+
+// Get files in an export
+app.get('/api/exports/:exportName/files', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const exportName = req.params.exportName as string;
+    const files = await batchExporter.getExportFiles(exportName);
+    res.json(files);
+  } catch (error) {
+    console.error('Get export files error:', error);
+    res.status(500).json({ error: 'Failed to get export files' });
+  }
+});
+
+// Download an export file
+app.get('/api/exports/download/:exportName/:filename', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { exportName, filename } = req.params;
+    const files = await batchExporter.getExportFiles(exportName as string);
+    const filepath = files.find(f => f.endsWith(filename as string));
+
+    if (!filepath) {
+      res.status(404).json({ error: 'File not found' });
+      return;
+    }
+
+    res.download(filepath);
+  } catch (error) {
+    console.error('Download export error:', error);
+    res.status(500).json({ error: 'Failed to download export' });
+  }
+});
+
+// Delete an export
+app.delete('/api/exports/:exportName', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const exportName = req.params.exportName as string;
+    const deleted = await batchExporter.deleteExport(exportName);
+
+    if (!deleted) {
+      res.status(404).json({ error: 'Export not found' });
+      return;
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Delete export error:', error);
+    res.status(500).json({ error: 'Failed to delete export' });
+  }
+});
+
+// Get export statistics
+app.get('/api/exports/stats/summary', authMiddleware, async (_req: Request, res: Response) => {
+  try {
+    const stats = await batchExporter.getExportStats();
+    res.json(stats);
+  } catch (error) {
+    console.error('Get export stats error:', error);
+    res.status(500).json({ error: 'Failed to get export stats' });
+  }
+});
+
+// ==================== DATA FEED & WEBHOOK API ====================
+
+// Create webhook subscription
+app.post('/api/webhooks', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const { name, url, events, format, headers } = req.body;
+
+    if (!name || !url || !events || !Array.isArray(events) || events.length === 0) {
+      res.status(400).json({ error: 'Name, URL, and at least one event are required' });
+      return;
+    }
+
+    const validEvents = ['item.created', 'item.updated', 'item.completed', 'item.graded', 'item.certified', 'pallet.created', 'pallet.completed', 'inventory.low'];
+    const invalidEvents = events.filter((e: string) => !validEvents.includes(e));
+    if (invalidEvents.length > 0) {
+      res.status(400).json({ error: `Invalid events: ${invalidEvents.join(', ')}. Valid: ${validEvents.join(', ')}` });
+      return;
+    }
+
+    const webhook = await dataFeedService.createWebhook({ name, url, events, format, headers });
+    res.status(201).json(webhook);
+  } catch (error) {
+    console.error('Create webhook error:', error);
+    res.status(500).json({ error: 'Failed to create webhook' });
+  }
+});
+
+// List webhooks
+app.get('/api/webhooks', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const activeOnly = queryString(req.query.activeOnly) === 'true';
+    const webhooks = await dataFeedService.listWebhooks(activeOnly);
+    res.json(webhooks);
+  } catch (error) {
+    console.error('List webhooks error:', error);
+    res.status(500).json({ error: 'Failed to list webhooks' });
+  }
+});
+
+// Get webhook by ID
+app.get('/api/webhooks/:id', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const webhook = await dataFeedService.getWebhook(id);
+
+    if (!webhook) {
+      res.status(404).json({ error: 'Webhook not found' });
+      return;
+    }
+
+    res.json(webhook);
+  } catch (error) {
+    console.error('Get webhook error:', error);
+    res.status(500).json({ error: 'Failed to get webhook' });
+  }
+});
+
+// Update webhook
+app.patch('/api/webhooks/:id', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const { name, url, events, format, headers, isActive } = req.body;
+
+    const webhook = await dataFeedService.updateWebhook(id, { name, url, events, format, headers, isActive });
+
+    if (!webhook) {
+      res.status(404).json({ error: 'Webhook not found' });
+      return;
+    }
+
+    res.json(webhook);
+  } catch (error) {
+    console.error('Update webhook error:', error);
+    res.status(500).json({ error: 'Failed to update webhook' });
+  }
+});
+
+// Delete webhook
+app.delete('/api/webhooks/:id', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const deleted = await dataFeedService.deleteWebhook(id);
+
+    if (!deleted) {
+      res.status(404).json({ error: 'Webhook not found' });
+      return;
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Delete webhook error:', error);
+    res.status(500).json({ error: 'Failed to delete webhook' });
+  }
+});
+
+// Regenerate webhook secret
+app.post('/api/webhooks/:id/regenerate-secret', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const newSecret = await dataFeedService.regenerateWebhookSecret(id);
+
+    if (!newSecret) {
+      res.status(404).json({ error: 'Webhook not found' });
+      return;
+    }
+
+    res.json({ secret: newSecret });
+  } catch (error) {
+    console.error('Regenerate secret error:', error);
+    res.status(500).json({ error: 'Failed to regenerate secret' });
+  }
+});
+
+// Test webhook (trigger a test delivery)
+app.post('/api/webhooks/:id/test', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const webhook = await dataFeedService.getWebhook(id);
+
+    if (!webhook) {
+      res.status(404).json({ error: 'Webhook not found' });
+      return;
+    }
+
+    // Trigger a test event
+    await dataFeedService.triggerWebhooks('item.updated', {
+      qlid: 'TEST-QLID-001',
+      test: true,
+      message: 'This is a test webhook delivery from QuickRefurbz'
+    });
+
+    res.json({ success: true, message: 'Test webhook triggered' });
+  } catch (error) {
+    console.error('Test webhook error:', error);
+    res.status(500).json({ error: 'Failed to test webhook' });
+  }
+});
+
+// Process pending webhook retries (can be called by cron job)
+app.post('/api/webhooks/process-retries', authMiddleware, async (_req: Request, res: Response) => {
+  try {
+    const processed = await dataFeedService.processWebhookRetries();
+    res.json({ processed });
+  } catch (error) {
+    console.error('Process retries error:', error);
+    res.status(500).json({ error: 'Failed to process retries' });
+  }
+});
+
+// ==================== PRODUCT FEED API ====================
+
+// Get product feed (supports multiple formats)
+app.get('/api/feed/products', async (req: Request, res: Response) => {
+  try {
+    const format = (queryString(req.query.format) || 'json') as dataFeedService.FeedFormat;
+    const filters: dataFeedService.FeedFilters = {
+      since: queryString(req.query.since),
+      until: queryString(req.query.until),
+      status: queryString(req.query.status),
+      grade: queryString(req.query.grade),
+      category: queryString(req.query.category),
+      palletId: queryString(req.query.palletId),
+      limit: req.query.limit ? parseInt(queryString(req.query.limit) || '100') : 100,
+      offset: req.query.offset ? parseInt(queryString(req.query.offset) || '0') : 0,
+      includeImages: queryString(req.query.includeImages) !== 'false'
+    };
+
+    const { data, contentType } = await dataFeedService.getFormattedFeed(format, filters);
+
+    res.setHeader('Content-Type', contentType);
+    if (typeof data === 'string') {
+      res.send(data);
+    } else {
+      res.json(data);
+    }
+  } catch (error) {
+    console.error('Get feed error:', error);
+    res.status(500).json({ error: 'Failed to get product feed' });
+  }
+});
+
+// Get Shopify-formatted feed
+app.get('/api/feed/shopify', async (req: Request, res: Response) => {
+  try {
+    const filters: dataFeedService.FeedFilters = {
+      since: queryString(req.query.since),
+      status: queryString(req.query.status) || 'COMPLETE', // Default to completed items
+      grade: queryString(req.query.grade),
+      category: queryString(req.query.category),
+      limit: req.query.limit ? parseInt(queryString(req.query.limit) || '100') : 100,
+      offset: req.query.offset ? parseInt(queryString(req.query.offset) || '0') : 0
+    };
+
+    const { data } = await dataFeedService.getFormattedFeed('shopify', filters);
+    res.json(data);
+  } catch (error) {
+    console.error('Get Shopify feed error:', error);
+    res.status(500).json({ error: 'Failed to get Shopify feed' });
+  }
+});
+
+// Get eBay-formatted feed
+app.get('/api/feed/ebay', async (req: Request, res: Response) => {
+  try {
+    const filters: dataFeedService.FeedFilters = {
+      since: queryString(req.query.since),
+      status: queryString(req.query.status) || 'COMPLETE',
+      grade: queryString(req.query.grade),
+      category: queryString(req.query.category),
+      limit: req.query.limit ? parseInt(queryString(req.query.limit) || '100') : 100,
+      offset: req.query.offset ? parseInt(queryString(req.query.offset) || '0') : 0
+    };
+
+    const { data } = await dataFeedService.getFormattedFeed('ebay', filters);
+    res.json(data);
+  } catch (error) {
+    console.error('Get eBay feed error:', error);
+    res.status(500).json({ error: 'Failed to get eBay feed' });
+  }
+});
+
+// Get CSV feed
+app.get('/api/feed/csv', async (req: Request, res: Response) => {
+  try {
+    const filters: dataFeedService.FeedFilters = {
+      since: queryString(req.query.since),
+      status: queryString(req.query.status),
+      grade: queryString(req.query.grade),
+      category: queryString(req.query.category),
+      limit: req.query.limit ? parseInt(queryString(req.query.limit) || '1000') : 1000,
+      offset: req.query.offset ? parseInt(queryString(req.query.offset) || '0') : 0
+    };
+
+    const { data, contentType } = await dataFeedService.getFormattedFeed('csv', filters);
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', 'attachment; filename="quickrefurbz-products.csv"');
+    res.send(data);
+  } catch (error) {
+    console.error('Get CSV feed error:', error);
+    res.status(500).json({ error: 'Failed to get CSV feed' });
+  }
+});
+
+// Get XML feed
+app.get('/api/feed/xml', async (req: Request, res: Response) => {
+  try {
+    const filters: dataFeedService.FeedFilters = {
+      since: queryString(req.query.since),
+      status: queryString(req.query.status),
+      grade: queryString(req.query.grade),
+      category: queryString(req.query.category),
+      limit: req.query.limit ? parseInt(queryString(req.query.limit) || '1000') : 1000,
+      offset: req.query.offset ? parseInt(queryString(req.query.offset) || '0') : 0
+    };
+
+    const { data, contentType } = await dataFeedService.getFormattedFeed('xml', filters);
+
+    res.setHeader('Content-Type', contentType);
+    res.send(data);
+  } catch (error) {
+    console.error('Get XML feed error:', error);
+    res.status(500).json({ error: 'Failed to get XML feed' });
+  }
+});
+
+// Get single product by QLID
+app.get('/api/feed/products/:qlid', async (req: Request, res: Response) => {
+  try {
+    const qlid = req.params.qlid as string;
+    const item = await dataFeedService.getFeedItem(qlid);
+
+    if (!item) {
+      res.status(404).json({ error: 'Product not found' });
+      return;
+    }
+
+    res.json(item);
+  } catch (error) {
+    console.error('Get product error:', error);
+    res.status(500).json({ error: 'Failed to get product' });
+  }
+});
+
+// Get feed statistics
+app.get('/api/feed/stats', authMiddleware, async (_req: Request, res: Response) => {
+  try {
+    const stats = await dataFeedService.getFeedStats();
+    res.json(stats);
+  } catch (error) {
+    console.error('Get feed stats error:', error);
+    res.status(500).json({ error: 'Failed to get feed stats' });
+  }
+});
+
+// ==================== MONITORING API ====================
+
+import * as monitoringService from './services/monitoringService.js';
+
+// Connected SSE clients for real-time updates
+const sseClients: Set<Response> = new Set();
+
+// Server-Sent Events endpoint for real-time monitoring
+app.get('/api/monitor/stream', (req: Request, res: Response) => {
+  // Set SSE headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
+
+  // Send initial connection message
+  res.write(`data: ${JSON.stringify({ type: 'connected', timestamp: new Date().toISOString() })}\n\n`);
+
+  // Add to clients set
+  sseClients.add(res);
+
+  // Send heartbeat every 30 seconds to keep connection alive
+  const heartbeat = setInterval(() => {
+    res.write(`data: ${JSON.stringify({ type: 'heartbeat', timestamp: new Date().toISOString() })}\n\n`);
+  }, 30000);
+
+  // Handle client disconnect
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    sseClients.delete(res);
+  });
+});
+
+// Subscribe to monitoring events and broadcast to SSE clients
+monitoringService.monitoringEvents.on('update', (update: monitoringService.LiveUpdate) => {
+  const message = `data: ${JSON.stringify(update)}\n\n`;
+  sseClients.forEach(client => {
+    try {
+      client.write(message);
+    } catch (err) {
+      // Client disconnected, remove from set
+      sseClients.delete(client);
+    }
+  });
+});
+
+// Get full dashboard stats
+app.get('/api/monitor/dashboard', authMiddleware, async (_req: Request, res: Response) => {
+  try {
+    const stats = await monitoringService.getDashboardStats();
+    res.json(stats);
+  } catch (error) {
+    console.error('Get dashboard stats error:', error);
+    res.status(500).json({ error: 'Failed to get dashboard stats' });
+  }
+});
+
+// Get overview stats only
+app.get('/api/monitor/overview', authMiddleware, async (_req: Request, res: Response) => {
+  try {
+    const overview = await monitoringService.getOverviewStats();
+    res.json(overview);
+  } catch (error) {
+    console.error('Get overview error:', error);
+    res.status(500).json({ error: 'Failed to get overview stats' });
+  }
+});
+
+// Get stage distribution
+app.get('/api/monitor/stages', authMiddleware, async (_req: Request, res: Response) => {
+  try {
+    const stages = await monitoringService.getStageDistribution();
+    res.json(stages);
+  } catch (error) {
+    console.error('Get stages error:', error);
+    res.status(500).json({ error: 'Failed to get stage distribution' });
+  }
+});
+
+// Get throughput data
+app.get('/api/monitor/throughput', authMiddleware, async (_req: Request, res: Response) => {
+  try {
+    const throughput = await monitoringService.getThroughputData();
+    res.json(throughput);
+  } catch (error) {
+    console.error('Get throughput error:', error);
+    res.status(500).json({ error: 'Failed to get throughput data' });
+  }
+});
+
+// Get technician stats
+app.get('/api/monitor/technicians', authMiddleware, async (_req: Request, res: Response) => {
+  try {
+    const technicians = await monitoringService.getTechnicianStats();
+    res.json(technicians);
+  } catch (error) {
+    console.error('Get technician stats error:', error);
+    res.status(500).json({ error: 'Failed to get technician stats' });
+  }
+});
+
+// Get grade distribution
+app.get('/api/monitor/grades', authMiddleware, async (_req: Request, res: Response) => {
+  try {
+    const grades = await monitoringService.getGradeDistribution();
+    res.json(grades);
+  } catch (error) {
+    console.error('Get grade distribution error:', error);
+    res.status(500).json({ error: 'Failed to get grade distribution' });
+  }
+});
+
+// Get active alerts
+app.get('/api/monitor/alerts', authMiddleware, async (_req: Request, res: Response) => {
+  try {
+    const alerts = await monitoringService.getActiveAlerts();
+    res.json(alerts);
+  } catch (error) {
+    console.error('Get alerts error:', error);
+    res.status(500).json({ error: 'Failed to get alerts' });
+  }
+});
+
+// Get recent activity feed
+app.get('/api/monitor/activity', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const limit = req.query.limit ? parseInt(queryString(req.query.limit) || '50') : 50;
+    const activity = await monitoringService.getRecentActivity(limit);
+    res.json(activity);
+  } catch (error) {
+    console.error('Get activity error:', error);
+    res.status(500).json({ error: 'Failed to get activity feed' });
+  }
+});
+
+// Get productivity report for date range
+app.get('/api/monitor/reports/productivity', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const startDate = queryString(req.query.startDate);
+    const endDate = queryString(req.query.endDate);
+
+    if (!startDate || !endDate) {
+      res.status(400).json({ error: 'startDate and endDate are required' });
+      return;
+    }
+
+    const report = await monitoringService.getProductivityReport(startDate, endDate);
+    res.json(report);
+  } catch (error) {
+    console.error('Get productivity report error:', error);
+    res.status(500).json({ error: 'Failed to get productivity report' });
+  }
+});
+
+// Get inventory health report
+app.get('/api/monitor/reports/inventory', authMiddleware, async (_req: Request, res: Response) => {
+  try {
+    const health = await monitoringService.getInventoryHealth();
+    res.json(health);
+  } catch (error) {
+    console.error('Get inventory health error:', error);
+    res.status(500).json({ error: 'Failed to get inventory health' });
+  }
+});
+
+// Get SSE client count (for monitoring)
+app.get('/api/monitor/clients', authMiddleware, (_req: Request, res: Response) => {
+  res.json({ connectedClients: sseClients.size });
+});
+
+// ==================== STATION MANAGEMENT ====================
+
+// Seed 10 station accounts (admin-only, idempotent)
+app.post('/api/admin/seed-stations', authMiddleware, adminMiddleware, async (_req: AuthRequest, res: Response) => {
+  try {
+    const db = getPool();
+    const stations = [
+      { num: '01', name: 'Station 01 - Intake', pass: 'Refurb2026!S01' },
+      { num: '02', name: 'Station 02 - Testing', pass: 'Refurb2026!S02' },
+      { num: '03', name: 'Station 03 - Diagnostics', pass: 'Refurb2026!S03' },
+      { num: '04', name: 'Station 04 - Data Wipe', pass: 'Refurb2026!S04' },
+      { num: '05', name: 'Station 05 - Repair A', pass: 'Refurb2026!S05' },
+      { num: '06', name: 'Station 06 - Repair B', pass: 'Refurb2026!S06' },
+      { num: '07', name: 'Station 07 - Cleaning', pass: 'Refurb2026!S07' },
+      { num: '08', name: 'Station 08 - Final QC', pass: 'Refurb2026!S08' },
+      { num: '09', name: 'Station 09 - Certification', pass: 'Refurb2026!S09' },
+      { num: '10', name: 'Station 10 - Packaging', pass: 'Refurb2026!S10' },
+    ];
+
+    const created: { email: string; name: string; station_id: string }[] = [];
+    const skipped: string[] = [];
+
+    for (const s of stations) {
+      const email = `station${s.num}@quickrefurbz.local`;
+      const existing = await getUserByEmail(email);
+      if (existing) {
+        skipped.push(email);
+        continue;
+      }
+
+      const id = generateUUID();
+      const passwordHash = await bcrypt.hash(s.pass, 10);
+      const dbType = process.env.DB_TYPE || 'sqlite';
+      const nowExpr = dbType === 'postgres' ? 'now()' : "datetime('now')";
+      const trueVal = dbType === 'postgres' ? 'true' : '1';
+
+      await db.query(
+        `INSERT INTO users (id, email, password_hash, name, role, is_active, email_verified, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, 'technician', ${trueVal}, ${trueVal}, ${nowExpr}, ${nowExpr})`,
+        [id, email, passwordHash, s.name]
+      );
+
+      created.push({ email, name: s.name, station_id: `RFB-${s.num}` });
+    }
+
+    res.json({ created, skipped, total: created.length + skipped.length });
+  } catch (error) {
+    console.error('Seed stations error:', error);
+    res.status(500).json({ error: 'Failed to seed station accounts' });
+  }
+});
+
+// Station heartbeat (authenticated station users)
+app.post('/api/stations/heartbeat', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getPool();
+    const { station_id, current_page, current_item, uptime } = req.body;
+    const userId = req.user?.id;
+    const ip = req.ip || req.socket.remoteAddress || '';
+    const ua = req.headers['user-agent'] || '';
+    const dbType = process.env.DB_TYPE || 'sqlite';
+
+    const id = generateUUID();
+    const metadata = JSON.stringify({ current_page, current_item, uptime });
+
+    if (dbType === 'postgres') {
+      await db.query(
+        `INSERT INTO station_logins (id, user_id, station_id, event, ip_address, user_agent, metadata, created_at)
+         VALUES ($1, $2, $3, 'heartbeat', $4, $5, $6::jsonb, now())`,
+        [id, userId, station_id || '', ip, ua, metadata]
+      );
+    } else {
+      await db.query(
+        `INSERT INTO station_logins (id, user_id, station_id, event, ip_address, user_agent, metadata, created_at)
+         VALUES ($1, $2, $3, 'heartbeat', $4, $5, $6, datetime('now'))`,
+        [id, userId, station_id || '', ip, ua, metadata]
+      );
+    }
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Heartbeat error:', error);
+    res.status(500).json({ error: 'Failed to record heartbeat' });
+  }
+});
+
+// Station setup complete
+app.post('/api/stations/setup-complete', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getPool();
+    const { station_id, workstation_id, warehouse_id } = req.body;
+    const userId = req.user?.id;
+    const ip = req.ip || req.socket.remoteAddress || '';
+    const ua = req.headers['user-agent'] || '';
+    const dbType = process.env.DB_TYPE || 'sqlite';
+
+    const id = generateUUID();
+    const metadata = JSON.stringify({ workstation_id, warehouse_id });
+
+    if (dbType === 'postgres') {
+      await db.query(
+        `INSERT INTO station_logins (id, user_id, station_id, event, ip_address, user_agent, metadata, created_at)
+         VALUES ($1, $2, $3, 'setup_complete', $4, $5, $6::jsonb, now())`,
+        [id, userId, station_id || '', ip, ua, metadata]
+      );
+    } else {
+      await db.query(
+        `INSERT INTO station_logins (id, user_id, station_id, event, ip_address, user_agent, metadata, created_at)
+         VALUES ($1, $2, $3, 'setup_complete', $4, $5, $6, datetime('now'))`,
+        [id, userId, station_id || '', ip, ua, metadata]
+      );
+    }
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Setup complete error:', error);
+    res.status(500).json({ error: 'Failed to record setup complete' });
+  }
+});
+
+// Get all station statuses (admin only)
+app.get('/api/admin/stations', authMiddleware, adminMiddleware, async (_req: AuthRequest, res: Response) => {
+  try {
+    const db = getPool();
+
+    // Get all station users
+    const usersResult = await db.query<Record<string, unknown>>(
+      `SELECT id, email, name, is_active, created_at FROM users
+       WHERE email LIKE '%@quickrefurbz.local' ORDER BY email`
+    );
+
+    // Get latest heartbeat per station user
+    const stations = [];
+    for (const user of usersResult.rows) {
+      const stationNum = (user.email as string).match(/station(\d+)/)?.[1] || '??';
+      const stationId = `RFB-${stationNum}`;
+
+      // Latest heartbeat
+      const hbResult = await db.query<Record<string, unknown>>(
+        `SELECT metadata, created_at FROM station_logins
+         WHERE user_id = $1 AND event = 'heartbeat'
+         ORDER BY created_at DESC LIMIT 1`,
+        [user.id]
+      );
+
+      // Setup status
+      const setupResult = await db.query<Record<string, unknown>>(
+        `SELECT created_at FROM station_logins
+         WHERE user_id = $1 AND event = 'setup_complete'
+         ORDER BY created_at DESC LIMIT 1`,
+        [user.id]
+      );
+
+      // Items processed today
+      const todayResult = await db.query<Record<string, unknown>>(
+        `SELECT COUNT(*) as count FROM station_logins
+         WHERE user_id = $1 AND event = 'heartbeat'
+         AND created_at >= CURRENT_DATE`,
+        [user.id]
+      );
+
+      const lastHb = hbResult.rows[0];
+      let metadata: Record<string, unknown> = {};
+      if (lastHb?.metadata) {
+        try {
+          metadata = typeof lastHb.metadata === 'string'
+            ? JSON.parse(lastHb.metadata as string)
+            : lastHb.metadata as Record<string, unknown>;
+        } catch { /* ignore */ }
+      }
+
+      // Determine status based on heartbeat recency
+      let status = 'offline';
+      if (lastHb?.created_at) {
+        const lastTime = new Date(lastHb.created_at as string).getTime();
+        const now = Date.now();
+        const diffMin = (now - lastTime) / 60000;
+        if (diffMin < 2) status = 'online';
+        else if (diffMin < 10) status = 'idle';
+      }
+
+      stations.push({
+        station_id: stationId,
+        user_id: user.id,
+        name: user.name,
+        email: user.email,
+        status,
+        last_heartbeat: lastHb?.created_at || null,
+        current_page: metadata.current_page || null,
+        current_item: metadata.current_item || null,
+        setup_complete: !!setupResult.rows[0],
+        setup_at: setupResult.rows[0]?.created_at || null,
+        heartbeats_today: parseInt(String(todayResult.rows[0]?.count || 0)),
+      });
+    }
+
+    res.json(stations);
+  } catch (error) {
+    console.error('Get stations error:', error);
+    res.status(500).json({ error: 'Failed to get station statuses' });
+  }
+});
+
+// Get station activity log (admin only)
+app.get('/api/admin/stations/:id/activity', authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
+  try {
+    const db = getPool();
+    const stationId = String(req.params.id); // e.g., RFB-01
+    const stationNum = stationId.replace('RFB-', '');
+    const email = `station${stationNum}@quickrefurbz.local`;
+
+    // Find user by email
+    const userResult = await db.query<Record<string, unknown>>(
+      'SELECT id FROM users WHERE email = $1',
+      [email]
+    );
+    if (!userResult.rows[0]) {
+      res.status(404).json({ error: 'Station not found' });
+      return;
+    }
+
+    const userId = userResult.rows[0].id;
+    const limit = parseInt(queryString(req.query.limit) || '50');
+
+    const result = await db.query<Record<string, unknown>>(
+      `SELECT * FROM station_logins
+       WHERE user_id = $1
+       ORDER BY created_at DESC LIMIT $2`,
+      [userId, limit]
+    );
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Get station activity error:', error);
+    res.status(500).json({ error: 'Failed to get station activity' });
   }
 });
 

@@ -6,7 +6,8 @@
   "main": "dist/index.js",
   "bin": {
     "qr": "dist/index.js",
-    "qr-enhanced": "dist/enhanced-cli.js"
+    "qr-enhanced": "dist/enhanced-cli.js",
+    "quicktestz": "dist/enhanced-cli.js"
   },
   "scripts": {
     "build": "tsc",
@@ -30,9 +31,11 @@
   "author": "Upscaled",
   "license": "ISC",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.990.0",
     "@quickwms/api": "file:./packages/api",
     "@quickwms/database": "file:./packages/database",
     "@sendgrid/mail": "^8.1.6",
+    "@serialport/parser-readline": "^12.0.0",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^12.6.2",
     "bwip-js": "^4.8.0",
@@ -41,18 +44,19 @@
     "commander": "^12.1.0",
     "cors": "^2.8.5",
     "csv-writer": "^1.6.0",
+    "exceljs": "^4.4.0",
     "express": "^4.21.2",
     "figlet": "^1.10.0",
     "inquirer": "^9.3.8",
     "jsonwebtoken": "^9.0.2",
+    "multer": "^2.0.2",
     "ora": "^9.3.0",
-    "pg": "^8.18.0",
-    "uuid": "^11.0.5",
     "pdfkit": "^0.15.0",
+    "pg": "^8.18.0",
     "qrcode": "^1.5.4",
     "serialport": "^12.0.0",
-    "@serialport/parser-readline": "^12.0.0",
-    "sharp": "^0.33.5"
+    "sharp": "^0.33.5",
+    "uuid": "^11.0.5"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
@@ -62,11 +66,12 @@
     "@types/figlet": "^1.7.0",
     "@types/inquirer": "^9.0.9",
     "@types/jsonwebtoken": "^9.0.7",
+    "@types/multer": "^2.0.0",
     "@types/node": "^22.12.0",
-    "@types/pg": "^8.16.0",
-    "@types/uuid": "^10.0.0",
     "@types/pdfkit": "^0.13.8",
+    "@types/pg": "^8.16.0",
     "@types/qrcode": "^1.5.5",
+    "@types/uuid": "^10.0.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3"
   }
