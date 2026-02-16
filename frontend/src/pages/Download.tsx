@@ -1,32 +1,20 @@
 import { useState } from 'react';
-import { useInstallPrompt } from '@/hooks/useInstallPrompt';
 import { motion } from 'framer-motion';
 import { Spotlight } from '@/components/aceternity/spotlight';
 import {
-  IconDownload,
   IconDeviceDesktop,
-  IconBrandChrome,
-  IconBrandEdge,
   IconBrandApple,
-  IconBrandWindows,
   IconCheck,
   IconArrowRight,
   IconQrcode,
   IconUser,
   IconKey,
   IconAlertCircle,
-  IconRefresh,
   IconWifi,
+  IconBrowser,
+  IconBookmark,
+  IconExternalLink,
 } from '@tabler/icons-react';
-
-type Platform = 'windows' | 'mac' | 'other';
-
-function detectPlatform(): Platform {
-  const ua = navigator.userAgent.toLowerCase();
-  if (ua.includes('win')) return 'windows';
-  if (ua.includes('mac')) return 'mac';
-  return 'other';
-}
 
 const STATIONS = [
   { id: 'RFB-01', email: 'station01@quickrefurbz.local', name: 'Intake', pass: 'Refurb2026!S01' },
@@ -71,17 +59,9 @@ function StepCard({ step, title, description, icon }: StepCardProps) {
 }
 
 export function Download() {
-  const [platform] = useState<Platform>(detectPlatform);
-  const { canInstall, isInstalled, promptInstall } = useInstallPrompt();
   const [showAllPasswords, setShowAllPasswords] = useState(false);
 
-  const browserName = platform === 'windows' ? 'Edge or Chrome' : 'Chrome';
-  const browserIcon = platform === 'windows'
-    ? <IconBrandEdge size={20} />
-    : <IconBrandChrome size={20} />;
-  const platformIcon = platform === 'windows'
-    ? <IconBrandWindows size={20} />
-    : <IconBrandApple size={20} />;
+  const appUrl = `${window.location.origin}`;
 
   return (
     <div className="min-h-screen bg-dark-primary">
@@ -102,7 +82,7 @@ export function Download() {
             animate={{ opacity: 1, y: 0 }}
             className="text-3xl md:text-4xl font-bold text-white mb-3"
           >
-            Install <span className="text-ql-yellow">QuickRefurbz</span>
+            Set Up <span className="text-ql-yellow">QuickRefurbz</span>
           </motion.h1>
 
           <motion.p
@@ -111,91 +91,73 @@ export function Download() {
             transition={{ delay: 0.1 }}
             className="text-zinc-400 text-lg max-w-md mx-auto mb-8"
           >
-            Get started at your refurbishment station in under 2 minutes
+            Get your Mac station ready in under 2 minutes
           </motion.p>
 
-          {canInstall && (
-            <motion.button
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-              onClick={promptInstall}
-              className="inline-flex items-center gap-2 px-6 py-3 bg-ql-yellow text-dark-primary font-semibold rounded-xl hover:bg-ql-yellow-hover transition-colors"
-            >
-              <IconDownload size={20} />
-              Install App Now
-            </motion.button>
-          )}
-
-          {isInstalled && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-accent-green/10 text-accent-green rounded-xl text-sm"
-            >
-              <IconCheck size={18} />
-              App is installed
-            </motion.div>
-          )}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.2 }}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-dark-secondary border border-border rounded-xl text-sm text-zinc-400"
+          >
+            <IconBrandApple size={18} />
+            macOS Setup Guide
+          </motion.div>
         </div>
       </div>
 
       <div className="max-w-4xl mx-auto px-6 pb-20 space-y-12">
-        {/* Platform Detection */}
-        <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-dark-secondary border border-border text-sm">
-          {platformIcon}
-          <span className="text-zinc-400">
-            Detected: <span className="text-white font-medium">
-              {platform === 'windows' ? 'Windows' : platform === 'mac' ? 'macOS' : 'Your device'}
-            </span>
-            {' '}&mdash; use <span className="text-ql-yellow">{browserName}</span> for best results
-          </span>
-        </div>
-
-        {/* Install Steps */}
+        {/* Setup Steps */}
         <div>
           <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
             <IconDeviceDesktop size={22} className="text-ql-yellow" />
-            Installation Steps
+            Setup Steps
           </h2>
           <div className="space-y-3">
             <StepCard
               step={1}
-              title={`Open ${browserName}`}
-              description={`Open this page in ${browserName} on your station computer. Type the URL in the address bar or scan the QR code below.`}
-              icon={browserIcon}
+              title="Open Safari or Chrome"
+              description={`Open your browser and go to: ${appUrl}`}
+              icon={<IconBrowser size={18} />}
             />
             <StepCard
               step={2}
-              title="Look for the install icon"
-              description={platform === 'windows'
-                ? 'In the address bar, look for the install icon (monitor with down arrow) on the right side. Click it.'
-                : 'In Chrome\'s address bar, look for the install icon. Or click the three dots menu and select "Install QuickRefurbz".'
-              }
-              icon={<IconDownload size={18} />}
+              title="Bookmark the page"
+              description="Press ⌘+D (Cmd+D) to bookmark QuickRefurbz for quick access. You can also drag the tab to your Dock."
+              icon={<IconBookmark size={18} />}
             />
             <StepCard
               step={3}
-              title='Click "Install"'
-              description="A popup will appear asking if you want to install QuickRefurbz. Click Install to add it to your desktop."
-              icon={<IconCheck size={18} />}
+              title="Log in with your station credentials"
+              description="Use the email and password for your station from the table below."
+              icon={<IconUser size={18} />}
             />
             <StepCard
               step={4}
-              title="Find it on your desktop"
-              description={platform === 'windows'
-                ? 'QuickRefurbz will appear on your desktop and in the Start menu. Double-click to open.'
-                : 'QuickRefurbz will appear in your dock and Launchpad. Click to open.'
-              }
-              icon={<IconDeviceDesktop size={18} />}
+              title="Complete the setup wizard"
+              description="The first time you log in, a setup wizard will walk you through configuring your printer, scanner, and station details."
+              icon={<IconArrowRight size={18} />}
             />
             <StepCard
               step={5}
-              title="Log in with your station credentials"
-              description="Use the email and password for your station from the table below. The setup wizard will guide you through the rest."
-              icon={<IconArrowRight size={18} />}
+              title="Start refurbishing"
+              description="You're all set. Navigate to Intake, Workflow, or Diagnostics from the sidebar to begin processing items."
+              icon={<IconCheck size={18} />}
             />
           </div>
+        </div>
+
+        {/* Optional: Add to Dock */}
+        <div className="p-5 rounded-xl bg-dark-secondary border border-border">
+          <h3 className="font-semibold text-white text-sm mb-2 flex items-center gap-2">
+            <IconExternalLink size={16} className="text-ql-yellow" />
+            Tip: Add to Dock for quick access
+          </h3>
+          <p className="text-zinc-500 text-xs leading-relaxed">
+            In Safari, go to <strong className="text-zinc-300">File &rarr; Add to Dock</strong> to create a shortcut.
+            In Chrome, click the three-dot menu &rarr; <strong className="text-zinc-300">More Tools &rarr; Create Shortcut</strong>.
+            This gives you a desktop icon without installing a separate app.
+          </p>
         </div>
 
         {/* Station Credentials */}
@@ -259,20 +221,17 @@ export function Download() {
             Quick Access
           </h2>
           <p className="text-zinc-500 text-sm mb-4">
-            Scan this QR code on any station device to open this page
+            Scan this QR code on any station to open QuickRefurbz
           </p>
           <div className="inline-flex items-center justify-center p-4 bg-white rounded-2xl">
-            {/* Simple QR code placeholder - the actual URL */}
-            <div className="w-32 h-32 flex items-center justify-center text-dark-primary text-xs text-center font-mono">
-              <img
-                src={`https://api.qrserver.com/v1/create-qr-code/?size=128x128&data=${encodeURIComponent(window.location.origin + '/download')}`}
-                alt="QR Code"
-                className="w-32 h-32"
-                crossOrigin="anonymous"
-              />
-            </div>
+            <img
+              src={`https://api.qrserver.com/v1/create-qr-code/?size=128x128&data=${encodeURIComponent(appUrl)}`}
+              alt="QR Code"
+              className="w-32 h-32"
+              crossOrigin="anonymous"
+            />
           </div>
-          <p className="text-zinc-600 text-xs mt-2 font-mono">{window.location.origin}/download</p>
+          <p className="text-zinc-600 text-xs mt-2 font-mono">{appUrl}</p>
         </div>
 
         {/* Troubleshooting */}
@@ -284,29 +243,20 @@ export function Download() {
           <div className="space-y-3">
             <div className="p-4 rounded-xl bg-dark-secondary border border-border">
               <h3 className="font-semibold text-white text-sm mb-1 flex items-center gap-2">
-                <IconBrandChrome size={16} className="text-zinc-400" />
-                No install button showing?
-              </h3>
-              <p className="text-zinc-500 text-xs leading-relaxed">
-                Make sure you&apos;re using Chrome or Edge (not Safari or Firefox). Refresh the page with Ctrl+Shift+R (Windows) or Cmd+Shift+R (Mac).
-              </p>
-            </div>
-            <div className="p-4 rounded-xl bg-dark-secondary border border-border">
-              <h3 className="font-semibold text-white text-sm mb-1 flex items-center gap-2">
                 <IconWifi size={16} className="text-zinc-400" />
                 Page won&apos;t load?
               </h3>
               <p className="text-zinc-500 text-xs leading-relaxed">
-                Check that the station is connected to the warehouse WiFi network. The app requires an internet connection for the first install.
+                Check that the station is connected to the warehouse network. Try refreshing with ⌘+Shift+R.
               </p>
             </div>
             <div className="p-4 rounded-xl bg-dark-secondary border border-border">
               <h3 className="font-semibold text-white text-sm mb-1 flex items-center gap-2">
-                <IconRefresh size={16} className="text-zinc-400" />
-                Login not working?
+                <IconKey size={16} className="text-zinc-400" />
+                Can&apos;t log in?
               </h3>
               <p className="text-zinc-500 text-xs leading-relaxed">
-                Double-check the email and password from the table above. Passwords are case-sensitive. If still stuck, ask your supervisor to check the station accounts.
+                Double-check the email and password from the table above. Passwords are case-sensitive. If stuck, contact your supervisor.
               </p>
             </div>
           </div>
