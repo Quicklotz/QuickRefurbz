@@ -73,10 +73,10 @@ jobs:
           retention-days: 3
 
   # ---------------------------------------------------------------------------
-  # Job 2: Package macOS .app and .dmg
+  # Job 2: Package macOS Electron .dmg
   # ---------------------------------------------------------------------------
   package-macos:
-    name: Package macOS
+    name: Package macOS Electron
     runs-on: macos-latest
     needs: build
 
@@ -84,83 +84,41 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: build-output
-          path: .
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Install production dependencies
-        run: npm ci --omit=dev
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
 
-      - name: Determine tag name
-        id: tag
-        run: echo "TAG=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-
-      - name: Create macOS .app bundle
-        run: |
-          chmod +x scripts/create-macos-app.sh
-          bash scripts/create-macos-app.sh
-
-      - name: Codesign .app bundle
-        if: env.DEVELOPER_ID != ''
+      - name: Build frontend for Electron
+        working-directory: frontend
         env:
-          DEVELOPER_ID: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION }}
+          VITE_ELECTRON: 'true'
+          VITE_API_BASE: 'https://quickrefurbz.com/api'
         run: |
-          codesign --force --deep --sign "$DEVELOPER_ID" QuickTestz.app
+          npx vite build
+          npx tsc -p electron/tsconfig.json
 
-      - name: Prepare DMG staging
-        run: |
-          mkdir -p dmg-staging
-          cp -R QuickTestz.app dmg-staging/
-          # Add a symlink to /Applications for drag-and-drop install
-          ln -s /Applications dmg-staging/Applications
-
-      - name: Create DMG
+      - name: Build Electron DMG
+        working-directory: frontend
         env:
-          TAG: ${{ steps.tag.outputs.TAG }}
-        run: |
-          hdiutil create \
-            -volname "QuickTestz" \
-            -srcfolder dmg-staging \
-            -ov \
-            -format UDZO \
-            "QuickTestz-${TAG}.dmg"
+          GH_TOKEN: ${{ github.token }}
+        run: npx electron-builder --mac --publish never
 
-      - name: Codesign DMG
-        if: env.DEVELOPER_ID != ''
-        env:
-          DEVELOPER_ID: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION }}
-        run: |
-          codesign --force --sign "$DEVELOPER_ID" "QuickTestz-${{ steps.tag.outputs.TAG }}.dmg"
-
-      - name: Notarize DMG
-        if: env.APPLE_ID != '' && env.APPLE_TEAM_ID != '' && env.APPLE_APP_PASSWORD != ''
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
-          TAG: ${{ steps.tag.outputs.TAG }}
-        run: |
-          xcrun notarytool submit "QuickTestz-${TAG}.dmg" \
-            --apple-id "$APPLE_ID" \
-            --team-id "$APPLE_TEAM_ID" \
-            --password "$APPLE_APP_PASSWORD" \
-            --wait
-
-          xcrun stapler staple "QuickTestz-${TAG}.dmg"
+      - name: List release output
+        run: ls -lh frontend/release/
 
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
           name: macos-dmg
-          path: QuickTestz-${{ steps.tag.outputs.TAG }}.dmg
+          path: |
+            frontend/release/QuickRefurbz*.dmg
+            frontend/release/latest-mac.yml
           retention-days: 3
 
   # ---------------------------------------------------------------------------
@@ -219,7 +177,7 @@ jobs:
   release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [package-windows]
+    needs: [package-macos, package-windows]
     if: always() && needs.package-windows.result == 'success'
 
     steps:
@@ -248,7 +206,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          # Flatten any nested paths from artifact download
           find release-assets -type f -exec mv {} release-assets/ \; 2>/dev/null || true
 
           gh release create "$TAG" \
@@ -262,3 +219,100 @@ jobs:
 
       - name: Output release URL
         run: echo "Release URL -> ${{ steps.create_release.outputs.release_url }}"
+
+  # ---------------------------------------------------------------------------
+  # Job 5: Update Homebrew tap
+  # ---------------------------------------------------------------------------
+  update-homebrew:
+    name: Update Homebrew Tap
+    runs-on: ubuntu-latest
+    needs: release
+    if: needs.release.result == 'success'
+
+    steps:
+      - name: Update tap formulas
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "HOMEBREW_TAP_TOKEN not set — skipping tap update"
+            exit 0
+          fi
+
+          VERSION="${TAG#v}"
+
+          # Get asset URLs and checksums
+          DMG_URL=$(gh release view "$TAG" --repo Quicklotz/QuickRefurbz --json assets --jq '.assets[] | select(.name | endswith(".dmg")) | .url' 2>/dev/null || echo "")
+          EXE_URL=$(gh release view "$TAG" --repo Quicklotz/QuickRefurbz --json assets --jq '.assets[] | select(.name | endswith(".exe")) | .url' 2>/dev/null || echo "")
+
+          if [ -n "$DMG_URL" ]; then
+            DMG_SHA=$(curl -sL "$DMG_URL" | shasum -a 256 | cut -d' ' -f1)
+          fi
+
+          # Clone the tap repo
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/Quicklotz/homebrew-tools.git" tap
+          cd tap
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Update Cask if DMG exists
+          if [ -n "$DMG_URL" ] && [ -n "$DMG_SHA" ]; then
+            mkdir -p Casks
+            cat > Casks/quickrefurbz.rb << CASK
+          cask "quickrefurbz" do
+            version "$VERSION"
+            sha256 "$DMG_SHA"
+
+            url "$DMG_URL",
+                header: "Authorization: token #{ENV.fetch("HOMEBREW_GITHUB_API_TOKEN", "")}"
+            name "QuickRefurbz"
+            desc "Refurbishment tracking system for liquidation electronics"
+            homepage "https://quickrefurbz.com"
+
+            app "QuickRefurbz.app"
+
+            zap trash: [
+              "~/Library/Application Support/QuickRefurbz",
+              "~/Library/Preferences/com.quicklotz.quickrefurbz.plist",
+            ]
+          end
+          CASK
+          fi
+
+          # Update Formula
+          mkdir -p Formula
+          TARBALL_URL="https://github.com/Quicklotz/QuickRefurbz/archive/refs/tags/${TAG}.tar.gz"
+          TAR_SHA=$(curl -sL "$TARBALL_URL" | shasum -a 256 | cut -d' ' -f1)
+
+          cat > Formula/quickrefurbz-cli.rb << FORMULA
+          class QuickrefurbzCli < Formula
+            desc "QuickRefurbz CLI tools for refurbishment tracking"
+            homepage "https://quickrefurbz.com"
+            url "$TARBALL_URL"
+            sha256 "$TAR_SHA"
+            license "ISC"
+
+            depends_on "node@20"
+
+            def install
+              system "npm", "ci", "--omit=dev"
+              system "npm", "run", "build"
+
+              libexec.install Dir["*"]
+              bin.install_symlink libexec/"dist/index.js" => "qr"
+              bin.install_symlink libexec/"dist/enhanced-cli.js" => "quicktestz"
+            end
+
+            test do
+              assert_match "QuickRefurbz", shell_output("#{bin}/qr --version 2>&1", 0)
+            end
+          end
+          FORMULA
+
+          git add -A
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git commit -m "Update QuickRefurbz to ${TAG}"
+          git push
+          echo "Homebrew tap updated to ${TAG}"
