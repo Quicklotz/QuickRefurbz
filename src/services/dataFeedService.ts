@@ -654,10 +654,10 @@ async function mapToFeedItem(row: any, includeImages: boolean): Promise<FeedItem
   if (includeImages) {
     const db = getPool();
     const photoResult = await db.query(
-      `SELECT file_path FROM item_photos WHERE qlid = $1 ORDER BY captured_at`,
+      `SELECT storage_path FROM item_photos WHERE qlid = $1 ORDER BY created_at`,
       [row.qlid]
     );
-    images = photoResult.rows.map((r: any) => r.file_path);
+    images = photoResult.rows.map((r: any) => r.storage_path);
   }
 
   return {

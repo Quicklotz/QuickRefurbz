@@ -82,7 +82,7 @@ export async function getPartById(partId: string): Promise<Part | null> {
   const db = getPool();
   const result = await db.query(`
     SELECT * FROM parts_inventory
-    WHERE id = $1 OR part_number = $1
+    WHERE id::text = $1 OR part_number = $1
   `, [partId]);
 
   if (result.rows.length === 0) return null;
@@ -275,7 +275,7 @@ export async function useParts(options: UsePartsOptions): Promise<PartsUsage[]> 
 
   // Verify technician exists
   const techResult = await db.query<{ id: string; name: string }>(
-    'SELECT id, name FROM technicians WHERE id = $1 OR employee_id = $1 OR LOWER(name) = LOWER($1)',
+    'SELECT id, name FROM technicians WHERE id::text = $1 OR employee_id = $1 OR LOWER(name) = LOWER($1)',
     [options.technicianId]
   );
   if (techResult.rows.length === 0) {
@@ -287,7 +287,7 @@ export async function useParts(options: UsePartsOptions): Promise<PartsUsage[]> 
   let ticketNumber: string | undefined;
   if (options.ticketId) {
     const ticketResult = await db.query<{ id: string; ticket_number: string }>(
-      'SELECT id, ticket_number FROM repair_tickets WHERE id = $1 OR ticket_number = $1',
+      'SELECT id, ticket_number FROM repair_tickets WHERE id::text = $1 OR ticket_number = $1',
       [options.ticketId]
     );
     if (ticketResult.rows.length === 0) {

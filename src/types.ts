@@ -287,7 +287,7 @@ export interface RefurbItem {
   id: string;
 
   // Identity (RFB ID or QLID)
-  qlidTick: bigint;                    // Raw sequence number
+  qlidTick: number;                    // Raw sequence number
   qlid: string;                        // RFB100001 or QLID0000000001
   qrPalletId?: string;                 // QR0000001 (reference to Pallet)
   palletId: string;                    // RFB-P-0001 or P1BBY

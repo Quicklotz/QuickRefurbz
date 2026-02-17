@@ -23,45 +23,31 @@ import { Spotlight } from '@/components/aceternity/spotlight';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   IconLayoutDashboard,
-  IconColumns3,
   IconPackage,
   IconPackageImport,
   IconScan,
   IconLogout,
   IconBinaryTree,
-  IconListCheck,
   IconSettings,
   IconShieldCheck,
-  IconTool,
   IconClock,
   IconUsers,
   IconStethoscope,
   IconCertificate,
-  IconClipboardList,
-  IconDatabase,
   IconChartBar,
   IconDeviceDesktop,
   IconHelp,
 } from '@tabler/icons-react';
 
-// Organized navigation structure
+// Simplified navigation — intake-first workflow
 const navSections = [
   {
-    title: 'Operations',
+    title: 'Daily',
     items: [
-      { to: '/', icon: <IconLayoutDashboard size={20} />, label: 'Dashboard', end: true },
-      { to: '/workflow', icon: <IconBinaryTree size={20} />, label: 'Workflow' },
-      { to: '/queue', icon: <IconListCheck size={20} />, label: 'Queue' },
-      { to: '/kanban', icon: <IconColumns3 size={20} />, label: 'Kanban' },
-    ],
-  },
-  {
-    title: 'Inventory',
-    items: [
-      { to: '/items', icon: <IconPackage size={20} />, label: 'Items' },
-      { to: '/intake', icon: <IconPackageImport size={20} />, label: 'Intake' },
+      { to: '/', icon: <IconPackageImport size={20} />, label: 'Intake', end: true },
       { to: '/scan', icon: <IconScan size={20} />, label: 'Scan' },
-      { to: '/parts', icon: <IconTool size={20} />, label: 'Parts' },
+      { to: '/items', icon: <IconPackage size={20} />, label: 'Items' },
+      { to: '/workflow', icon: <IconBinaryTree size={20} />, label: 'Workflow' },
     ],
   },
   {
@@ -70,13 +56,12 @@ const navSections = [
       { to: '/diagnostics', icon: <IconStethoscope size={20} />, label: 'Diagnostics' },
       { to: '/datawipe', icon: <IconShieldCheck size={20} />, label: 'Data Wipe' },
       { to: '/certifications', icon: <IconCertificate size={20} />, label: 'Certs' },
-      { to: '/test-plans', icon: <IconClipboardList size={20} />, label: 'Test Plans' },
     ],
   },
   {
-    title: 'Admin',
+    title: 'Overview',
     items: [
-      { to: '/device-database', icon: <IconDatabase size={20} />, label: 'Devices' },
+      { to: '/dashboard', icon: <IconLayoutDashboard size={20} />, label: 'Dashboard' },
       { to: '/monitor', icon: <IconChartBar size={20} />, label: 'Monitor' },
     ],
   },
@@ -142,8 +127,13 @@ function SidebarNav() {
       <SidebarBody>
         <SidebarHeader>
           <SidebarLogo
-            logo={<span className="text-xl font-bold text-ql-yellow whitespace-nowrap">QuickRefurbz</span>}
-            logoCompact={<span className="text-xl font-bold text-ql-yellow">QR</span>}
+            logo={
+              <div className="flex items-center gap-2.5">
+                <img src="/icons/q-logo-72.png" alt="Q" className="w-8 h-8 rounded-md" />
+                <span className="text-xl font-bold text-ql-yellow whitespace-nowrap">QuickRefurbz</span>
+              </div>
+            }
+            logoCompact={<img src="/icons/q-logo-72.png" alt="Q" className="w-8 h-8 rounded-md" />}
           />
         </SidebarHeader>
 

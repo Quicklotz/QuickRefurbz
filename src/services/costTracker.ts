@@ -14,12 +14,10 @@ export interface LaborEntry {
   qlid: string;
   technicianId: string;
   technicianName?: string;
-  stage: string;
-  durationMinutes: number;
-  laborRate: number;
+  taskDescription: string;
+  minutesSpent: number;
+  hourlyRate: number;
   laborCost: number;
-  startedAt: string;
-  endedAt: string;
   createdAt: string;
 }
 
@@ -74,56 +72,50 @@ const OVERHEAD_RATE = parseFloat(process.env.OVERHEAD_RATE || '0.10'); // 10% ov
 export async function recordLabor(data: {
   qlid: string;
   technicianId: string;
-  stage: string;
-  durationMinutes: number;
-  laborRate?: number;
-  startedAt?: string;
-  endedAt?: string;
+  taskDescription: string;
+  minutesSpent: number;
+  hourlyRate?: number;
 }): Promise<LaborEntry> {
   const db = getPool();
   const id = generateUUID();
-  const rate = data.laborRate || DEFAULT_LABOR_RATE;
-  const cost = (data.durationMinutes / 60) * rate;
+  const rate = data.hourlyRate || DEFAULT_LABOR_RATE;
   const now = new Date().toISOString();
 
   // Get technician name
   const techResult = await db.query<{ name: string }>(
-    `SELECT name FROM technicians WHERE id = $1`,
+    `SELECT name FROM users WHERE id = $1`,
     [data.technicianId]
   );
   const technicianName = techResult.rows[0]?.name || 'Unknown';
 
+  // labor_cost is a GENERATED column (minutes_spent * hourly_rate / 60), do not insert it
   await db.query(`
     INSERT INTO labor_entries (
-      id, qlid, technician_id, technician_name, stage,
-      duration_minutes, labor_rate, labor_cost,
-      started_at, ended_at
+      id, qlid, technician_id, technician_name,
+      task_description, minutes_spent, hourly_rate
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
   `, [
     id,
     data.qlid,
     data.technicianId,
     technicianName,
-    data.stage,
-    data.durationMinutes,
-    rate,
-    cost,
-    data.startedAt || now,
-    data.endedAt || now
+    data.taskDescription,
+    data.minutesSpent,
+    rate
   ]);
+
+  const laborCost = (data.minutesSpent * rate) / 60;
 
   return {
     id,
     qlid: data.qlid,
     technicianId: data.technicianId,
     technicianName,
-    stage: data.stage,
-    durationMinutes: data.durationMinutes,
-    laborRate: rate,
-    laborCost: cost,
-    startedAt: data.startedAt || now,
-    endedAt: data.endedAt || now,
+    taskDescription: data.taskDescription,
+    minutesSpent: data.minutesSpent,
+    hourlyRate: rate,
+    laborCost,
     createdAt: now
   };
 }
@@ -139,12 +131,10 @@ export async function getLaborForItem(qlid: string): Promise<LaborEntry[]> {
     qlid: string;
     technician_id: string;
     technician_name: string;
-    stage: string;
-    duration_minutes: number;
-    labor_rate: number;
+    task_description: string;
+    minutes_spent: number;
+    hourly_rate: number;
     labor_cost: number;
-    started_at: string;
-    ended_at: string;
     created_at: string;
   }>(`
     SELECT * FROM labor_entries WHERE qlid = $1 ORDER BY created_at DESC
@@ -155,12 +145,10 @@ export async function getLaborForItem(qlid: string): Promise<LaborEntry[]> {
     qlid: row.qlid,
     technicianId: row.technician_id,
     technicianName: row.technician_name,
-    stage: row.stage,
-    durationMinutes: row.duration_minutes,
-    laborRate: row.labor_rate,
+    taskDescription: row.task_description,
+    minutesSpent: row.minutes_spent,
+    hourlyRate: row.hourly_rate,
     laborCost: row.labor_cost,
-    startedAt: row.started_at,
-    endedAt: row.ended_at,
     createdAt: row.created_at
   }));
 }
@@ -274,11 +262,11 @@ export async function getCostBreakdown(qlid: string): Promise<CostBreakdown | nu
   // Get labor detail
   const laborEntries = await getLaborForItem(qlid);
   const laborCost = laborEntries.reduce((sum, l) => sum + l.laborCost, 0);
-  const laborMinutes = laborEntries.reduce((sum, l) => sum + l.durationMinutes, 0);
+  const laborMinutes = laborEntries.reduce((sum, l) => sum + l.minutesSpent, 0);
   const laborDetail = laborEntries.map(l => ({
-    stage: l.stage,
+    stage: l.taskDescription,
     technicianName: l.technicianName || 'Unknown',
-    durationMinutes: l.durationMinutes,
+    durationMinutes: l.minutesSpent,
     laborCost: l.laborCost
   }));
 
@@ -401,7 +389,7 @@ export async function getCostStats(): Promise<{
   `);
 
   const laborResult = await db.query<{ total_minutes: string }>(`
-    SELECT COALESCE(SUM(duration_minutes), 0) as total_minutes FROM labor_entries
+    SELECT COALESCE(SUM(minutes_spent), 0) as total_minutes FROM labor_entries
   `);
 
   const row = costResult.rows[0];

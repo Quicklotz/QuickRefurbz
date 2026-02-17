@@ -62,6 +62,7 @@ export function Intake() {
   const [newPallet, setNewPallet] = useState({
     palletId: '',
     retailer: 'BEST_BUY',
+    liquidationSource: 'DIRECT',
     totalCogs: 0,
     expectedCount: 0,
   });
@@ -106,7 +107,7 @@ export function Intake() {
       await api.createPallet(newPallet);
       setMessage({ type: 'success', text: `Pallet ${newPallet.palletId} created successfully` });
       setShowCreatePallet(false);
-      setNewPallet({ palletId: '', retailer: 'BEST_BUY', totalCogs: 0, expectedCount: 0 });
+      setNewPallet({ palletId: '', retailer: 'BEST_BUY', liquidationSource: 'DIRECT', totalCogs: 0, expectedCount: 0 });
       loadData();
     } catch (err: any) {
       setMessage({ type: 'error', text: err.message || 'Failed to create pallet' });
@@ -366,6 +367,23 @@ export function Intake() {
               <option value="AMAZON">Amazon</option>
               <option value="COSTCO">Costco</option>
               <option value="WALMART">Walmart</option>
+              <option value="OTHER">Other</option>
+            </select>
+          </div>
+          <div>
+            <Label htmlFor="liquidationSource">Liquidation Source</Label>
+            <select
+              id="liquidationSource"
+              className="w-full"
+              value={newPallet.liquidationSource}
+              onChange={(e) => setNewPallet({ ...newPallet, liquidationSource: e.target.value })}
+            >
+              <option value="DIRECT">Direct from Retailer</option>
+              <option value="TECH_LIQUIDATORS">Tech Liquidators</option>
+              <option value="BULQ">BULQ</option>
+              <option value="LIQUIDATION_COM">Liquidation.com</option>
+              <option value="BSTOCK">B-Stock</option>
+              <option value="DIRECT_LIQUIDATION">Direct Liquidation</option>
               <option value="OTHER">Other</option>
             </select>
           </div>

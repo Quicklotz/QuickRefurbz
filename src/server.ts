@@ -5,6 +5,7 @@
 
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
+import { rateLimit } from 'express-rate-limit';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
@@ -24,6 +25,8 @@ import { seedEquipmentAndProfiles } from './quicktestz/seed/equipmentSeed.js';
 import * as readingsCollector from './quicktestz/services/readingsCollector.js';
 import * as safetyMonitor from './quicktestz/services/safetyMonitor.js';
 import { sendInviteEmail, sendPasswordResetEmail, sendWelcomeEmail } from './email.js';
+import swaggerUi from 'swagger-ui-express';
+import { readFileSync } from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -33,11 +36,123 @@ const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'quickrefurbz-dev-secret-change-in-production';
 
 // Middleware
-app.use(cors());
+
+// -- CORS configuration --
+const allowedOrigins = [
+  'https://quickrefurbz.com',
+  'https://www.quickrefurbz.com',
+  'https://monitor.quickrefurbz.com',
+  'https://docs.api.quickrefurbz.com',
+];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (server-to-server, curl, etc.)
+    if (!origin) return callback(null, true);
+
+    // In development, allow any localhost origin
+    if (process.env.NODE_ENV !== 'production' && /^http:\/\/localhost(:\d+)?$/.test(origin)) {
+      return callback(null, true);
+    }
+
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error(`Origin ${origin} not allowed by CORS`));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+}));
+
+// -- Rate limiting --
+
+// General rate limiter: 100 requests per minute per IP (authenticated endpoints)
+const generalLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later' },
+});
+
+// Strict auth rate limiter: 10 requests per 15 minutes per IP
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later' },
+});
+
+// Monitor rate limiter: 300 requests per minute per IP (auto-refresh dashboard)
+const monitorLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later' },
+});
+
+// Apply strict rate limiter to auth endpoints
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/forgot-password', authLimiter);
+app.use('/api/auth/reset-password', authLimiter);
+app.use('/api/auth/accept-invite', authLimiter);
+
+// Apply monitor rate limiter to monitor endpoints
+app.use('/api/monitor', monitorLimiter);
+
+// Apply general rate limiter to all /api routes
+app.use('/api', generalLimiter);
+
 app.use(express.json());
+
+// Sanitize string input: strip HTML tags to prevent stored XSS
+function sanitize(input: string | undefined | null): string {
+  if (!input) return '';
+  return input.replace(/<[^>]*>/g, '').trim();
+}
 
 // Serve static React frontend
 app.use(express.static(path.join(__dirname, '../frontend/dist')));
+
+// ==================== API DOCS ====================
+try {
+  const openapiSpec = JSON.parse(readFileSync(path.join(__dirname, '../openapi.json'), 'utf8'));
+  app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(openapiSpec, {
+    customCss: '.swagger-ui .topbar { display: none }',
+    customSiteTitle: 'QuickRefurbz API Docs',
+  }));
+  app.get('/api/docs.json', (_req: Request, res: Response) => {
+    res.json(openapiSpec);
+  });
+} catch (e) {
+  console.warn('OpenAPI spec not found, /api/docs will not be available');
+}
+
+// ==================== HEALTH CHECK ====================
+// No auth required — used by external monitoring tools and CI/CD deploy verification
+
+app.get('/api/health', async (_req: Request, res: Response) => {
+  let dbStatus = 'disconnected';
+  try {
+    const db = getPool();
+    await db.query('SELECT 1');
+    dbStatus = 'connected';
+  } catch {
+    dbStatus = 'disconnected';
+  }
+
+  res.json({
+    status: 'ok',
+    uptime: Math.floor(process.uptime()),
+    timestamp: new Date().toISOString(),
+    database: dbStatus,
+    version: '1.0.0',
+  });
+});
 
 // ==================== AUTH ====================
 
@@ -71,14 +186,18 @@ async function getUserByEmail(email: string) {
   return result.rows[0] || null;
 }
 
-// Helper to get database user by ID
-async function getUserById(id: string) {
+// Helper to get database user by ID (excludes password_hash from response)
+async function getUserById(id: string, includePasswordHash = false) {
   const db = getPool();
   const result = await db.query(
-    'SELECT * FROM users WHERE id = $1',
+    'SELECT * FROM users WHERE id::text = $1',
     [id]
   );
-  return result.rows[0] || null;
+  const user = result.rows[0] || null;
+  if (user && !includePasswordHash) {
+    delete user.password_hash;
+  }
+  return user;
 }
 
 // Seed initial admin user if no users exist
@@ -135,6 +254,34 @@ function authMiddleware(req: AuthRequest, res: Response, next: NextFunction): vo
   } catch {
     res.status(401).json({ error: 'Invalid token' });
   }
+}
+
+// Monitor auth middleware — accepts JWT OR X-Monitor-Token header
+const MONITOR_SECRET = process.env.MONITOR_SECRET || '';
+
+function monitorAuthMiddleware(req: AuthRequest, res: Response, next: NextFunction): void {
+  // Check X-Monitor-Token header first
+  const monitorToken = req.headers['x-monitor-token'] as string | undefined;
+  if (monitorToken && MONITOR_SECRET && monitorToken === MONITOR_SECRET) {
+    // Set a synthetic admin user for monitor access
+    req.user = { id: 'monitor', email: 'monitor@system', name: 'Monitor', role: 'admin' };
+    next();
+    return;
+  }
+
+  // Fall back to JWT auth
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.substring(7);
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET) as AuthUser;
+      req.user = decoded;
+      next();
+      return;
+    } catch { /* fall through */ }
+  }
+
+  res.status(401).json({ error: 'Authentication required' });
 }
 
 // Admin-only middleware
@@ -274,20 +421,20 @@ app.post('/api/auth/accept-invite', async (req: Request, res: Response) => {
     // Update user with password and activate
     if (dbType === 'postgres') {
       await db.query(
-        `UPDATE users SET password_hash = $1, is_active = true, email_verified = true, updated_at = now() WHERE id = $2`,
+        `UPDATE users SET password_hash = $1, is_active = true, email_verified = true, updated_at = now() WHERE id::text = $2`,
         [passwordHash, tokenData.user_id]
       );
       await db.query(
-        `UPDATE auth_tokens SET used_at = now() WHERE id = $1`,
+        `UPDATE auth_tokens SET used_at = now() WHERE id::text = $1`,
         [tokenData.id]
       );
     } else {
       await db.query(
-        `UPDATE users SET password_hash = $1, is_active = 1, email_verified = 1, updated_at = datetime('now') WHERE id = $2`,
+        `UPDATE users SET password_hash = $1, is_active = 1, email_verified = 1, updated_at = datetime('now') WHERE id::text = $2`,
         [passwordHash, tokenData.user_id]
       );
       await db.query(
-        `UPDATE auth_tokens SET used_at = datetime('now') WHERE id = $1`,
+        `UPDATE auth_tokens SET used_at = datetime('now') WHERE id::text = $1`,
         [tokenData.id]
       );
     }
@@ -398,20 +545,20 @@ app.post('/api/auth/reset-password', async (req: Request, res: Response) => {
     // Update user password
     if (dbType === 'postgres') {
       await db.query(
-        `UPDATE users SET password_hash = $1, updated_at = now() WHERE id = $2`,
+        `UPDATE users SET password_hash = $1, updated_at = now() WHERE id::text = $2`,
         [passwordHash, tokenData.user_id]
       );
       await db.query(
-        `UPDATE auth_tokens SET used_at = now() WHERE id = $1`,
+        `UPDATE auth_tokens SET used_at = now() WHERE id::text = $1`,
         [tokenData.id]
       );
     } else {
       await db.query(
-        `UPDATE users SET password_hash = $1, updated_at = datetime('now') WHERE id = $2`,
+        `UPDATE users SET password_hash = $1, updated_at = datetime('now') WHERE id::text = $2`,
         [passwordHash, tokenData.user_id]
       );
       await db.query(
-        `UPDATE auth_tokens SET used_at = datetime('now') WHERE id = $1`,
+        `UPDATE auth_tokens SET used_at = datetime('now') WHERE id::text = $1`,
         [tokenData.id]
       );
     }
@@ -443,7 +590,8 @@ app.get('/api/admin/users', authMiddleware, adminMiddleware, async (_req: Reques
 // Invite new user (admin only)
 app.post('/api/auth/invite', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const { email, name, role } = req.body;
+    const { email, role } = req.body;
+    const name = sanitize(req.body.name);
 
     if (!email || !name) {
       res.status(400).json({ error: 'Email and name required' });
@@ -517,7 +665,8 @@ app.post('/api/auth/invite', authMiddleware, adminMiddleware, async (req: AuthRe
 app.put('/api/admin/users/:id', authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
   try {
     const userId = req.params.id as string;
-    const { name, role, is_active } = req.body;
+    const { role, is_active } = req.body;
+    const name = req.body.name !== undefined ? sanitize(req.body.name) : undefined;
 
     const db = getPool();
     const dbType = process.env.DB_TYPE || 'sqlite';
@@ -563,7 +712,7 @@ app.put('/api/admin/users/:id', authMiddleware, adminMiddleware, async (req: Req
 
     params.push(userId);
     await db.query(
-      `UPDATE users SET ${updates.join(', ')} WHERE id = $${paramIndex}`,
+      `UPDATE users SET ${updates.join(', ')} WHERE id::text = $${paramIndex}`,
       params
     );
 
@@ -596,12 +745,12 @@ app.delete('/api/admin/users/:id', authMiddleware, adminMiddleware, async (req: 
 
     if (dbType === 'postgres') {
       await db.query(
-        `UPDATE users SET is_active = false, updated_at = now() WHERE id = $1`,
+        `UPDATE users SET is_active = false, updated_at = now() WHERE id::text = $1`,
         [userId]
       );
     } else {
       await db.query(
-        `UPDATE users SET is_active = 0, updated_at = datetime('now') WHERE id = $1`,
+        `UPDATE users SET is_active = 0, updated_at = datetime('now') WHERE id::text = $1`,
         [userId]
       );
     }
@@ -635,12 +784,12 @@ app.post('/api/admin/users/:id/resend-invite', authMiddleware, adminMiddleware, 
     // Invalidate old invite tokens
     if (dbType === 'postgres') {
       await db.query(
-        `UPDATE auth_tokens SET used_at = now() WHERE user_id = $1 AND type = 'invite' AND used_at IS NULL`,
+        `UPDATE auth_tokens SET used_at = now() WHERE user_id::text = $1 AND type = 'invite' AND used_at IS NULL`,
         [userId]
       );
     } else {
       await db.query(
-        `UPDATE auth_tokens SET used_at = datetime('now') WHERE user_id = $1 AND type = 'invite' AND used_at IS NULL`,
+        `UPDATE auth_tokens SET used_at = datetime('now') WHERE user_id::text = $1 AND type = 'invite' AND used_at IS NULL`,
         [userId]
       );
     }
@@ -754,7 +903,12 @@ app.get('/api/pallets/:id', authMiddleware, async (req: Request, res: Response) 
 
 app.post('/api/pallets', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const pallet = await palletManager.createPallet(req.body);
+    const body = { ...req.body };
+    // Default liquidationSource if not provided
+    if (!body.liquidationSource) {
+      body.liquidationSource = 'DIRECT';
+    }
+    const pallet = await palletManager.createPallet(body);
     res.status(201).json(pallet);
   } catch (error) {
     console.error('Create pallet error:', error);
@@ -810,7 +964,13 @@ app.get('/api/items', authMiddleware, async (req: Request, res: Response) => {
     if (category) options.category = category as ProductCategory;
     if (technicianId) options.technicianId = technicianId;
     if (priority) options.priority = priority as JobPriority;
-    if (limit) options.limit = parseInt(limit);
+    if (limit) {
+      const parsedLimit = parseInt(limit);
+      if (isNaN(parsedLimit) || parsedLimit < 1) {
+        return res.status(400).json({ error: 'limit must be a positive integer' });
+      }
+      options.limit = Math.min(parsedLimit, 1000);
+    }
 
     const items = await itemManager.listItems(options);
     res.json(items);
@@ -1189,7 +1349,11 @@ app.get('/api/settings', authMiddleware, async (_req: Request, res: Response) =>
 
     const settings: Record<string, any> = {};
     for (const row of result.rows) {
-      settings[row.key] = typeof row.value === 'string' ? JSON.parse(row.value) : row.value;
+      try {
+        settings[row.key] = typeof row.value === 'string' ? JSON.parse(row.value) : row.value;
+      } catch {
+        settings[row.key] = row.value;
+      }
     }
 
     res.json(settings);
@@ -1234,25 +1398,31 @@ app.put('/api/settings', authMiddleware, async (req: Request, res: Response) => 
 
 import * as upcLookupService from './services/upcLookupService.js';
 
-// Look up product by UPC
-app.get('/api/upc/:upc', authMiddleware, async (req: Request, res: Response) => {
+// Static routes MUST come before parameterized /:upc route
+
+// Search cached UPCs
+app.get('/api/upc/search', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const upc = req.params.upc as string;
+    const query = queryString(req.query.q) || '';
+    const limit = parseInt(queryString(req.query.limit) || '20');
 
-    if (!upc || upc.length < 8) {
-      return res.status(400).json({ error: 'Invalid UPC format' });
-    }
+    const results = await upcLookupService.searchCachedUPCs(query, limit);
 
-    const result = await upcLookupService.lookupUPC(upc);
-
-    if (!result) {
-      return res.status(404).json({ error: 'UPC not found', upc });
-    }
-
-    res.json(result);
+    res.json(results);
   } catch (error) {
-    console.error('UPC lookup error:', error);
-    res.status(500).json({ error: 'Failed to lookup UPC' });
+    console.error('UPC search error:', error);
+    res.status(500).json({ error: 'Failed to search UPCs' });
+  }
+});
+
+// Get UPC cache stats
+app.get('/api/upc/stats', authMiddleware, async (_req: Request, res: Response) => {
+  try {
+    const stats = await upcLookupService.getUPCCacheStats();
+    res.json(stats);
+  } catch (error) {
+    console.error('UPC stats error:', error);
+    res.status(500).json({ error: 'Failed to get UPC stats' });
   }
 });
 
@@ -1282,29 +1452,25 @@ app.post('/api/upc/manual', authMiddleware, async (req: Request, res: Response) 
   }
 });
 
-// Search cached UPCs
-app.get('/api/upc/search', authMiddleware, async (req: Request, res: Response) => {
+// Look up product by UPC (parameterized — must be last)
+app.get('/api/upc/:upc', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const query = queryString(req.query.q) || '';
-    const limit = parseInt(queryString(req.query.limit) || '20');
+    const upc = req.params.upc as string;
 
-    const results = await upcLookupService.searchCachedUPCs(query, limit);
+    if (!upc || upc.length < 8) {
+      return res.status(400).json({ error: 'Invalid UPC format' });
+    }
 
-    res.json(results);
+    const result = await upcLookupService.lookupUPC(upc);
+
+    if (!result) {
+      return res.status(404).json({ error: 'UPC not found', upc });
+    }
+
+    res.json(result);
   } catch (error) {
-    console.error('UPC search error:', error);
-    res.status(500).json({ error: 'Failed to search UPCs' });
-  }
-});
-
-// Get UPC cache stats
-app.get('/api/upc/stats', authMiddleware, async (_req: Request, res: Response) => {
-  try {
-    const stats = await upcLookupService.getUPCCacheStats();
-    res.json(stats);
-  } catch (error) {
-    console.error('UPC stats error:', error);
-    res.status(500).json({ error: 'Failed to get UPC stats' });
+    console.error('UPC lookup error:', error);
+    res.status(500).json({ error: 'Failed to lookup UPC' });
   }
 });
 
@@ -1562,20 +1728,18 @@ import * as costTracker from './services/costTracker.js';
 // Record labor entry
 app.post('/api/costs/labor', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const { qlid, stage, durationMinutes, laborRate, startedAt, endedAt } = req.body;
+    const { qlid, taskDescription, minutesSpent, hourlyRate } = req.body;
 
-    if (!qlid || !stage || !durationMinutes) {
+    if (!qlid || !taskDescription || !minutesSpent) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
     const labor = await costTracker.recordLabor({
       qlid,
       technicianId: req.user?.id || 'unknown',
-      stage,
-      durationMinutes,
-      laborRate,
-      startedAt,
-      endedAt
+      taskDescription,
+      minutesSpent,
+      hourlyRate
     });
 
     res.json(labor);
@@ -1781,7 +1945,7 @@ app.post('/api/datawipe/start', authMiddleware, async (req: AuthRequest, res: Re
       );
     }
 
-    const result = await db.query('SELECT * FROM data_wipe_reports WHERE id = $1', [id]);
+    const result = await db.query('SELECT * FROM data_wipe_reports WHERE id::text = $1', [id]);
     res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error('Start wipe error:', error);
@@ -1804,7 +1968,7 @@ app.post('/api/datawipe/:id/complete', authMiddleware, async (req: AuthRequest, 
         `UPDATE data_wipe_reports
          SET wipe_status = $1, completed_at = now(), verified_at = now(),
              verified_by = $2, verification_method = $3, certificate_data = $4, notes = COALESCE($5, notes)
-         WHERE id = $6`,
+         WHERE id::text = $6`,
         [status || 'COMPLETED', req.user?.id, verificationMethod, certDataJson, notes, id]
       );
     } else {
@@ -1812,12 +1976,12 @@ app.post('/api/datawipe/:id/complete', authMiddleware, async (req: AuthRequest, 
         `UPDATE data_wipe_reports
          SET wipe_status = $1, completed_at = datetime('now'), verified_at = datetime('now'),
              verified_by = $2, verification_method = $3, certificate_data = $4, notes = COALESCE($5, notes)
-         WHERE id = $6`,
+         WHERE id::text = $6`,
         [status || 'COMPLETED', req.user?.id, verificationMethod, certDataJson, notes, id]
       );
     }
 
-    const result = await db.query('SELECT * FROM data_wipe_reports WHERE id = $1', [id]);
+    const result = await db.query('SELECT * FROM data_wipe_reports WHERE id::text = $1', [id]);
     res.json(result.rows[0]);
   } catch (error) {
     console.error('Complete wipe error:', error);
@@ -1900,7 +2064,7 @@ app.post('/api/parts/suppliers', authMiddleware, async (req: Request, res: Respo
       );
     }
 
-    const result = await db.query('SELECT * FROM parts_suppliers WHERE id = $1', [id]);
+    const result = await db.query('SELECT * FROM parts_suppliers WHERE id::text = $1', [id]);
     res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error('Add supplier error:', error);
@@ -1915,7 +2079,7 @@ app.post('/api/parts/sync/:supplierId', authMiddleware, async (req: Request, res
     const dbType = process.env.DB_TYPE || 'sqlite';
 
     // Get supplier details
-    const supplierResult = await db.query('SELECT * FROM parts_suppliers WHERE id = $1', [supplierId]);
+    const supplierResult = await db.query('SELECT * FROM parts_suppliers WHERE id::text = $1', [supplierId]);
     if (supplierResult.rows.length === 0) {
       res.status(404).json({ error: 'Supplier not found' });
       return;
@@ -1928,12 +2092,12 @@ app.post('/api/parts/sync/:supplierId', authMiddleware, async (req: Request, res
 
     if (dbType === 'postgres') {
       await db.query(
-        'UPDATE parts_suppliers SET last_sync = now() WHERE id = $1',
+        'UPDATE parts_suppliers SET last_sync = now() WHERE id::text = $1',
         [supplierId]
       );
     } else {
       await db.query(
-        'UPDATE parts_suppliers SET last_sync = datetime(\'now\') WHERE id = $1',
+        'UPDATE parts_suppliers SET last_sync = datetime(\'now\') WHERE id::text = $1',
         [supplierId]
       );
     }
@@ -1992,7 +2156,7 @@ app.get('/api/session', authMiddleware, async (req: AuthRequest, res: Response) 
     const userId = req.user?.id;
 
     const result = await db.query(
-      `SELECT * FROM work_sessions WHERE user_id = $1 AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1`,
+      `SELECT * FROM work_sessions WHERE user_id::text = $1 AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1`,
       [userId]
     );
 
@@ -2024,12 +2188,12 @@ app.post('/api/session/start', authMiddleware, async (req: AuthRequest, res: Res
     // End any existing sessions for this user
     if (dbType === 'postgres') {
       await db.query(
-        'UPDATE work_sessions SET ended_at = now() WHERE user_id = $1 AND ended_at IS NULL',
+        'UPDATE work_sessions SET ended_at = now() WHERE user_id::text = $1 AND ended_at IS NULL',
         [userId]
       );
     } else {
       await db.query(
-        'UPDATE work_sessions SET ended_at = datetime(\'now\') WHERE user_id = $1 AND ended_at IS NULL',
+        'UPDATE work_sessions SET ended_at = datetime(\'now\') WHERE user_id::text = $1 AND ended_at IS NULL',
         [userId]
       );
     }
@@ -2051,7 +2215,7 @@ app.post('/api/session/start', authMiddleware, async (req: AuthRequest, res: Res
       );
     }
 
-    const result = await db.query('SELECT * FROM work_sessions WHERE id = $1', [id]);
+    const result = await db.query('SELECT * FROM work_sessions WHERE id::text = $1', [id]);
     res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error('Start session error:', error);
@@ -2068,12 +2232,12 @@ app.post('/api/session/end', authMiddleware, async (req: AuthRequest, res: Respo
 
     if (dbType === 'postgres') {
       await db.query(
-        'UPDATE work_sessions SET ended_at = now() WHERE user_id = $1 AND ended_at IS NULL',
+        'UPDATE work_sessions SET ended_at = now() WHERE user_id::text = $1 AND ended_at IS NULL',
         [userId]
       );
     } else {
       await db.query(
-        'UPDATE work_sessions SET ended_at = datetime(\'now\') WHERE user_id = $1 AND ended_at IS NULL',
+        'UPDATE work_sessions SET ended_at = datetime(\'now\') WHERE user_id::text = $1 AND ended_at IS NULL',
         [userId]
       );
     }
@@ -2306,7 +2470,7 @@ app.get('/api/printers/settings', authMiddleware, async (req: AuthRequest, res: 
   try {
     const db = getPool();
     const result = await db.query(
-      `SELECT * FROM printer_settings WHERE user_id = $1 ORDER BY is_default DESC, updated_at DESC`,
+      `SELECT * FROM printer_settings WHERE user_id::text = $1 ORDER BY is_default DESC, updated_at DESC`,
       [req.user!.id]
     );
     res.json({ printers: result.rows });
@@ -2329,14 +2493,14 @@ app.post('/api/printers/settings', authMiddleware, async (req: AuthRequest, res:
     // If setting as default, unset other defaults for this user
     if (is_default !== false) {
       await db.query(
-        `UPDATE printer_settings SET is_default = false WHERE user_id = $1`,
+        `UPDATE printer_settings SET is_default = false WHERE user_id::text = $1`,
         [req.user!.id]
       );
     }
 
     // Upsert by user + printer IP
     const existing = await db.query(
-      `SELECT id FROM printer_settings WHERE user_id = $1 AND printer_ip = $2`,
+      `SELECT id FROM printer_settings WHERE user_id::text = $1 AND printer_ip = $2`,
       [req.user!.id, printer_ip]
     );
 
@@ -2370,7 +2534,7 @@ app.delete('/api/printers/settings/:id', authMiddleware, async (req: AuthRequest
   try {
     const db = getPool();
     await db.query(
-      `DELETE FROM printer_settings WHERE id = $1 AND user_id = $2`,
+      `DELETE FROM printer_settings WHERE id::text = $1 AND user_id::text = $2`,
       [req.params.id, req.user!.id]
     );
     res.json({ ok: true });
@@ -3043,7 +3207,7 @@ monitoringService.monitoringEvents.on('update', (update: monitoringService.LiveU
 });
 
 // Get full dashboard stats
-app.get('/api/monitor/dashboard', authMiddleware, async (_req: Request, res: Response) => {
+app.get('/api/monitor/dashboard', monitorAuthMiddleware, async (_req: Request, res: Response) => {
   try {
     const stats = await monitoringService.getDashboardStats();
     res.json(stats);
@@ -3054,7 +3218,7 @@ app.get('/api/monitor/dashboard', authMiddleware, async (_req: Request, res: Res
 });
 
 // Get overview stats only
-app.get('/api/monitor/overview', authMiddleware, async (_req: Request, res: Response) => {
+app.get('/api/monitor/overview', monitorAuthMiddleware, async (_req: Request, res: Response) => {
   try {
     const overview = await monitoringService.getOverviewStats();
     res.json(overview);
@@ -3065,7 +3229,7 @@ app.get('/api/monitor/overview', authMiddleware, async (_req: Request, res: Resp
 });
 
 // Get stage distribution
-app.get('/api/monitor/stages', authMiddleware, async (_req: Request, res: Response) => {
+app.get('/api/monitor/stages', monitorAuthMiddleware, async (_req: Request, res: Response) => {
   try {
     const stages = await monitoringService.getStageDistribution();
     res.json(stages);
@@ -3076,7 +3240,7 @@ app.get('/api/monitor/stages', authMiddleware, async (_req: Request, res: Respon
 });
 
 // Get throughput data
-app.get('/api/monitor/throughput', authMiddleware, async (_req: Request, res: Response) => {
+app.get('/api/monitor/throughput', monitorAuthMiddleware, async (_req: Request, res: Response) => {
   try {
     const throughput = await monitoringService.getThroughputData();
     res.json(throughput);
@@ -3087,7 +3251,7 @@ app.get('/api/monitor/throughput', authMiddleware, async (_req: Request, res: Re
 });
 
 // Get technician stats
-app.get('/api/monitor/technicians', authMiddleware, async (_req: Request, res: Response) => {
+app.get('/api/monitor/technicians', monitorAuthMiddleware, async (_req: Request, res: Response) => {
   try {
     const technicians = await monitoringService.getTechnicianStats();
     res.json(technicians);
@@ -3098,7 +3262,7 @@ app.get('/api/monitor/technicians', authMiddleware, async (_req: Request, res: R
 });
 
 // Get grade distribution
-app.get('/api/monitor/grades', authMiddleware, async (_req: Request, res: Response) => {
+app.get('/api/monitor/grades', monitorAuthMiddleware, async (_req: Request, res: Response) => {
   try {
     const grades = await monitoringService.getGradeDistribution();
     res.json(grades);
@@ -3109,7 +3273,7 @@ app.get('/api/monitor/grades', authMiddleware, async (_req: Request, res: Respon
 });
 
 // Get active alerts
-app.get('/api/monitor/alerts', authMiddleware, async (_req: Request, res: Response) => {
+app.get('/api/monitor/alerts', monitorAuthMiddleware, async (_req: Request, res: Response) => {
   try {
     const alerts = await monitoringService.getActiveAlerts();
     res.json(alerts);
@@ -3120,7 +3284,7 @@ app.get('/api/monitor/alerts', authMiddleware, async (_req: Request, res: Respon
 });
 
 // Get recent activity feed
-app.get('/api/monitor/activity', authMiddleware, async (req: Request, res: Response) => {
+app.get('/api/monitor/activity', monitorAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const limit = req.query.limit ? parseInt(queryString(req.query.limit) || '50') : 50;
     const activity = await monitoringService.getRecentActivity(limit);
@@ -3132,7 +3296,7 @@ app.get('/api/monitor/activity', authMiddleware, async (req: Request, res: Respo
 });
 
 // Get productivity report for date range
-app.get('/api/monitor/reports/productivity', authMiddleware, async (req: Request, res: Response) => {
+app.get('/api/monitor/reports/productivity', monitorAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const startDate = queryString(req.query.startDate);
     const endDate = queryString(req.query.endDate);
@@ -3151,7 +3315,7 @@ app.get('/api/monitor/reports/productivity', authMiddleware, async (req: Request
 });
 
 // Get inventory health report
-app.get('/api/monitor/reports/inventory', authMiddleware, async (_req: Request, res: Response) => {
+app.get('/api/monitor/reports/inventory', monitorAuthMiddleware, async (_req: Request, res: Response) => {
   try {
     const health = await monitoringService.getInventoryHealth();
     res.json(health);
@@ -3162,37 +3326,125 @@ app.get('/api/monitor/reports/inventory', authMiddleware, async (_req: Request, 
 });
 
 // Get SSE client count (for monitoring)
-app.get('/api/monitor/clients', authMiddleware, (_req: Request, res: Response) => {
+app.get('/api/monitor/clients', monitorAuthMiddleware, (_req: Request, res: Response) => {
   res.json({ connectedClients: sseClients.size });
+});
+
+// Get station statuses (monitor-accessible version of admin/stations)
+app.get('/api/monitor/stations', monitorAuthMiddleware, async (_req: Request, res: Response) => {
+  try {
+    const db = getPool();
+
+    const usersResult = await db.query<Record<string, unknown>>(
+      `SELECT id, email, name, is_active, created_at FROM users
+       WHERE email LIKE '%@quickrefurbz.local' ORDER BY email`
+    );
+
+    const stations = [];
+    for (const user of usersResult.rows) {
+      const stationNum = (user.email as string).match(/station(\d+)/)?.[1] || '??';
+      const stationId = `RFB-${stationNum}`;
+
+      const hbResult = await db.query<Record<string, unknown>>(
+        `SELECT metadata, created_at FROM station_logins
+         WHERE user_id::text = $1 AND event = 'heartbeat'
+         ORDER BY created_at DESC LIMIT 1`,
+        [user.id]
+      );
+
+      const setupResult = await db.query<Record<string, unknown>>(
+        `SELECT created_at FROM station_logins
+         WHERE user_id::text = $1 AND event = 'setup_complete'
+         ORDER BY created_at DESC LIMIT 1`,
+        [user.id]
+      );
+
+      const todayResult = await db.query<Record<string, unknown>>(
+        `SELECT COUNT(*) as count FROM station_logins
+         WHERE user_id::text = $1 AND event = 'heartbeat'
+         AND created_at >= CURRENT_DATE`,
+        [user.id]
+      );
+
+      const lastHb = hbResult.rows[0];
+      let metadata: Record<string, unknown> = {};
+      if (lastHb?.metadata) {
+        try {
+          metadata = typeof lastHb.metadata === 'string'
+            ? JSON.parse(lastHb.metadata as string)
+            : lastHb.metadata as Record<string, unknown>;
+        } catch { /* ignore */ }
+      }
+
+      let status = 'offline';
+      if (lastHb?.created_at) {
+        const lastTime = new Date(lastHb.created_at as string).getTime();
+        const now = Date.now();
+        const diffMin = (now - lastTime) / 60000;
+        if (diffMin < 2) status = 'online';
+        else if (diffMin < 10) status = 'idle';
+      }
+
+      stations.push({
+        station_id: stationId,
+        name: user.name,
+        status,
+        last_heartbeat: lastHb?.created_at || null,
+        current_page: metadata.current_page || null,
+        current_item: metadata.current_item || null,
+        setup_complete: !!setupResult.rows[0],
+        heartbeats_today: parseInt(String(todayResult.rows[0]?.count || 0)),
+      });
+    }
+
+    res.json(stations);
+  } catch (error) {
+    console.error('Get monitor stations error:', error);
+    res.status(500).json({ error: 'Failed to get station statuses' });
+  }
 });
 
 // ==================== STATION MANAGEMENT ====================
 
 // Seed 10 station accounts (admin-only, idempotent)
-app.post('/api/admin/seed-stations', authMiddleware, adminMiddleware, async (_req: AuthRequest, res: Response) => {
+// Pass ?force=true to reset passwords for existing accounts
+app.post('/api/admin/seed-stations', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const db = getPool();
+    const forceReset = req.query.force === 'true';
     const stations = [
-      { num: '01', name: 'Station 01 - Intake', pass: 'Refurb2026!S01' },
-      { num: '02', name: 'Station 02 - Testing', pass: 'Refurb2026!S02' },
-      { num: '03', name: 'Station 03 - Diagnostics', pass: 'Refurb2026!S03' },
-      { num: '04', name: 'Station 04 - Data Wipe', pass: 'Refurb2026!S04' },
-      { num: '05', name: 'Station 05 - Repair A', pass: 'Refurb2026!S05' },
-      { num: '06', name: 'Station 06 - Repair B', pass: 'Refurb2026!S06' },
-      { num: '07', name: 'Station 07 - Cleaning', pass: 'Refurb2026!S07' },
-      { num: '08', name: 'Station 08 - Final QC', pass: 'Refurb2026!S08' },
-      { num: '09', name: 'Station 09 - Certification', pass: 'Refurb2026!S09' },
-      { num: '10', name: 'Station 10 - Packaging', pass: 'Refurb2026!S10' },
+      { num: '01', name: 'Station 01 - Intake', pass: 'refurbz01!' },
+      { num: '02', name: 'Station 02 - Testing', pass: 'refurbz02!' },
+      { num: '03', name: 'Station 03 - Diagnostics', pass: 'refurbz03!' },
+      { num: '04', name: 'Station 04 - Data Wipe', pass: 'refurbz04!' },
+      { num: '05', name: 'Station 05 - Repair A', pass: 'refurbz05!' },
+      { num: '06', name: 'Station 06 - Repair B', pass: 'refurbz06!' },
+      { num: '07', name: 'Station 07 - Cleaning', pass: 'refurbz07!' },
+      { num: '08', name: 'Station 08 - Final QC', pass: 'refurbz08!' },
+      { num: '09', name: 'Station 09 - Certification', pass: 'refurbz09!' },
+      { num: '10', name: 'Station 10 - Packaging', pass: 'refurbz10!' },
     ];
 
     const created: { email: string; name: string; station_id: string }[] = [];
     const skipped: string[] = [];
+    const reset: string[] = [];
 
     for (const s of stations) {
       const email = `station${s.num}@quickrefurbz.local`;
       const existing = await getUserByEmail(email);
       if (existing) {
-        skipped.push(email);
+        if (forceReset) {
+          const passwordHash = await bcrypt.hash(s.pass, 10);
+          const dbType = process.env.DB_TYPE || 'sqlite';
+          const nowExpr = dbType === 'postgres' ? 'now()' : "datetime('now')";
+          await db.query(
+            `UPDATE users SET password_hash = $1, updated_at = ${nowExpr} WHERE email = $2`,
+            [passwordHash, email]
+          );
+          reset.push(email);
+        } else {
+          skipped.push(email);
+        }
         continue;
       }
 
@@ -3211,7 +3463,7 @@ app.post('/api/admin/seed-stations', authMiddleware, adminMiddleware, async (_re
       created.push({ email, name: s.name, station_id: `RFB-${s.num}` });
     }
 
-    res.json({ created, skipped, total: created.length + skipped.length });
+    res.json({ created, skipped, reset, total: created.length + skipped.length + reset.length });
   } catch (error) {
     console.error('Seed stations error:', error);
     res.status(500).json({ error: 'Failed to seed station accounts' });
@@ -3306,7 +3558,7 @@ app.get('/api/admin/stations', authMiddleware, adminMiddleware, async (_req: Aut
       // Latest heartbeat
       const hbResult = await db.query<Record<string, unknown>>(
         `SELECT metadata, created_at FROM station_logins
-         WHERE user_id = $1 AND event = 'heartbeat'
+         WHERE user_id::text = $1 AND event = 'heartbeat'
          ORDER BY created_at DESC LIMIT 1`,
         [user.id]
       );
@@ -3314,7 +3566,7 @@ app.get('/api/admin/stations', authMiddleware, adminMiddleware, async (_req: Aut
       // Setup status
       const setupResult = await db.query<Record<string, unknown>>(
         `SELECT created_at FROM station_logins
-         WHERE user_id = $1 AND event = 'setup_complete'
+         WHERE user_id::text = $1 AND event = 'setup_complete'
          ORDER BY created_at DESC LIMIT 1`,
         [user.id]
       );
@@ -3322,7 +3574,7 @@ app.get('/api/admin/stations', authMiddleware, adminMiddleware, async (_req: Aut
       // Items processed today
       const todayResult = await db.query<Record<string, unknown>>(
         `SELECT COUNT(*) as count FROM station_logins
-         WHERE user_id = $1 AND event = 'heartbeat'
+         WHERE user_id::text = $1 AND event = 'heartbeat'
          AND created_at >= CURRENT_DATE`,
         [user.id]
       );
@@ -3392,7 +3644,7 @@ app.get('/api/admin/stations/:id/activity', authMiddleware, adminMiddleware, asy
 
     const result = await db.query<Record<string, unknown>>(
       `SELECT * FROM station_logins
-       WHERE user_id = $1
+       WHERE user_id::text = $1
        ORDER BY created_at DESC LIMIT $2`,
       [userId, limit]
     );
@@ -3402,6 +3654,12 @@ app.get('/api/admin/stations/:id/activity', authMiddleware, adminMiddleware, asy
     console.error('Get station activity error:', error);
     res.status(500).json({ error: 'Failed to get station activity' });
   }
+});
+
+// ==================== API 404 CATCH-ALL ====================
+
+app.all('/api/*', (_req: Request, res: Response) => {
+  res.status(404).json({ error: 'API endpoint not found' });
 });
 
 // ==================== CATCH-ALL FOR REACT ====================

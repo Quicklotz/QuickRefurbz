@@ -1,7 +1,10 @@
 node_modules/
 dist/
+dist-electron/
 data/
 .env
 *.log
 .DS_Store
 .claude/
+frontend/release/
+PLAN-*.md

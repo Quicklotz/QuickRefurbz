@@ -1363,6 +1363,153 @@ async function initializePostgres(db: DatabaseAdapter): Promise<void> {
 
   await db.query(`CREATE INDEX IF NOT EXISTS idx_printer_settings_user ON printer_settings(user_id)`);
   await db.query(`CREATE INDEX IF NOT EXISTS idx_printer_settings_station ON printer_settings(station_id)`);
+
+  // Grading rubrics
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS grading_rubrics (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      category TEXT NOT NULL,
+      grade TEXT NOT NULL,
+      cosmetic_threshold INTEGER,
+      functional_threshold INTEGER,
+      overall_threshold INTEGER,
+      description TEXT,
+      functional_requirements TEXT,
+      max_defect_count INTEGER,
+      warranty_eligible BOOLEAN DEFAULT true,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(category, grade)
+    )
+  `);
+
+  // Grading assessments
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS grading_assessments (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      qlid TEXT NOT NULL,
+      job_id TEXT,
+      category TEXT NOT NULL,
+      criteria_results JSONB NOT NULL DEFAULT '{}',
+      cosmetic_score INTEGER,
+      functional_score INTEGER,
+      overall_score INTEGER,
+      calculated_grade TEXT NOT NULL,
+      final_grade TEXT,
+      override_reason TEXT,
+      assessed_by TEXT NOT NULL,
+      assessed_at TIMESTAMPTZ DEFAULT NOW(),
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_grading_assessments_qlid ON grading_assessments(qlid)`);
+
+  // Labor entries for cost tracking
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS labor_entries (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      qlid TEXT NOT NULL,
+      job_id TEXT,
+      technician_id TEXT NOT NULL,
+      technician_name TEXT,
+      minutes_spent NUMERIC NOT NULL DEFAULT 0,
+      hourly_rate NUMERIC NOT NULL DEFAULT 15,
+      labor_cost NUMERIC GENERATED ALWAYS AS (minutes_spent * hourly_rate / 60) STORED,
+      task_description TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_labor_entries_qlid ON labor_entries(qlid)`);
+
+  // Refurb costs aggregate
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS refurb_costs (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      qlid TEXT NOT NULL UNIQUE,
+      parts_cost NUMERIC NOT NULL DEFAULT 0,
+      labor_cost NUMERIC NOT NULL DEFAULT 0,
+      overhead_cost NUMERIC NOT NULL DEFAULT 0,
+      total_cost NUMERIC NOT NULL DEFAULT 0,
+      estimated_value NUMERIC,
+      profit_margin NUMERIC,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_refurb_costs_qlid ON refurb_costs(qlid)`);
+
+  // Migration: rename margin → profit_margin if old column exists
+  try {
+    await db.query(`ALTER TABLE refurb_costs RENAME COLUMN margin TO profit_margin`);
+  } catch (_) {
+    // Column already renamed or doesn't exist — ignore
+  }
+
+  // Parts table (for monitoring alerts)
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS parts (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      name TEXT NOT NULL,
+      sku TEXT UNIQUE,
+      category TEXT,
+      quantity INTEGER NOT NULL DEFAULT 0,
+      min_quantity INTEGER NOT NULL DEFAULT 5,
+      unit_cost NUMERIC,
+      supplier TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  // Item photos
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS item_photos (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      qlid TEXT NOT NULL,
+      filename TEXT NOT NULL,
+      original_name TEXT,
+      mime_type TEXT NOT NULL DEFAULT 'image/jpeg',
+      size_bytes INTEGER,
+      storage_path TEXT NOT NULL,
+      storage_mode TEXT NOT NULL DEFAULT 'local',
+      photo_type TEXT NOT NULL DEFAULT 'refurb',
+      uploaded_by TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_item_photos_qlid ON item_photos(qlid)`);
+
+  // UPC lookup cache
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS upc_lookup_cache (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      upc TEXT UNIQUE NOT NULL,
+      brand TEXT,
+      model TEXT,
+      title TEXT,
+      category TEXT,
+      msrp NUMERIC,
+      image_url TEXT,
+      raw_response TEXT,
+      provider TEXT DEFAULT 'manual',
+      cached_at TIMESTAMPTZ DEFAULT NOW(),
+      expires_at TIMESTAMPTZ
+    )
+  `);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_upc_cache_upc ON upc_lookup_cache(upc)`);
+
+  // Migration: add missing columns to upc_lookup_cache if using old schema
+  const upcCols = ['brand', 'model', 'title', 'category', 'msrp', 'image_url', 'raw_response', 'provider', 'cached_at'];
+  for (const col of upcCols) {
+    try {
+      const colType = col === 'msrp' ? 'NUMERIC' : col === 'cached_at' ? 'TIMESTAMPTZ DEFAULT NOW()' : 'TEXT';
+      await db.query(`ALTER TABLE upc_lookup_cache ADD COLUMN IF NOT EXISTS ${col} ${colType}`);
+    } catch (_) { /* column exists */ }
+  }
+  // Add id column if missing (old schema used upc as PK)
+  try {
+    await db.query(`ALTER TABLE upc_lookup_cache ADD COLUMN IF NOT EXISTS id UUID DEFAULT gen_random_uuid()`);
+  } catch (_) { /* exists */ }
 }
 
 async function initializeSQLite(db: DatabaseAdapter): Promise<void> {

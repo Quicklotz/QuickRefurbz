@@ -56,7 +56,7 @@ export async function getTechnicianById(techId: string): Promise<Technician | nu
   const db = getPool();
   const result = await db.query(`
     SELECT * FROM technicians
-    WHERE id = $1 OR employee_id = $1 OR LOWER(name) = LOWER($1)
+    WHERE id::text = $1 OR employee_id = $1 OR LOWER(name) = LOWER($1)
   `, [techId]);
 
   if (result.rows.length === 0) return null;

@@ -4,6 +4,7 @@ import { Spotlight } from '@/components/aceternity/spotlight';
 import {
   IconDeviceDesktop,
   IconBrandApple,
+  IconBrandWindows,
   IconCheck,
   IconArrowRight,
   IconQrcode,
@@ -11,23 +12,32 @@ import {
   IconKey,
   IconAlertCircle,
   IconWifi,
-  IconBrowser,
-  IconBookmark,
-  IconExternalLink,
+  IconDownload,
+  IconRefresh,
 } from '@tabler/icons-react';
 
 const STATIONS = [
-  { id: 'RFB-01', email: 'station01@quickrefurbz.local', name: 'Intake', pass: 'Refurb2026!S01' },
-  { id: 'RFB-02', email: 'station02@quickrefurbz.local', name: 'Testing', pass: 'Refurb2026!S02' },
-  { id: 'RFB-03', email: 'station03@quickrefurbz.local', name: 'Diagnostics', pass: 'Refurb2026!S03' },
-  { id: 'RFB-04', email: 'station04@quickrefurbz.local', name: 'Data Wipe', pass: 'Refurb2026!S04' },
-  { id: 'RFB-05', email: 'station05@quickrefurbz.local', name: 'Repair A', pass: 'Refurb2026!S05' },
-  { id: 'RFB-06', email: 'station06@quickrefurbz.local', name: 'Repair B', pass: 'Refurb2026!S06' },
-  { id: 'RFB-07', email: 'station07@quickrefurbz.local', name: 'Cleaning', pass: 'Refurb2026!S07' },
-  { id: 'RFB-08', email: 'station08@quickrefurbz.local', name: 'Final QC', pass: 'Refurb2026!S08' },
-  { id: 'RFB-09', email: 'station09@quickrefurbz.local', name: 'Certification', pass: 'Refurb2026!S09' },
-  { id: 'RFB-10', email: 'station10@quickrefurbz.local', name: 'Packaging', pass: 'Refurb2026!S10' },
+  { id: 'RFB-01', email: 'station01@quickrefurbz.local', name: 'Intake', pass: 'refurbz01!' },
+  { id: 'RFB-02', email: 'station02@quickrefurbz.local', name: 'Testing', pass: 'refurbz02!' },
+  { id: 'RFB-03', email: 'station03@quickrefurbz.local', name: 'Diagnostics', pass: 'refurbz03!' },
+  { id: 'RFB-04', email: 'station04@quickrefurbz.local', name: 'Data Wipe', pass: 'refurbz04!' },
+  { id: 'RFB-05', email: 'station05@quickrefurbz.local', name: 'Repair A', pass: 'refurbz05!' },
+  { id: 'RFB-06', email: 'station06@quickrefurbz.local', name: 'Repair B', pass: 'refurbz06!' },
+  { id: 'RFB-07', email: 'station07@quickrefurbz.local', name: 'Cleaning', pass: 'refurbz07!' },
+  { id: 'RFB-08', email: 'station08@quickrefurbz.local', name: 'Final QC', pass: 'refurbz08!' },
+  { id: 'RFB-09', email: 'station09@quickrefurbz.local', name: 'Certification', pass: 'refurbz09!' },
+  { id: 'RFB-10', email: 'station10@quickrefurbz.local', name: 'Packaging', pass: 'refurbz10!' },
 ];
+
+const DOWNLOAD_URL = 'https://github.com/Quicklotz/QuickRefurbz/releases/latest/download/QuickRefurbz-Setup.exe';
+
+type Platform = 'windows' | 'macos';
+
+function detectPlatform(): Platform {
+  const ua = navigator.userAgent.toLowerCase();
+  if (ua.includes('mac')) return 'macos';
+  return 'windows';
+}
 
 interface StepCardProps {
   step: number;
@@ -60,6 +70,7 @@ function StepCard({ step, title, description, icon }: StepCardProps) {
 
 export function Download() {
   const [showAllPasswords, setShowAllPasswords] = useState(false);
+  const [platform, setPlatform] = useState<Platform>(detectPlatform);
 
   const appUrl = `${window.location.origin}`;
 
@@ -91,74 +102,147 @@ export function Download() {
             transition={{ delay: 0.1 }}
             className="text-zinc-400 text-lg max-w-md mx-auto mb-8"
           >
-            Get your Mac station ready in under 2 minutes
+            Get your station ready in under 2 minutes
           </motion.p>
 
+          {/* Platform Toggle */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.2 }}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-dark-secondary border border-border rounded-xl text-sm text-zinc-400"
+            className="inline-flex items-center bg-dark-secondary border border-border rounded-xl overflow-hidden"
           >
-            <IconBrandApple size={18} />
-            macOS Setup Guide
+            <button
+              onClick={() => setPlatform('windows')}
+              className={`flex items-center gap-2 px-5 py-2.5 text-sm transition-colors ${
+                platform === 'windows'
+                  ? 'bg-ql-yellow/10 text-ql-yellow border-r border-border'
+                  : 'text-zinc-500 hover:text-zinc-300 border-r border-border'
+              }`}
+            >
+              <IconBrandWindows size={18} />
+              Windows
+            </button>
+            <button
+              onClick={() => setPlatform('macos')}
+              className={`flex items-center gap-2 px-5 py-2.5 text-sm transition-colors ${
+                platform === 'macos'
+                  ? 'bg-ql-yellow/10 text-ql-yellow'
+                  : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              <IconBrandApple size={18} />
+              macOS
+            </button>
           </motion.div>
         </div>
       </div>
 
       <div className="max-w-4xl mx-auto px-6 pb-20 space-y-12">
-        {/* Setup Steps */}
-        <div>
-          <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
-            <IconDeviceDesktop size={22} className="text-ql-yellow" />
-            Setup Steps
-          </h2>
-          <div className="space-y-3">
-            <StepCard
-              step={1}
-              title="Open Safari or Chrome"
-              description={`Open your browser and go to: ${appUrl}`}
-              icon={<IconBrowser size={18} />}
-            />
-            <StepCard
-              step={2}
-              title="Bookmark the page"
-              description="Press ⌘+D (Cmd+D) to bookmark QuickRefurbz for quick access. You can also drag the tab to your Dock."
-              icon={<IconBookmark size={18} />}
-            />
-            <StepCard
-              step={3}
-              title="Log in with your station credentials"
-              description="Use the email and password for your station from the table below."
-              icon={<IconUser size={18} />}
-            />
-            <StepCard
-              step={4}
-              title="Complete the setup wizard"
-              description="The first time you log in, a setup wizard will walk you through configuring your printer, scanner, and station details."
-              icon={<IconArrowRight size={18} />}
-            />
-            <StepCard
-              step={5}
-              title="Start refurbishing"
-              description="You're all set. Navigate to Intake, Workflow, or Diagnostics from the sidebar to begin processing items."
-              icon={<IconCheck size={18} />}
-            />
-          </div>
-        </div>
+        {/* Windows Setup */}
+        {platform === 'windows' && (
+          <div>
+            <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+              <IconDeviceDesktop size={22} className="text-ql-yellow" />
+              Windows Setup
+            </h2>
 
-        {/* Optional: Add to Dock */}
-        <div className="p-5 rounded-xl bg-dark-secondary border border-border">
-          <h3 className="font-semibold text-white text-sm mb-2 flex items-center gap-2">
-            <IconExternalLink size={16} className="text-ql-yellow" />
-            Tip: Add to Dock for quick access
-          </h3>
-          <p className="text-zinc-500 text-xs leading-relaxed">
-            In Safari, go to <strong className="text-zinc-300">File &rarr; Add to Dock</strong> to create a shortcut.
-            In Chrome, click the three-dot menu &rarr; <strong className="text-zinc-300">More Tools &rarr; Create Shortcut</strong>.
-            This gives you a desktop icon without installing a separate app.
-          </p>
-        </div>
+            {/* Download Button */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="p-6 rounded-xl bg-dark-secondary border border-ql-yellow/20 mb-6"
+            >
+              <div className="flex flex-col sm:flex-row items-center gap-4">
+                <div className="flex-1">
+                  <h3 className="text-lg font-semibold text-white mb-1">Download QuickRefurbz</h3>
+                  <p className="text-zinc-500 text-sm">Windows installer (.exe) &mdash; installs in one click, updates automatically.</p>
+                </div>
+                <a
+                  href={DOWNLOAD_URL}
+                  className="flex items-center gap-2 px-6 py-3 bg-ql-yellow text-dark-primary font-semibold rounded-xl hover:bg-ql-yellow-hover transition-colors text-sm whitespace-nowrap"
+                >
+                  <IconDownload size={20} />
+                  Download .exe
+                </a>
+              </div>
+            </motion.div>
+
+            <div className="space-y-3">
+              <StepCard
+                step={1}
+                title="Download the installer"
+                description="Click the download button above to get QuickRefurbz-Setup.exe."
+                icon={<IconDownload size={18} />}
+              />
+              <StepCard
+                step={2}
+                title="Run the installer"
+                description="Double-click the .exe file. If Windows SmartScreen appears, click 'More info' then 'Run anyway'. The app installs in seconds."
+                icon={<IconArrowRight size={18} />}
+              />
+              <StepCard
+                step={3}
+                title="Log in with your station credentials"
+                description="Use the email and password for your station from the table below."
+                icon={<IconUser size={18} />}
+              />
+              <StepCard
+                step={4}
+                title="Complete the setup wizard"
+                description="The first time you log in, a setup wizard will walk you through configuring your printer, scanner, and station details."
+                icon={<IconCheck size={18} />}
+              />
+            </div>
+
+            {/* Auto-update note */}
+            <div className="mt-6 p-4 rounded-xl bg-dark-secondary border border-border">
+              <h3 className="font-semibold text-white text-sm mb-1 flex items-center gap-2">
+                <IconRefresh size={16} className="text-ql-yellow" />
+                Automatic Updates
+              </h3>
+              <p className="text-zinc-500 text-xs leading-relaxed">
+                QuickRefurbz updates automatically in the background. When a new version is ready, you&apos;ll see a notification. The update installs on the next app restart.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* macOS Setup */}
+        {platform === 'macos' && (
+          <div>
+            <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+              <IconBrandApple size={22} className="text-ql-yellow" />
+              macOS Setup
+            </h2>
+            <div className="space-y-3">
+              <StepCard
+                step={1}
+                title="Open Safari or Chrome"
+                description={`Open your browser and go to: ${appUrl}`}
+                icon={<IconDeviceDesktop size={18} />}
+              />
+              <StepCard
+                step={2}
+                title="Add to Dock"
+                description="In Safari: File > Add to Dock. In Chrome: three-dot menu > More Tools > Create Shortcut. This gives you a desktop icon."
+                icon={<IconArrowRight size={18} />}
+              />
+              <StepCard
+                step={3}
+                title="Log in with your station credentials"
+                description="Use the email and password for your station from the table below."
+                icon={<IconUser size={18} />}
+              />
+              <StepCard
+                step={4}
+                title="Complete the setup wizard"
+                description="The first time you log in, a setup wizard configures your printer, scanner, and station details."
+                icon={<IconCheck size={18} />}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Station Credentials */}
         <div>
@@ -203,7 +287,7 @@ export function Download() {
                         {showAllPasswords ? (
                           <code className="text-xs text-accent-green bg-dark-tertiary px-2 py-0.5 rounded">{s.pass}</code>
                         ) : (
-                          <span className="text-zinc-600 text-xs">{'*'.repeat(14)}</span>
+                          <span className="text-zinc-600 text-xs">{'*'.repeat(10)}</span>
                         )}
                       </td>
                     </tr>
@@ -221,7 +305,7 @@ export function Download() {
             Quick Access
           </h2>
           <p className="text-zinc-500 text-sm mb-4">
-            Scan this QR code on any station to open QuickRefurbz
+            Scan this QR code on any device to open the install page
           </p>
           <div className="inline-flex items-center justify-center p-4 bg-white rounded-2xl">
             <img
@@ -244,10 +328,10 @@ export function Download() {
             <div className="p-4 rounded-xl bg-dark-secondary border border-border">
               <h3 className="font-semibold text-white text-sm mb-1 flex items-center gap-2">
                 <IconWifi size={16} className="text-zinc-400" />
-                Page won&apos;t load?
+                App won&apos;t connect?
               </h3>
               <p className="text-zinc-500 text-xs leading-relaxed">
-                Check that the station is connected to the warehouse network. Try refreshing with ⌘+Shift+R.
+                Check that the station is connected to the warehouse network and has internet access. Try restarting the app.
               </p>
             </div>
             <div className="p-4 rounded-xl bg-dark-secondary border border-border">

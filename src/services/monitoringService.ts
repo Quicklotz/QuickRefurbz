@@ -148,7 +148,7 @@ export async function getOverviewStats(): Promise<DashboardStats['overview']> {
     db.query<CountResult>(`SELECT COUNT(*) as count FROM refurb_items WHERE current_stage = 'COMPLETE' AND completed_at >= $1`, [weekAgoStr]),
     db.query<CountResult>(`SELECT COUNT(*) as count FROM refurb_items WHERE current_stage = 'INTAKE'`),
     db.query<AvgResult>(`
-      SELECT AVG(EXTRACT(EPOCH FROM (completed_at::timestamp - intake_timestamp::timestamp)) / 60) as avg_time
+      SELECT AVG(EXTRACT(EPOCH FROM (completed_at::timestamp - intake_ts::timestamp)) / 60) as avg_time
       FROM refurb_items
       WHERE current_stage = 'COMPLETE'
       AND completed_at >= $1
@@ -228,7 +228,7 @@ export async function getThroughputData(): Promise<ThroughputData> {
       hours.hour::text,
       COALESCE((
         SELECT COUNT(*) FROM refurb_items
-        WHERE date_trunc('hour', intake_timestamp::timestamp) = hours.hour
+        WHERE date_trunc('hour', intake_ts::timestamp) = hours.hour
       ), 0) as intake_count,
       COALESCE((
         SELECT COUNT(*) FROM refurb_items
@@ -255,7 +255,7 @@ export async function getThroughputData(): Promise<ThroughputData> {
       days.day::text,
       COALESCE((
         SELECT COUNT(*) FROM refurb_items
-        WHERE date_trunc('day', intake_timestamp::timestamp) = days.day
+        WHERE date_trunc('day', intake_ts::timestamp) = days.day
       ), 0) as intake_count,
       COALESCE((
         SELECT COUNT(*) FROM refurb_items
@@ -282,7 +282,7 @@ export async function getThroughputData(): Promise<ThroughputData> {
       weeks.week::text,
       COALESCE((
         SELECT COUNT(*) FROM refurb_items
-        WHERE date_trunc('week', intake_timestamp::timestamp) = weeks.week
+        WHERE date_trunc('week', intake_ts::timestamp) = weeks.week
       ), 0) as intake_count,
       COALESCE((
         SELECT COUNT(*) FROM refurb_items
@@ -330,17 +330,17 @@ export async function getTechnicianStats(): Promise<TechnicianStats[]> {
   }>(`
     WITH tech_stats AS (
       SELECT
-        COALESCE(sh.performed_by, le.technician_id) as technician_id,
+        COALESCE(sh.technician_id, le.technician_id) as technician_id,
         COUNT(DISTINCT CASE WHEN ri.current_stage = 'COMPLETE' THEN ri.qlid END) as items_processed,
         COUNT(DISTINCT CASE WHEN ri.current_stage NOT IN ('COMPLETE', 'DISPOSED', 'RETURNED') THEN ri.qlid END) as items_in_progress,
-        AVG(le.duration_minutes) as avg_time,
+        AVG(le.minutes_spent) as avg_time,
         MAX(ri.current_stage) as current_stage,
-        MAX(COALESCE(sh.changed_at, le.started_at)) as last_activity
+        MAX(COALESCE(sh.created_at, le.created_at)) as last_activity
       FROM refurb_items ri
       LEFT JOIN stage_history sh ON ri.qlid = sh.qlid
       LEFT JOIN labor_entries le ON ri.qlid = le.qlid
-      WHERE COALESCE(sh.performed_by, le.technician_id) IS NOT NULL
-      GROUP BY COALESCE(sh.performed_by, le.technician_id)
+      WHERE COALESCE(sh.technician_id, le.technician_id) IS NOT NULL
+      GROUP BY COALESCE(sh.technician_id, le.technician_id)
     )
     SELECT
       technician_id,
@@ -506,16 +506,16 @@ export async function getRecentActivity(limit: number = 50): Promise<ActivityIte
     qlid: string;
     from_stage: string;
     to_stage: string;
-    performed_by: string | null;
-    changed_at: string;
+    technician_id: string | null;
+    created_at: string;
   }>(`
-    SELECT id, qlid, from_stage, to_stage, performed_by, changed_at::text
+    SELECT id, qlid, from_stage, to_stage, technician_id, created_at::text
     FROM stage_history
-    ORDER BY changed_at DESC
+    ORDER BY created_at DESC
     LIMIT $1
   `, [limit]);
 
-  type StageChangeRow = { id: string; qlid: string; from_stage: string; to_stage: string; performed_by: string | null; changed_at: string };
+  type StageChangeRow = { id: string; qlid: string; from_stage: string; to_stage: string; technician_id: string | null; created_at: string };
   const activities: ActivityItem[] = stageChanges.rows.map((row: StageChangeRow) => ({
     id: row.id,
     type: row.to_stage === 'COMPLETE' ? 'completed' as const :
@@ -526,8 +526,8 @@ export async function getRecentActivity(limit: number = 50): Promise<ActivityIte
       : row.to_stage === 'COMPLETE'
       ? `Item ${row.qlid} completed refurbishment`
       : `Item ${row.qlid} moved from ${row.from_stage} to ${row.to_stage}`,
-    technician: row.performed_by,
-    timestamp: row.changed_at
+    technician: row.technician_id,
+    timestamp: row.created_at
   }));
 
   // Get recent gradings
@@ -591,9 +591,9 @@ export async function getRecentActivity(limit: number = 50): Promise<ActivityIte
     used_by: string;
     used_at: string;
   }>(`
-    SELECT id, qlid, part_name, quantity::text, used_by, used_at::text
+    SELECT id, qlid, part_name, quantity::text, used_by_technician_name as used_by, created_at::text as used_at
     FROM parts_usage
-    ORDER BY used_at DESC
+    ORDER BY created_at DESC
     LIMIT $1
   `, [limit]);
 
@@ -679,9 +679,9 @@ export async function getProductivityReport(startDate: string, endDate: string):
   const summaryResult = await db.query<SummaryResult>(`
     SELECT
       COUNT(DISTINCT ri.qlid) as total_processed,
-      AVG(EXTRACT(EPOCH FROM (ri.completed_at::timestamp - ri.intake_timestamp::timestamp)) / 60) as avg_time,
+      AVG(EXTRACT(EPOCH FROM (ri.completed_at::timestamp - ri.intake_ts::timestamp)) / 60) as avg_time,
       COUNT(DISTINCT CASE WHEN ga.final_grade = 'A' THEN ri.qlid END) as grade_a_count,
-      COUNT(DISTINCT sh.performed_by) as tech_count
+      COUNT(DISTINCT sh.technician_id) as tech_count
     FROM refurb_items ri
     LEFT JOIN grading_assessments ga ON ri.qlid = ga.qlid
     LEFT JOIN stage_history sh ON ri.qlid = sh.qlid
@@ -703,7 +703,7 @@ export async function getProductivityReport(startDate: string, endDate: string):
     SELECT
       date_trunc('day', completed_at)::text as date,
       COUNT(*) as processed,
-      AVG(EXTRACT(EPOCH FROM (completed_at::timestamp - intake_timestamp::timestamp)) / 60) as avg_time
+      AVG(EXTRACT(EPOCH FROM (completed_at::timestamp - intake_ts::timestamp)) / 60) as avg_time
     FROM refurb_items
     WHERE completed_at >= $1 AND completed_at <= $2
     GROUP BY date_trunc('day', completed_at)
@@ -782,7 +782,7 @@ export async function getInventoryHealth(): Promise<{
     stage_throughput AS (
       SELECT to_stage as stage, COUNT(*) / 7.0 as daily_throughput
       FROM stage_history
-      WHERE changed_at >= NOW() - INTERVAL '7 days'
+      WHERE created_at >= NOW() - INTERVAL '7 days'
       GROUP BY to_stage
     )
     SELECT

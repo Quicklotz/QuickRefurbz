@@ -1,0 +1,2191 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "QuickRefurbz API",
+    "description": "Complete API for the QuickRefurbz electronics refurbishment management system. Covers device intake, workflow management, diagnostics, grading, certification, data wiping, parts inventory, cost tracking, exports, webhooks, product feeds, and real-time monitoring.",
+    "version": "1.0.0",
+    "contact": {
+      "name": "QuickRefurbz",
+      "url": "https://quickrefurbz.com"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://quickrefurbz.com",
+      "description": "Production"
+    },
+    {
+      "url": "http://localhost:3004",
+      "description": "Local development"
+    }
+  ],
+  "tags": [
+    { "name": "Auth", "description": "Authentication, login, invites, password reset" },
+    { "name": "Admin", "description": "User management (admin-only)" },
+    { "name": "Dashboard", "description": "Dashboard stats overview" },
+    { "name": "Pallets", "description": "Pallet/container management" },
+    { "name": "Items", "description": "Item (device) CRUD and stage transitions" },
+    { "name": "Tickets", "description": "Support/issue tickets" },
+    { "name": "Parts", "description": "Parts inventory and suppliers" },
+    { "name": "Technicians", "description": "Technician profiles and workload" },
+    { "name": "Kanban", "description": "Kanban board view" },
+    { "name": "Settings", "description": "App settings" },
+    { "name": "UPC", "description": "UPC barcode lookup and product identification" },
+    { "name": "Photos", "description": "Device photo management" },
+    { "name": "Grading", "description": "Cosmetic grading rubrics and assessments" },
+    { "name": "Costs", "description": "Cost tracking, labor, COGS, valuations" },
+    { "name": "DataWipe", "description": "Data sanitization and certificates" },
+    { "name": "Session", "description": "Work sessions (clock-in/out)" },
+    { "name": "Labels", "description": "ZPL label generation and printing" },
+    { "name": "Printers", "description": "Printer discovery and settings" },
+    { "name": "Certificates", "description": "Refurbishment certificates (main)" },
+    { "name": "Exports", "description": "Batch export management" },
+    { "name": "Webhooks", "description": "Outbound webhook configuration" },
+    { "name": "Feed", "description": "Product feed endpoints (Shopify, eBay, CSV, XML)" },
+    { "name": "Monitor", "description": "Real-time monitoring dashboard" },
+    { "name": "Stations", "description": "Workstation management and heartbeat" },
+    { "name": "Workflow", "description": "Workflow jobs, steps, transitions, SOPs" },
+    { "name": "Workflow Diagnostics", "description": "Diagnostic test sessions within workflow" },
+    { "name": "Workflow Certifications", "description": "Certification management within workflow" },
+    { "name": "Workflow Checks", "description": "Quality check records within workflow" },
+    { "name": "Test Equipment", "description": "QuickTestz test bench equipment catalog" },
+    { "name": "Test Stations", "description": "QuickTestz test bench stations and outlets" },
+    { "name": "Test Profiles", "description": "QuickTestz test profiles and thresholds" },
+    { "name": "Test Runs", "description": "QuickTestz test execution and readings" }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "JWT token obtained from POST /api/auth/login"
+      },
+      "monitorToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Monitor-Token",
+        "description": "Server-injected monitor secret for unauthenticated dashboard access"
+      }
+    },
+    "schemas": {
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "email": { "type": "string", "format": "email" },
+          "name": { "type": "string" },
+          "role": { "type": "string", "enum": ["admin", "manager", "technician"] },
+          "status": { "type": "string", "enum": ["active", "invited", "disabled"] },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Pallet": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "rfb_id": { "type": "string", "description": "e.g. RFB-PAL-001" },
+          "name": { "type": "string" },
+          "source": { "type": "string" },
+          "status": { "type": "string" },
+          "item_count": { "type": "integer" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Item": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "qlid": { "type": "string", "description": "QuickLotz item ID, e.g. QL-2026-00001" },
+          "upc": { "type": "string" },
+          "brand": { "type": "string" },
+          "model": { "type": "string" },
+          "category": { "type": "string" },
+          "stage": { "type": "string", "enum": ["INTAKE", "TRIAGE", "DIAGNOSE", "REPAIR", "CLEAN", "TEST", "GRADE", "CERTIFY", "LIST", "COMPLETE"] },
+          "grade": { "type": "string", "enum": ["A+", "A", "B", "C", "D", "F", "PARTS"] },
+          "condition_notes": { "type": "string" },
+          "pallet_id": { "type": "string", "format": "uuid" },
+          "assigned_to": { "type": "string", "format": "uuid" },
+          "msrp": { "type": "number" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Ticket": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "item_id": { "type": "string" },
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "status": { "type": "string", "enum": ["open", "resolved"] },
+          "created_by": { "type": "string" },
+          "resolved_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Part": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "sku": { "type": "string" },
+          "category": { "type": "string" },
+          "quantity": { "type": "integer" },
+          "unit_cost": { "type": "number" },
+          "supplier_id": { "type": "string" },
+          "location": { "type": "string" }
+        }
+      },
+      "WorkflowJob": {
+        "type": "object",
+        "properties": {
+          "qlid": { "type": "string" },
+          "current_stage": { "type": "string" },
+          "assigned_to": { "type": "string" },
+          "priority": { "type": "string", "enum": ["low", "medium", "high", "urgent"] },
+          "steps_completed": { "type": "array", "items": { "type": "string" } },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "DiagnosticSession": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "session_number": { "type": "string" },
+          "qlid": { "type": "string" },
+          "technician_id": { "type": "string" },
+          "status": { "type": "string", "enum": ["in_progress", "completed"] },
+          "tests": { "type": "array", "items": { "$ref": "#/components/schemas/DiagnosticTest" } }
+        }
+      },
+      "DiagnosticTest": {
+        "type": "object",
+        "properties": {
+          "test_code": { "type": "string" },
+          "test_name": { "type": "string" },
+          "result": { "type": "string", "enum": ["pass", "fail", "skip", "warning"] },
+          "notes": { "type": "string" },
+          "measurements": { "type": "object" }
+        }
+      },
+      "Certification": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "certification_id": { "type": "string" },
+          "qlid": { "type": "string" },
+          "grade": { "type": "string" },
+          "status": { "type": "string", "enum": ["active", "revoked"] },
+          "issued_at": { "type": "string", "format": "date-time" },
+          "issued_by": { "type": "string" }
+        }
+      },
+      "GradingAssessment": {
+        "type": "object",
+        "properties": {
+          "qlid": { "type": "string" },
+          "category": { "type": "string" },
+          "scores": { "type": "object", "description": "Rubric dimension scores" },
+          "overall_grade": { "type": "string" },
+          "notes": { "type": "string" },
+          "assessed_by": { "type": "string" }
+        }
+      },
+      "DataWipeReport": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "qlid": { "type": "string" },
+          "method": { "type": "string" },
+          "status": { "type": "string", "enum": ["in_progress", "completed", "failed"] },
+          "started_at": { "type": "string", "format": "date-time" },
+          "completed_at": { "type": "string", "format": "date-time" },
+          "certificate_url": { "type": "string" }
+        }
+      },
+      "Export": {
+        "type": "object",
+        "properties": {
+          "export_name": { "type": "string" },
+          "format": { "type": "string", "enum": ["csv", "json", "xlsx"] },
+          "record_count": { "type": "integer" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "files": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "Webhook": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "url": { "type": "string", "format": "uri" },
+          "events": { "type": "array", "items": { "type": "string" } },
+          "secret": { "type": "string" },
+          "active": { "type": "boolean" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "MonitorOverview": {
+        "type": "object",
+        "properties": {
+          "total_items": { "type": "integer" },
+          "in_progress": { "type": "integer" },
+          "completed_today": { "type": "integer" },
+          "completed_week": { "type": "integer" },
+          "pending": { "type": "integer" },
+          "avg_processing_hours": { "type": "number" }
+        }
+      },
+      "StationStatus": {
+        "type": "object",
+        "properties": {
+          "station_id": { "type": "string" },
+          "station_name": { "type": "string" },
+          "status": { "type": "string", "enum": ["online", "idle", "offline"] },
+          "current_page": { "type": "string" },
+          "last_heartbeat": { "type": "string", "format": "date-time" },
+          "uptime": { "type": "integer" }
+        }
+      },
+      "TestEquipment": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "type": { "type": "string" },
+          "model": { "type": "string" },
+          "serial_number": { "type": "string" },
+          "calibration_date": { "type": "string", "format": "date" }
+        }
+      },
+      "TestStation": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "controllerType": { "type": "string" },
+          "ip_address": { "type": "string" },
+          "outlets": { "type": "array", "items": { "$ref": "#/components/schemas/TestOutlet" } }
+        }
+      },
+      "TestOutlet": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "stationId": { "type": "string" },
+          "label": { "type": "string" },
+          "outletNumber": { "type": "integer" }
+        }
+      },
+      "TestProfile": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "category": { "type": "string" },
+          "duration_seconds": { "type": "integer" },
+          "thresholds": { "type": "object" }
+        }
+      },
+      "TestRun": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "qlid": { "type": "string" },
+          "stationId": { "type": "string" },
+          "outletId": { "type": "string" },
+          "profileId": { "type": "string" },
+          "status": { "type": "string", "enum": ["CREATED", "ENERGIZED", "COLLECTING", "CHECKLIST", "COMPLETED", "FAILED", "CANCELLED"] },
+          "result": { "type": "string", "enum": ["PASS", "FAIL", "INCONCLUSIVE"] },
+          "readings": { "type": "array", "items": { "$ref": "#/components/schemas/Reading" } }
+        }
+      },
+      "Reading": {
+        "type": "object",
+        "properties": {
+          "timestamp": { "type": "string", "format": "date-time" },
+          "watts": { "type": "number" },
+          "volts": { "type": "number" },
+          "amps": { "type": "number" }
+        }
+      },
+      "WorkSession": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "employee_id": { "type": "string" },
+          "workstation_id": { "type": "string" },
+          "warehouse_id": { "type": "string" },
+          "session_date": { "type": "string", "format": "date" },
+          "started_at": { "type": "string", "format": "date-time" },
+          "ended_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": { "type": "string" }
+        }
+      }
+    }
+  },
+  "security": [{ "bearerAuth": [] }],
+  "paths": {
+    "/api/auth/login": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Login with email and password",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email", "password"],
+                "properties": {
+                  "email": { "type": "string", "format": "email" },
+                  "password": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Login successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "token": { "type": "string" },
+                    "user": { "$ref": "#/components/schemas/User" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Invalid credentials" }
+        }
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "tags": ["Auth"],
+        "summary": "Get current authenticated user",
+        "responses": {
+          "200": {
+            "description": "Current user",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/User" } } }
+          }
+        }
+      }
+    },
+    "/api/auth/verify-token": {
+      "get": {
+        "tags": ["Auth"],
+        "summary": "Verify JWT token validity",
+        "responses": {
+          "200": { "description": "Token is valid" },
+          "401": { "description": "Token invalid or expired" }
+        }
+      }
+    },
+    "/api/auth/accept-invite": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Accept an invitation and set password",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["token", "password"],
+                "properties": {
+                  "token": { "type": "string" },
+                  "password": { "type": "string" },
+                  "name": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Invite accepted, returns token and user" }
+        }
+      }
+    },
+    "/api/auth/forgot-password": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Request password reset email",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email"],
+                "properties": {
+                  "email": { "type": "string", "format": "email" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Reset email sent (always returns 200)" }
+        }
+      }
+    },
+    "/api/auth/reset-password": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Reset password using token",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["token", "password"],
+                "properties": {
+                  "token": { "type": "string" },
+                  "password": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Password reset successful" }
+        }
+      }
+    },
+    "/api/auth/invite": {
+      "post": {
+        "tags": ["Admin"],
+        "summary": "Invite a new user (admin-only)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email", "role"],
+                "properties": {
+                  "email": { "type": "string", "format": "email" },
+                  "name": { "type": "string" },
+                  "role": { "type": "string", "enum": ["admin", "manager", "technician"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Invitation sent" }
+        }
+      }
+    },
+    "/api/admin/users": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "List all users (admin-only)",
+        "responses": {
+          "200": {
+            "description": "User list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "users": { "type": "array", "items": { "$ref": "#/components/schemas/User" } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/users/{id}": {
+      "put": {
+        "tags": ["Admin"],
+        "summary": "Update user (admin-only)",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "role": { "type": "string", "enum": ["admin", "manager", "technician"] },
+                  "status": { "type": "string", "enum": ["active", "disabled"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "User updated" } }
+      },
+      "delete": {
+        "tags": ["Admin"],
+        "summary": "Delete user (admin-only)",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "User deleted" } }
+      }
+    },
+    "/api/admin/users/{id}/resend-invite": {
+      "post": {
+        "tags": ["Admin"],
+        "summary": "Resend invitation email (admin-only)",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Invite resent" } }
+      }
+    },
+    "/api/dashboard": {
+      "get": {
+        "tags": ["Dashboard"],
+        "summary": "Get dashboard summary stats",
+        "responses": {
+          "200": {
+            "description": "Dashboard overview with item counts by stage, recent activity, etc."
+          }
+        }
+      }
+    },
+    "/api/pallets/generate-rfb-id": {
+      "post": {
+        "tags": ["Pallets"],
+        "summary": "Generate next RFB pallet ID",
+        "responses": {
+          "200": {
+            "description": "Generated ID",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "rfb_id": { "type": "string" } } } } }
+          }
+        }
+      }
+    },
+    "/api/pallets": {
+      "get": {
+        "tags": ["Pallets"],
+        "summary": "List pallets",
+        "parameters": [
+          { "name": "status", "in": "query", "schema": { "type": "string" } },
+          { "name": "search", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer" } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pallet list",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "pallets": { "type": "array", "items": { "$ref": "#/components/schemas/Pallet" } } } } } }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Pallets"],
+        "summary": "Create a pallet",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Pallet" } } }
+        },
+        "responses": { "201": { "description": "Pallet created" } }
+      }
+    },
+    "/api/pallets/{id}": {
+      "get": {
+        "tags": ["Pallets"],
+        "summary": "Get pallet by ID",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Pallet details with items" } }
+      },
+      "put": {
+        "tags": ["Pallets"],
+        "summary": "Update pallet",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Pallet" } } } },
+        "responses": { "200": { "description": "Pallet updated" } }
+      },
+      "delete": {
+        "tags": ["Pallets"],
+        "summary": "Delete pallet",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Pallet deleted" } }
+      }
+    },
+    "/api/items": {
+      "get": {
+        "tags": ["Items"],
+        "summary": "List items with filtering",
+        "parameters": [
+          { "name": "stage", "in": "query", "schema": { "type": "string" } },
+          { "name": "pallet_id", "in": "query", "schema": { "type": "string" } },
+          { "name": "search", "in": "query", "schema": { "type": "string" } },
+          { "name": "category", "in": "query", "schema": { "type": "string" } },
+          { "name": "grade", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 50 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "default": 0 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Item list",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/Item" } }, "total": { "type": "integer" } } } } }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Items"],
+        "summary": "Create an item",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Item" } } } },
+        "responses": { "201": { "description": "Item created" } }
+      }
+    },
+    "/api/items/{id}": {
+      "get": {
+        "tags": ["Items"],
+        "summary": "Get item by ID",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Item details" } }
+      },
+      "delete": {
+        "tags": ["Items"],
+        "summary": "Delete item",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Item deleted" } }
+      }
+    },
+    "/api/items/scan": {
+      "post": {
+        "tags": ["Items"],
+        "summary": "Scan barcode to find or create item",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "required": ["barcode"], "properties": { "barcode": { "type": "string" }, "pallet_id": { "type": "string" } } } } }
+        },
+        "responses": { "200": { "description": "Item found or created" } }
+      }
+    },
+    "/api/items/{id}/advance": {
+      "post": {
+        "tags": ["Items"],
+        "summary": "Advance item to next workflow stage",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Item advanced" } }
+      }
+    },
+    "/api/items/{id}/stage": {
+      "post": {
+        "tags": ["Items"],
+        "summary": "Set item to a specific stage",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "required": ["stage"], "properties": { "stage": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Stage updated" } }
+      }
+    },
+    "/api/items/{id}/assign": {
+      "post": {
+        "tags": ["Items"],
+        "summary": "Assign item to technician",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "required": ["technician_id"], "properties": { "technician_id": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Item assigned" } }
+      }
+    },
+    "/api/tickets": {
+      "get": {
+        "tags": ["Tickets"],
+        "summary": "List tickets",
+        "parameters": [
+          { "name": "status", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "Ticket list" } }
+      },
+      "post": {
+        "tags": ["Tickets"],
+        "summary": "Create a ticket",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ticket" } } } },
+        "responses": { "201": { "description": "Ticket created" } }
+      }
+    },
+    "/api/tickets/{id}": {
+      "get": {
+        "tags": ["Tickets"],
+        "summary": "Get ticket by ID",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Ticket details" } }
+      }
+    },
+    "/api/tickets/{id}/resolve": {
+      "post": {
+        "tags": ["Tickets"],
+        "summary": "Resolve a ticket",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "resolution": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Ticket resolved" } }
+      }
+    },
+    "/api/parts": {
+      "get": {
+        "tags": ["Parts"],
+        "summary": "List parts inventory",
+        "parameters": [
+          { "name": "category", "in": "query", "schema": { "type": "string" } },
+          { "name": "search", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Parts list" } }
+      },
+      "post": {
+        "tags": ["Parts"],
+        "summary": "Add part to inventory",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Part" } } } },
+        "responses": { "201": { "description": "Part created" } }
+      }
+    },
+    "/api/parts/{id}/adjust": {
+      "post": {
+        "tags": ["Parts"],
+        "summary": "Adjust part quantity",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "required": ["adjustment", "reason"], "properties": { "adjustment": { "type": "integer" }, "reason": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Quantity adjusted" } }
+      }
+    },
+    "/api/items/{qlid}/parts": {
+      "get": {
+        "tags": ["Parts"],
+        "summary": "Get parts used on an item",
+        "parameters": [{ "name": "qlid", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Parts list for item" } }
+      },
+      "post": {
+        "tags": ["Parts"],
+        "summary": "Log part usage on an item",
+        "parameters": [{ "name": "qlid", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "required": ["part_id", "quantity"], "properties": { "part_id": { "type": "string" }, "quantity": { "type": "integer" } } } } } },
+        "responses": { "200": { "description": "Part usage logged" } }
+      }
+    },
+    "/api/parts/compatible/{category}": {
+      "get": {
+        "tags": ["Parts"],
+        "summary": "Get compatible parts for a device category",
+        "parameters": [{ "name": "category", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Compatible parts list" } }
+      }
+    },
+    "/api/parts/stats": {
+      "get": {
+        "tags": ["Parts"],
+        "summary": "Get parts inventory stats",
+        "responses": { "200": { "description": "Parts statistics" } }
+      }
+    },
+    "/api/parts/suppliers": {
+      "get": {
+        "tags": ["Parts"],
+        "summary": "List parts suppliers",
+        "responses": { "200": { "description": "Suppliers list" } }
+      },
+      "post": {
+        "tags": ["Parts"],
+        "summary": "Add a parts supplier",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["name", "api_url"], "properties": { "name": { "type": "string" }, "api_url": { "type": "string" }, "api_key": { "type": "string" } } } } } },
+        "responses": { "201": { "description": "Supplier created" } }
+      }
+    },
+    "/api/parts/sync/{supplierId}": {
+      "post": {
+        "tags": ["Parts"],
+        "summary": "Sync parts from supplier",
+        "parameters": [{ "name": "supplierId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Sync results" } }
+      }
+    },
+    "/api/parts/import": {
+      "post": {
+        "tags": ["Parts"],
+        "summary": "Bulk import parts from CSV/JSON",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["parts"], "properties": { "parts": { "type": "array", "items": { "$ref": "#/components/schemas/Part" } } } } } } },
+        "responses": { "200": { "description": "Import results" } }
+      }
+    },
+    "/api/technicians": {
+      "get": {
+        "tags": ["Technicians"],
+        "summary": "List all technicians",
+        "responses": { "200": { "description": "Technician list" } }
+      },
+      "post": {
+        "tags": ["Technicians"],
+        "summary": "Create a technician profile",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string" }, "specializations": { "type": "array", "items": { "type": "string" } } } } } } },
+        "responses": { "201": { "description": "Technician created" } }
+      }
+    },
+    "/api/technicians/{id}/workload": {
+      "get": {
+        "tags": ["Technicians"],
+        "summary": "Get technician workload",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Workload details" } }
+      }
+    },
+    "/api/kanban": {
+      "get": {
+        "tags": ["Kanban"],
+        "summary": "Get kanban board data (items grouped by stage)",
+        "responses": { "200": { "description": "Kanban columns with items" } }
+      }
+    },
+    "/api/settings": {
+      "get": {
+        "tags": ["Settings"],
+        "summary": "Get application settings",
+        "responses": { "200": { "description": "Settings object" } }
+      },
+      "put": {
+        "tags": ["Settings"],
+        "summary": "Update application settings",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "Settings updated" } }
+      }
+    },
+    "/api/upc/{upc}": {
+      "get": {
+        "tags": ["UPC"],
+        "summary": "Look up product by UPC barcode",
+        "parameters": [{ "name": "upc", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": {
+            "description": "Product info",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "brand": { "type": "string" }, "model": { "type": "string" }, "category": { "type": "string" }, "msrp": { "type": "number" }, "image_url": { "type": "string" } } } } }
+          }
+        }
+      }
+    },
+    "/api/upc/manual": {
+      "post": {
+        "tags": ["UPC"],
+        "summary": "Manually add UPC product data",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["upc", "brand", "model"], "properties": { "upc": { "type": "string" }, "brand": { "type": "string" }, "model": { "type": "string" }, "category": { "type": "string" }, "msrp": { "type": "number" } } } } } },
+        "responses": { "200": { "description": "UPC data saved" } }
+      }
+    },
+    "/api/upc/search": {
+      "get": {
+        "tags": ["UPC"],
+        "summary": "Search UPC database",
+        "parameters": [{ "name": "q", "in": "query", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Search results" } }
+      }
+    },
+    "/api/upc/stats": {
+      "get": {
+        "tags": ["UPC"],
+        "summary": "Get UPC database stats",
+        "responses": { "200": { "description": "Stats" } }
+      }
+    },
+    "/api/photos/{qlid}": {
+      "post": {
+        "tags": ["Photos"],
+        "summary": "Upload photos for an item",
+        "parameters": [{ "name": "qlid", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "multipart/form-data": { "schema": { "type": "object", "properties": { "photos": { "type": "array", "items": { "type": "string", "format": "binary" } } } } } } },
+        "responses": { "200": { "description": "Photos uploaded" } }
+      },
+      "get": {
+        "tags": ["Photos"],
+        "summary": "Get photos for an item",
+        "parameters": [{ "name": "qlid", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Photo list" } }
+      }
+    },
+    "/api/photos/file/{photoId}": {
+      "get": {
+        "tags": ["Photos"],
+        "summary": "Get photo file",
+        "parameters": [{ "name": "photoId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Photo binary" } }
+      },
+      "patch": {
+        "tags": ["Photos"],
+        "summary": "Update photo metadata (primary, caption)",
+        "parameters": [{ "name": "photoId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "is_primary": { "type": "boolean" }, "caption": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Photo updated" } }
+      },
+      "delete": {
+        "tags": ["Photos"],
+        "summary": "Delete a photo",
+        "parameters": [{ "name": "photoId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Photo deleted" } }
+      }
+    },
+    "/api/photos/{qlid}/count": {
+      "get": {
+        "tags": ["Photos"],
+        "summary": "Get photo count for an item",
+        "parameters": [{ "name": "qlid", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Photo count" } }
+      }
+    },
+    "/api/grading/rubric/{category}": {
+      "get": {
+        "tags": ["Grading"],
+        "summary": "Get grading rubric for a device category",
+        "parameters": [{ "name": "category", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Rubric with dimensions and scoring criteria" } }
+      }
+    },
+    "/api/grading/rubrics": {
+      "get": {
+        "tags": ["Grading"],
+        "summary": "List all grading rubrics",
+        "responses": { "200": { "description": "All rubrics" } }
+      }
+    },
+    "/api/grading/assess": {
+      "post": {
+        "tags": ["Grading"],
+        "summary": "Submit a grading assessment",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GradingAssessment" } } } },
+        "responses": { "200": { "description": "Assessment saved, grade computed" } }
+      }
+    },
+    "/api/grading/assessment/{qlid}": {
+      "get": {
+        "tags": ["Grading"],
+        "summary": "Get latest grading assessment for an item",
+        "parameters": [{ "name": "qlid", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Assessment" } }
+      }
+    },
+    "/api/grading/history/{qlid}": {
+      "get": {
+        "tags": ["Grading"],
+        "summary": "Get grading history for an item",
+        "parameters": [{ "name": "qlid", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Assessment history" } }
+      }
+    },
+    "/api/grading/stats": {
+      "get": {
+        "tags": ["Grading"],
+        "summary": "Get grading statistics (grade distribution, avg scores)",
+        "responses": { "200": { "description": "Grading stats" } }
+      }
+    },
+    "/api/costs/labor": {
+      "post": {
+        "tags": ["Costs"],
+        "summary": "Log labor time for an item",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["qlid", "minutes", "task_type"], "properties": { "qlid": { "type": "string" }, "minutes": { "type": "number" }, "task_type": { "type": "string" }, "hourly_rate": { "type": "number" } } } } } },
+        "responses": { "200": { "description": "Labor logged" } }
+      }
+    },
+    "/api/costs/labor/{qlid}": {
+      "get": {
+        "tags": ["Costs"],
+        "summary": "Get labor records for an item",
+        "parameters": [{ "name": "qlid", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Labor records" } }
+      }
+    },
+    "/api/costs/calculate/{qlid}": {
+      "post": {
+        "tags": ["Costs"],
+        "summary": "Recalculate total costs for an item",
+        "parameters": [{ "name": "qlid", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Cost calculation result" } }
+      }
+    },
+    "/api/costs/breakdown/{qlid}": {
+      "get": {
+        "tags": ["Costs"],
+        "summary": "Get detailed cost breakdown for an item",
+        "parameters": [{ "name": "qlid", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Cost breakdown (parts, labor, overhead)" } }
+      }
+    },
+    "/api/costs/summary/{qlid}": {
+      "get": {
+        "tags": ["Costs"],
+        "summary": "Get cost summary with margin analysis",
+        "parameters": [{ "name": "qlid", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Cost summary with COGS, margin, suggested price" } }
+      }
+    },
+    "/api/costs/cogs/{qlid}": {
+      "post": {
+        "tags": ["Costs"],
+        "summary": "Set COGS for an item",
+        "parameters": [{ "name": "qlid", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "required": ["cogs"], "properties": { "cogs": { "type": "number" } } } } } },
+        "responses": { "200": { "description": "COGS set" } }
+      }
+    },
+    "/api/costs/value/{qlid}": {
+      "post": {
+        "tags": ["Costs"],
+        "summary": "Set estimated resale value for an item",
+        "parameters": [{ "name": "qlid", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "required": ["value"], "properties": { "value": { "type": "number" } } } } } },
+        "responses": { "200": { "description": "Value set" } }
+      }
+    },
+    "/api/costs/stats": {
+      "get": {
+        "tags": ["Costs"],
+        "summary": "Get overall cost statistics",
+        "responses": { "200": { "description": "Cost stats" } }
+      }
+    },
+    "/api/datawipe/reports": {
+      "get": {
+        "tags": ["DataWipe"],
+        "summary": "List data wipe reports",
+        "parameters": [
+          { "name": "status", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "Wipe reports" } }
+      }
+    },
+    "/api/datawipe/reports/{qlid}": {
+      "get": {
+        "tags": ["DataWipe"],
+        "summary": "Get data wipe report for an item",
+        "security": [],
+        "parameters": [{ "name": "qlid", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Wipe report" } }
+      }
+    },
+    "/api/datawipe/start": {
+      "post": {
+        "tags": ["DataWipe"],
+        "summary": "Start a data wipe process",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["qlid", "method"], "properties": { "qlid": { "type": "string" }, "method": { "type": "string", "enum": ["NIST_800_88", "DOD_5220", "FACTORY_RESET", "SECURE_ERASE"] } } } } } },
+        "responses": { "200": { "description": "Wipe started" } }
+      }
+    },
+    "/api/datawipe/{id}/complete": {
+      "post": {
+        "tags": ["DataWipe"],
+        "summary": "Mark data wipe as complete",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "verification_hash": { "type": "string" }, "notes": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Wipe completed" } }
+      }
+    },
+    "/api/datawipe/{qlid}/certificate": {
+      "get": {
+        "tags": ["DataWipe"],
+        "summary": "Get data wipe certificate (public)",
+        "security": [],
+        "parameters": [{ "name": "qlid", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "HTML certificate" } }
+      }
+    },
+    "/api/session": {
+      "get": {
+        "tags": ["Session"],
+        "summary": "Get current work session",
+        "responses": {
+          "200": {
+            "description": "Current session or null",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "session": { "$ref": "#/components/schemas/WorkSession" }, "requiresSession": { "type": "boolean" } } } } }
+          }
+        }
+      }
+    },
+    "/api/session/start": {
+      "post": {
+        "tags": ["Session"],
+        "summary": "Start a work session",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["workstation_id", "warehouse_id"], "properties": { "workstation_id": { "type": "string" }, "warehouse_id": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Session started" } }
+      }
+    },
+    "/api/session/end": {
+      "post": {
+        "tags": ["Session"],
+        "summary": "End current work session",
+        "responses": { "200": { "description": "Session ended" } }
+      }
+    },
+    "/api/labels/pallet/{palletId}": {
+      "get": {
+        "tags": ["Labels"],
+        "summary": "Generate pallet label data",
+        "parameters": [{ "name": "palletId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Label data with barcode" } }
+      }
+    },
+    "/api/labels/print-zpl": {
+      "post": {
+        "tags": ["Labels"],
+        "summary": "Print pallet label via ZPL to network printer",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["palletId", "printerIp"], "properties": { "palletId": { "type": "string" }, "printerIp": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Print job sent" } }
+      }
+    },
+    "/api/labels/refurb/{qlid}": {
+      "get": {
+        "tags": ["Labels"],
+        "summary": "Generate refurb item label data",
+        "parameters": [{ "name": "qlid", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Label data" } }
+      }
+    },
+    "/api/labels/refurb/print-zpl": {
+      "post": {
+        "tags": ["Labels"],
+        "summary": "Print refurb item label via ZPL",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["qlid", "printerIp"], "properties": { "qlid": { "type": "string" }, "printerIp": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Print job sent" } }
+      }
+    },
+    "/api/printers/discover": {
+      "get": {
+        "tags": ["Printers"],
+        "summary": "Discover Zebra printers on local network",
+        "responses": { "200": { "description": "Discovered printers" } }
+      }
+    },
+    "/api/printers/status/{ip}": {
+      "get": {
+        "tags": ["Printers"],
+        "summary": "Get printer status by IP",
+        "parameters": [{ "name": "ip", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Printer status" } }
+      }
+    },
+    "/api/printers/settings": {
+      "get": {
+        "tags": ["Printers"],
+        "summary": "Get saved printer settings",
+        "responses": { "200": { "description": "Printer settings list" } }
+      },
+      "post": {
+        "tags": ["Printers"],
+        "summary": "Save printer settings",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["name", "ip"], "properties": { "name": { "type": "string" }, "ip": { "type": "string" }, "port": { "type": "integer" }, "label_size": { "type": "string" }, "is_default": { "type": "boolean" } } } } } },
+        "responses": { "200": { "description": "Settings saved" } }
+      }
+    },
+    "/api/printers/settings/{id}": {
+      "delete": {
+        "tags": ["Printers"],
+        "summary": "Delete printer settings",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Settings deleted" } }
+      }
+    },
+    "/api/printers/test": {
+      "post": {
+        "tags": ["Printers"],
+        "summary": "Send test print to printer",
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "required": ["ip"], "properties": { "ip": { "type": "string" }, "port": { "type": "integer" } } } } } },
+        "responses": { "200": { "description": "Test print sent" } }
+      }
+    },
+    "/api/printers/label-size/{ip}": {
+      "get": {
+        "tags": ["Printers"],
+        "summary": "Detect label size of printer",
+        "parameters": [{ "name": "ip", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Label size info" } }
+      }
+    },
+    "/api/printers/label-presets": {
+      "get": {
+        "tags": ["Printers"],
+        "summary": "Get available label size presets",
+        "responses": { "200": { "description": "Label presets" } }
+      }
+    },
+    "/api/certificates": {
+      "get": {
+        "tags": ["Certificates"],
+        "summary": "List refurbishment certificates",
+        "parameters": [
+          { "name": "limit", "in": "query", "schema": { "type": "integer" } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "Certificate list" } }
+      },
+      "post": {
+        "tags": ["Certificates"],
+        "summary": "Issue a refurbishment certificate",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["qlid"], "properties": { "qlid": { "type": "string" }, "grade": { "type": "string" }, "warranty_days": { "type": "integer" } } } } } },
+        "responses": { "201": { "description": "Certificate issued" } }
+      }
+    },
+    "/api/certificates/{identifier}": {
+      "get": {
+        "tags": ["Certificates"],
+        "summary": "Get certificate by ID or certification_id (public)",
+        "security": [],
+        "parameters": [{ "name": "identifier", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Certificate details" } }
+      }
+    },
+    "/api/certificates/item/{qlid}": {
+      "get": {
+        "tags": ["Certificates"],
+        "summary": "Get certificate for an item by QLID",
+        "parameters": [{ "name": "qlid", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Certificate for item" } }
+      }
+    },
+    "/api/certificates/verify": {
+      "post": {
+        "tags": ["Certificates"],
+        "summary": "Verify a certificate (public)",
+        "security": [],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["certification_id"], "properties": { "certification_id": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Verification result" } }
+      }
+    },
+    "/api/certificates/{identifier}/text": {
+      "get": {
+        "tags": ["Certificates"],
+        "summary": "Get certificate as plain text",
+        "security": [],
+        "parameters": [{ "name": "identifier", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Text certificate" } }
+      }
+    },
+    "/api/certificates/{identifier}/content": {
+      "get": {
+        "tags": ["Certificates"],
+        "summary": "Get certificate HTML content",
+        "security": [],
+        "parameters": [{ "name": "identifier", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "HTML certificate content" } }
+      }
+    },
+    "/api/certificates/stats/summary": {
+      "get": {
+        "tags": ["Certificates"],
+        "summary": "Get certificate statistics",
+        "responses": { "200": { "description": "Certificate stats" } }
+      }
+    },
+    "/api/exports": {
+      "get": {
+        "tags": ["Exports"],
+        "summary": "List exports",
+        "responses": { "200": { "description": "Export list" } }
+      },
+      "post": {
+        "tags": ["Exports"],
+        "summary": "Create a new export",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["format"], "properties": { "format": { "type": "string", "enum": ["csv", "json", "xlsx"] }, "filters": { "type": "object" }, "columns": { "type": "array", "items": { "type": "string" } } } } } } },
+        "responses": { "200": { "description": "Export created" } }
+      }
+    },
+    "/api/exports/{exportName}/files": {
+      "get": {
+        "tags": ["Exports"],
+        "summary": "List files in an export",
+        "parameters": [{ "name": "exportName", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "File list" } }
+      }
+    },
+    "/api/exports/download/{exportName}/{filename}": {
+      "get": {
+        "tags": ["Exports"],
+        "summary": "Download an export file",
+        "parameters": [
+          { "name": "exportName", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "filename", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "File download" } }
+      }
+    },
+    "/api/exports/{exportName}": {
+      "delete": {
+        "tags": ["Exports"],
+        "summary": "Delete an export",
+        "parameters": [{ "name": "exportName", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Export deleted" } }
+      }
+    },
+    "/api/exports/stats/summary": {
+      "get": {
+        "tags": ["Exports"],
+        "summary": "Get export statistics",
+        "responses": { "200": { "description": "Export stats" } }
+      }
+    },
+    "/api/webhooks": {
+      "get": {
+        "tags": ["Webhooks"],
+        "summary": "List webhooks",
+        "parameters": [{ "name": "active", "in": "query", "schema": { "type": "boolean" } }],
+        "responses": { "200": { "description": "Webhook list" } }
+      },
+      "post": {
+        "tags": ["Webhooks"],
+        "summary": "Create a webhook",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["url", "events"], "properties": { "url": { "type": "string", "format": "uri" }, "events": { "type": "array", "items": { "type": "string" } } } } } } },
+        "responses": { "201": { "description": "Webhook created with secret" } }
+      }
+    },
+    "/api/webhooks/{id}": {
+      "get": {
+        "tags": ["Webhooks"],
+        "summary": "Get webhook by ID",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Webhook details" } }
+      },
+      "patch": {
+        "tags": ["Webhooks"],
+        "summary": "Update webhook",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "url": { "type": "string" }, "events": { "type": "array", "items": { "type": "string" } }, "active": { "type": "boolean" } } } } } },
+        "responses": { "200": { "description": "Webhook updated" } }
+      },
+      "delete": {
+        "tags": ["Webhooks"],
+        "summary": "Delete webhook",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Webhook deleted" } }
+      }
+    },
+    "/api/webhooks/{id}/regenerate-secret": {
+      "post": {
+        "tags": ["Webhooks"],
+        "summary": "Regenerate webhook signing secret",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "New secret returned" } }
+      }
+    },
+    "/api/webhooks/{id}/test": {
+      "post": {
+        "tags": ["Webhooks"],
+        "summary": "Send test event to webhook",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Test event sent" } }
+      }
+    },
+    "/api/webhooks/process-retries": {
+      "post": {
+        "tags": ["Webhooks"],
+        "summary": "Process failed webhook deliveries",
+        "responses": { "200": { "description": "Retries processed" } }
+      }
+    },
+    "/api/feed/products": {
+      "get": {
+        "tags": ["Feed"],
+        "summary": "Get product feed (JSON)",
+        "security": [],
+        "parameters": [
+          { "name": "grade", "in": "query", "schema": { "type": "string" } },
+          { "name": "category", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "Product feed" } }
+      }
+    },
+    "/api/feed/shopify": {
+      "get": {
+        "tags": ["Feed"],
+        "summary": "Get Shopify-formatted product feed",
+        "security": [],
+        "responses": { "200": { "description": "Shopify CSV feed" } }
+      }
+    },
+    "/api/feed/ebay": {
+      "get": {
+        "tags": ["Feed"],
+        "summary": "Get eBay-formatted product feed",
+        "security": [],
+        "responses": { "200": { "description": "eBay file exchange format" } }
+      }
+    },
+    "/api/feed/csv": {
+      "get": {
+        "tags": ["Feed"],
+        "summary": "Get product feed as CSV",
+        "security": [],
+        "responses": { "200": { "description": "CSV feed" } }
+      }
+    },
+    "/api/feed/xml": {
+      "get": {
+        "tags": ["Feed"],
+        "summary": "Get product feed as XML (Google Shopping)",
+        "security": [],
+        "responses": { "200": { "description": "XML feed" } }
+      }
+    },
+    "/api/feed/products/{qlid}": {
+      "get": {
+        "tags": ["Feed"],
+        "summary": "Get single product from feed",
+        "security": [],
+        "parameters": [{ "name": "qlid", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Product details" } }
+      }
+    },
+    "/api/feed/stats": {
+      "get": {
+        "tags": ["Feed"],
+        "summary": "Get product feed stats",
+        "responses": { "200": { "description": "Feed stats" } }
+      }
+    },
+    "/api/monitor/stream": {
+      "get": {
+        "tags": ["Monitor"],
+        "summary": "Server-Sent Events stream for real-time updates",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "SSE stream",
+            "content": { "text/event-stream": { "schema": { "type": "string" } } }
+          }
+        }
+      }
+    },
+    "/api/monitor/dashboard": {
+      "get": {
+        "tags": ["Monitor"],
+        "summary": "Get monitor dashboard data",
+        "security": [{ "bearerAuth": [] }, { "monitorToken": [] }],
+        "responses": { "200": { "description": "Dashboard data" } }
+      }
+    },
+    "/api/monitor/overview": {
+      "get": {
+        "tags": ["Monitor"],
+        "summary": "Get KPI overview (total items, in progress, completed, pending, avg time)",
+        "security": [{ "bearerAuth": [] }, { "monitorToken": [] }],
+        "responses": {
+          "200": {
+            "description": "Overview stats",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MonitorOverview" } } }
+          }
+        }
+      }
+    },
+    "/api/monitor/stages": {
+      "get": {
+        "tags": ["Monitor"],
+        "summary": "Get item counts by pipeline stage",
+        "security": [{ "bearerAuth": [] }, { "monitorToken": [] }],
+        "responses": { "200": { "description": "Stage counts" } }
+      }
+    },
+    "/api/monitor/throughput": {
+      "get": {
+        "tags": ["Monitor"],
+        "summary": "Get throughput data (items processed over time)",
+        "security": [{ "bearerAuth": [] }, { "monitorToken": [] }],
+        "responses": { "200": { "description": "Throughput data" } }
+      }
+    },
+    "/api/monitor/technicians": {
+      "get": {
+        "tags": ["Monitor"],
+        "summary": "Get technician performance metrics",
+        "security": [{ "bearerAuth": [] }, { "monitorToken": [] }],
+        "responses": { "200": { "description": "Technician metrics" } }
+      }
+    },
+    "/api/monitor/grades": {
+      "get": {
+        "tags": ["Monitor"],
+        "summary": "Get grade distribution data",
+        "security": [{ "bearerAuth": [] }, { "monitorToken": [] }],
+        "responses": { "200": { "description": "Grade distribution" } }
+      }
+    },
+    "/api/monitor/alerts": {
+      "get": {
+        "tags": ["Monitor"],
+        "summary": "Get system alerts",
+        "security": [{ "bearerAuth": [] }, { "monitorToken": [] }],
+        "responses": { "200": { "description": "Alert list" } }
+      }
+    },
+    "/api/monitor/activity": {
+      "get": {
+        "tags": ["Monitor"],
+        "summary": "Get recent activity feed",
+        "security": [{ "bearerAuth": [] }, { "monitorToken": [] }],
+        "parameters": [{ "name": "limit", "in": "query", "schema": { "type": "integer", "default": 50 } }],
+        "responses": { "200": { "description": "Activity entries" } }
+      }
+    },
+    "/api/monitor/reports/productivity": {
+      "get": {
+        "tags": ["Monitor"],
+        "summary": "Get productivity report",
+        "security": [{ "bearerAuth": [] }, { "monitorToken": [] }],
+        "parameters": [
+          { "name": "start", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "end", "in": "query", "schema": { "type": "string", "format": "date" } }
+        ],
+        "responses": { "200": { "description": "Productivity report" } }
+      }
+    },
+    "/api/monitor/reports/inventory": {
+      "get": {
+        "tags": ["Monitor"],
+        "summary": "Get inventory report",
+        "security": [{ "bearerAuth": [] }, { "monitorToken": [] }],
+        "responses": { "200": { "description": "Inventory report" } }
+      }
+    },
+    "/api/monitor/clients": {
+      "get": {
+        "tags": ["Monitor"],
+        "summary": "Get connected SSE clients",
+        "security": [{ "bearerAuth": [] }, { "monitorToken": [] }],
+        "responses": { "200": { "description": "Client count" } }
+      }
+    },
+    "/api/monitor/stations": {
+      "get": {
+        "tags": ["Monitor"],
+        "summary": "Get workstation status (monitor-accessible)",
+        "security": [{ "bearerAuth": [] }, { "monitorToken": [] }],
+        "responses": {
+          "200": {
+            "description": "Station statuses",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "stations": { "type": "array", "items": { "$ref": "#/components/schemas/StationStatus" } } } } } }
+          }
+        }
+      }
+    },
+    "/api/admin/seed-stations": {
+      "post": {
+        "tags": ["Stations"],
+        "summary": "Seed station accounts (admin-only)",
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "count": { "type": "integer", "default": 10 }, "password": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Station accounts created" } }
+      }
+    },
+    "/api/stations/heartbeat": {
+      "post": {
+        "tags": ["Stations"],
+        "summary": "Send station heartbeat",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["station_id"], "properties": { "station_id": { "type": "string" }, "current_page": { "type": "string" }, "uptime": { "type": "integer" } } } } } },
+        "responses": { "200": { "description": "Heartbeat recorded" } }
+      }
+    },
+    "/api/stations/setup-complete": {
+      "post": {
+        "tags": ["Stations"],
+        "summary": "Mark station setup as complete",
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "required": ["station_id"], "properties": { "station_id": { "type": "string" }, "printer_ip": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Setup marked complete" } }
+      }
+    },
+    "/api/admin/stations": {
+      "get": {
+        "tags": ["Stations"],
+        "summary": "Get all station details (admin-only)",
+        "responses": { "200": { "description": "Station details with user info" } }
+      }
+    },
+    "/api/admin/stations/{id}/activity": {
+      "get": {
+        "tags": ["Stations"],
+        "summary": "Get station activity log (admin-only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "Activity log" } }
+      }
+    },
+    "/api/workflow/jobs": {
+      "get": {
+        "tags": ["Workflow"],
+        "summary": "List workflow jobs",
+        "parameters": [
+          { "name": "stage", "in": "query", "schema": { "type": "string" } },
+          { "name": "assigned_to", "in": "query", "schema": { "type": "string" } },
+          { "name": "priority", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "Job list" } }
+      },
+      "post": {
+        "tags": ["Workflow"],
+        "summary": "Create a workflow job for an item",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["qlid"], "properties": { "qlid": { "type": "string" }, "priority": { "type": "string", "enum": ["low", "medium", "high", "urgent"] } } } } } },
+        "responses": { "201": { "description": "Job created" } }
+      }
+    },
+    "/api/workflow/jobs/{qlid}": {
+      "get": {
+        "tags": ["Workflow"],
+        "summary": "Get workflow job by QLID",
+        "parameters": [{ "name": "qlid", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Job details with steps" } }
+      }
+    },
+    "/api/workflow/jobs/{qlid}/prompt": {
+      "get": {
+        "tags": ["Workflow"],
+        "summary": "Get current step prompt/instructions for a job",
+        "parameters": [{ "name": "qlid", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Step prompt and SOP instructions" } }
+      }
+    },
+    "/api/workflow/jobs/{qlid}/steps/{stepCode}/complete": {
+      "post": {
+        "tags": ["Workflow"],
+        "summary": "Complete a specific step in the workflow",
+        "parameters": [
+          { "name": "qlid", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "stepCode", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "result": { "type": "string" }, "notes": { "type": "string" }, "data": { "type": "object" } } } } } },
+        "responses": { "200": { "description": "Step completed, next step info returned" } }
+      }
+    },
+    "/api/workflow/jobs/{qlid}/transition": {
+      "post": {
+        "tags": ["Workflow"],
+        "summary": "Transition job to next stage",
+        "parameters": [{ "name": "qlid", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "target_stage": { "type": "string" }, "notes": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Job transitioned" } }
+      }
+    },
+    "/api/workflow/jobs/{qlid}/assign": {
+      "post": {
+        "tags": ["Workflow"],
+        "summary": "Assign job to technician",
+        "parameters": [{ "name": "qlid", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "required": ["technician_id"], "properties": { "technician_id": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Job assigned" } }
+      }
+    },
+    "/api/workflow/jobs/{qlid}/diagnose": {
+      "post": {
+        "tags": ["Workflow"],
+        "summary": "Submit diagnosis for a job",
+        "parameters": [{ "name": "qlid", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["defect_codes"], "properties": { "defect_codes": { "type": "array", "items": { "type": "string" } }, "notes": { "type": "string" }, "severity": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Diagnosis recorded" } }
+      }
+    },
+    "/api/workflow/jobs/{qlid}/diagnoses": {
+      "get": {
+        "tags": ["Workflow"],
+        "summary": "Get all diagnoses for a job",
+        "parameters": [{ "name": "qlid", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Diagnosis list" } }
+      }
+    },
+    "/api/workflow/jobs/{qlid}/certify": {
+      "post": {
+        "tags": ["Workflow"],
+        "summary": "Certify a completed job",
+        "parameters": [{ "name": "qlid", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Job certified" } }
+      }
+    },
+    "/api/workflow/jobs/{qlid}/history": {
+      "get": {
+        "tags": ["Workflow"],
+        "summary": "Get job transition history",
+        "parameters": [{ "name": "qlid", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "History entries" } }
+      }
+    },
+    "/api/workflow/sops": {
+      "get": {
+        "tags": ["Workflow"],
+        "summary": "List all SOPs",
+        "responses": { "200": { "description": "SOP list by category" } }
+      }
+    },
+    "/api/workflow/sops/{category}": {
+      "get": {
+        "tags": ["Workflow"],
+        "summary": "Get SOP for a device category",
+        "parameters": [{ "name": "category", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "SOP with steps" } }
+      }
+    },
+    "/api/workflow/defect-codes": {
+      "get": {
+        "tags": ["Workflow"],
+        "summary": "List defect codes",
+        "parameters": [{ "name": "category", "in": "query", "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Defect code list" } }
+      }
+    },
+    "/api/workflow/defect-codes/{code}": {
+      "get": {
+        "tags": ["Workflow"],
+        "summary": "Get defect code details",
+        "parameters": [{ "name": "code", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Defect code details" } }
+      }
+    },
+    "/api/workflow/stages": {
+      "get": {
+        "tags": ["Workflow"],
+        "summary": "Get workflow stage definitions",
+        "responses": { "200": { "description": "Stage definitions with steps" } }
+      }
+    },
+    "/api/workflow/stats": {
+      "get": {
+        "tags": ["Workflow"],
+        "summary": "Get workflow statistics",
+        "responses": { "200": { "description": "Workflow stats" } }
+      }
+    },
+    "/api/workflow/queue": {
+      "get": {
+        "tags": ["Workflow"],
+        "summary": "Get workflow queue (items needing attention)",
+        "responses": { "200": { "description": "Queue with priority ordering" } }
+      }
+    },
+    "/api/workflow/diagnostics/tests": {
+      "get": {
+        "tags": ["Workflow Diagnostics"],
+        "summary": "Get available diagnostic tests",
+        "parameters": [{ "name": "category", "in": "query", "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Test definitions" } }
+      }
+    },
+    "/api/workflow/diagnostics/tests/all": {
+      "get": {
+        "tags": ["Workflow Diagnostics"],
+        "summary": "Get all diagnostic tests across categories",
+        "parameters": [{ "name": "category", "in": "query", "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "All test definitions" } }
+      }
+    },
+    "/api/workflow/diagnostics/tests/{category}": {
+      "get": {
+        "tags": ["Workflow Diagnostics"],
+        "summary": "Get diagnostic tests for a specific category",
+        "parameters": [{ "name": "category", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Category-specific tests" } }
+      }
+    },
+    "/api/workflow/diagnostics/sessions": {
+      "get": {
+        "tags": ["Workflow Diagnostics"],
+        "summary": "List diagnostic sessions",
+        "parameters": [
+          { "name": "qlid", "in": "query", "schema": { "type": "string" } },
+          { "name": "status", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Session list" } }
+      },
+      "post": {
+        "tags": ["Workflow Diagnostics"],
+        "summary": "Create a diagnostic session",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["qlid"], "properties": { "qlid": { "type": "string" }, "category": { "type": "string" } } } } } },
+        "responses": { "201": { "description": "Session created" } }
+      }
+    },
+    "/api/workflow/diagnostics/sessions/{qlid}": {
+      "get": {
+        "tags": ["Workflow Diagnostics"],
+        "summary": "Get diagnostic sessions for an item",
+        "parameters": [{ "name": "qlid", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Sessions for item" } }
+      }
+    },
+    "/api/workflow/diagnostics/sessions/{sessionNumber}/tests": {
+      "post": {
+        "tags": ["Workflow Diagnostics"],
+        "summary": "Record test results in a session",
+        "parameters": [{ "name": "sessionNumber", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DiagnosticTest" } } } },
+        "responses": { "200": { "description": "Test recorded" } }
+      }
+    },
+    "/api/workflow/diagnostics/sessions/{sessionNumber}/complete": {
+      "post": {
+        "tags": ["Workflow Diagnostics"],
+        "summary": "Complete a diagnostic session",
+        "parameters": [{ "name": "sessionNumber", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Session completed" } }
+      }
+    },
+    "/api/workflow/diagnostics/technicians/stats": {
+      "get": {
+        "tags": ["Workflow Diagnostics"],
+        "summary": "Get all technician diagnostic stats",
+        "parameters": [
+          { "name": "start", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "end", "in": "query", "schema": { "type": "string", "format": "date" } }
+        ],
+        "responses": { "200": { "description": "Technician stats" } }
+      }
+    },
+    "/api/workflow/diagnostics/technicians/{technicianId}/stats": {
+      "get": {
+        "tags": ["Workflow Diagnostics"],
+        "summary": "Get specific technician diagnostic stats",
+        "parameters": [
+          { "name": "technicianId", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "start", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "end", "in": "query", "schema": { "type": "string", "format": "date" } }
+        ],
+        "responses": { "200": { "description": "Technician stats" } }
+      }
+    },
+    "/api/workflow/certifications": {
+      "get": {
+        "tags": ["Workflow Certifications"],
+        "summary": "List workflow certifications",
+        "parameters": [
+          { "name": "status", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "Certification list" } }
+      },
+      "post": {
+        "tags": ["Workflow Certifications"],
+        "summary": "Issue certification via workflow",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["qlid", "grade"], "properties": { "qlid": { "type": "string" }, "grade": { "type": "string" }, "warranty_months": { "type": "integer" } } } } } },
+        "responses": { "201": { "description": "Certification issued" } }
+      }
+    },
+    "/api/workflow/certifications/stats": {
+      "get": {
+        "tags": ["Workflow Certifications"],
+        "summary": "Get certification statistics",
+        "responses": { "200": { "description": "Certification stats" } }
+      }
+    },
+    "/api/workflow/certifications/verify/{certificationId}": {
+      "get": {
+        "tags": ["Workflow Certifications"],
+        "summary": "Verify a certification",
+        "parameters": [{ "name": "certificationId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Verification result" } }
+      }
+    },
+    "/api/workflow/certifications/{certificationId}": {
+      "get": {
+        "tags": ["Workflow Certifications"],
+        "summary": "Get certification details",
+        "parameters": [{ "name": "certificationId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Certification details" } }
+      }
+    },
+    "/api/workflow/certifications/{certificationId}/report": {
+      "get": {
+        "tags": ["Workflow Certifications"],
+        "summary": "Get certification full report",
+        "parameters": [{ "name": "certificationId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Full report with all test results" } }
+      }
+    },
+    "/api/workflow/certifications/{certificationId}/label": {
+      "get": {
+        "tags": ["Workflow Certifications"],
+        "summary": "Get certification label (ZPL)",
+        "parameters": [{ "name": "certificationId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Label data" } }
+      }
+    },
+    "/api/workflow/certifications/{certificationId}/revoke": {
+      "post": {
+        "tags": ["Workflow Certifications"],
+        "summary": "Revoke a certification",
+        "parameters": [{ "name": "certificationId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "required": ["reason"], "properties": { "reason": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Certification revoked" } }
+      }
+    },
+    "/api/workflow/checks": {
+      "post": {
+        "tags": ["Workflow Checks"],
+        "summary": "Record a quality check",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["qlid", "check_type", "result"], "properties": { "qlid": { "type": "string" }, "check_type": { "type": "string" }, "result": { "type": "string", "enum": ["pass", "fail", "warning"] }, "notes": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Check recorded" } }
+      }
+    },
+    "/api/workflow/checks/all": {
+      "post": {
+        "tags": ["Workflow Checks"],
+        "summary": "Record multiple quality checks at once",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["qlid", "checks"], "properties": { "qlid": { "type": "string" }, "checks": { "type": "array", "items": { "type": "object", "properties": { "check_type": { "type": "string" }, "result": { "type": "string" }, "notes": { "type": "string" } } } } } } } } },
+        "responses": { "200": { "description": "Checks recorded" } }
+      }
+    },
+    "/api/workflow/checks/{qlid}": {
+      "get": {
+        "tags": ["Workflow Checks"],
+        "summary": "Get quality checks for an item",
+        "parameters": [{ "name": "qlid", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Check results" } }
+      }
+    },
+    "/api/workflow/checks/cert/{certificationId}": {
+      "get": {
+        "tags": ["Workflow Checks"],
+        "summary": "Get checks associated with a certification",
+        "parameters": [{ "name": "certificationId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Check results for certification" } }
+      }
+    },
+    "/api/workflow/checks/{qlid}/flags": {
+      "get": {
+        "tags": ["Workflow Checks"],
+        "summary": "Get flagged checks for an item",
+        "parameters": [{ "name": "qlid", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Flagged checks" } }
+      }
+    },
+    "/api/test/equipment": {
+      "get": {
+        "tags": ["Test Equipment"],
+        "summary": "List test equipment",
+        "responses": { "200": { "description": "Equipment list" } }
+      },
+      "post": {
+        "tags": ["Test Equipment"],
+        "summary": "Add test equipment",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TestEquipment" } } } },
+        "responses": { "201": { "description": "Equipment created" } }
+      }
+    },
+    "/api/test/equipment/{id}": {
+      "get": {
+        "tags": ["Test Equipment"],
+        "summary": "Get equipment by ID",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Equipment details" } }
+      },
+      "put": {
+        "tags": ["Test Equipment"],
+        "summary": "Update equipment",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TestEquipment" } } } },
+        "responses": { "200": { "description": "Equipment updated" } }
+      },
+      "delete": {
+        "tags": ["Test Equipment"],
+        "summary": "Delete equipment",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Equipment deleted" } }
+      }
+    },
+    "/api/test/stations": {
+      "get": {
+        "tags": ["Test Stations"],
+        "summary": "List test bench stations",
+        "responses": { "200": { "description": "Station list" } }
+      },
+      "post": {
+        "tags": ["Test Stations"],
+        "summary": "Create test bench station",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TestStation" } } } },
+        "responses": { "201": { "description": "Station created" } }
+      }
+    },
+    "/api/test/stations/{id}": {
+      "get": {
+        "tags": ["Test Stations"],
+        "summary": "Get test station by ID (with outlets)",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Station with outlets" } }
+      },
+      "put": {
+        "tags": ["Test Stations"],
+        "summary": "Update test station",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TestStation" } } } },
+        "responses": { "200": { "description": "Station updated" } }
+      },
+      "delete": {
+        "tags": ["Test Stations"],
+        "summary": "Delete test station",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Station deleted" } }
+      }
+    },
+    "/api/test/stations/{id}/health": {
+      "post": {
+        "tags": ["Test Stations"],
+        "summary": "Run health check on test station",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Health check result" } }
+      }
+    },
+    "/api/test/stations/{stationId}/outlets": {
+      "get": {
+        "tags": ["Test Stations"],
+        "summary": "List outlets for a test station",
+        "parameters": [{ "name": "stationId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Outlet list" } }
+      },
+      "post": {
+        "tags": ["Test Stations"],
+        "summary": "Create outlet on test station",
+        "parameters": [{ "name": "stationId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TestOutlet" } } } },
+        "responses": { "201": { "description": "Outlet created" } }
+      }
+    },
+    "/api/test/outlets/{id}": {
+      "put": {
+        "tags": ["Test Stations"],
+        "summary": "Update test outlet",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TestOutlet" } } } },
+        "responses": { "200": { "description": "Outlet updated" } }
+      },
+      "delete": {
+        "tags": ["Test Stations"],
+        "summary": "Delete test outlet",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Outlet deleted" } }
+      }
+    },
+    "/api/test/profiles": {
+      "get": {
+        "tags": ["Test Profiles"],
+        "summary": "List test profiles",
+        "responses": { "200": { "description": "Profile list" } }
+      },
+      "post": {
+        "tags": ["Test Profiles"],
+        "summary": "Create test profile",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TestProfile" } } } },
+        "responses": { "201": { "description": "Profile created" } }
+      }
+    },
+    "/api/test/profiles/{id}": {
+      "get": {
+        "tags": ["Test Profiles"],
+        "summary": "Get test profile by ID",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Profile details" } }
+      },
+      "put": {
+        "tags": ["Test Profiles"],
+        "summary": "Update test profile",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TestProfile" } } } },
+        "responses": { "200": { "description": "Profile updated" } }
+      },
+      "delete": {
+        "tags": ["Test Profiles"],
+        "summary": "Delete test profile",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Profile deleted" } }
+      }
+    },
+    "/api/test/runs": {
+      "get": {
+        "tags": ["Test Runs"],
+        "summary": "List test runs",
+        "parameters": [
+          { "name": "qlid", "in": "query", "schema": { "type": "string" } },
+          { "name": "stationId", "in": "query", "schema": { "type": "string" } },
+          { "name": "status", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "Test run list" } }
+      },
+      "post": {
+        "tags": ["Test Runs"],
+        "summary": "Create a test run",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["qlid", "stationId", "outletId", "profileId"], "properties": { "qlid": { "type": "string" }, "stationId": { "type": "string" }, "outletId": { "type": "string" }, "profileId": { "type": "string" } } } } } },
+        "responses": { "201": { "description": "Test run created" } }
+      }
+    },
+    "/api/test/runs/{id}": {
+      "get": {
+        "tags": ["Test Runs"],
+        "summary": "Get test run by ID",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Test run details" } }
+      }
+    },
+    "/api/test/runs/{id}/start": {
+      "post": {
+        "tags": ["Test Runs"],
+        "summary": "Start test run (energize outlet, begin collecting)",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "Test started, status → COLLECTING" },
+          "400": { "description": "Safety validation failed or invalid status" }
+        }
+      }
+    },
+    "/api/test/runs/{id}/stop": {
+      "post": {
+        "tags": ["Test Runs"],
+        "summary": "Stop test run (de-energize, move to checklist)",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Test stopped, status → CHECKLIST" } }
+      }
+    },
+    "/api/test/runs/{id}/readings": {
+      "get": {
+        "tags": ["Test Runs"],
+        "summary": "Get readings for a test run",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "Reading list (watts, volts, amps)" } }
+      },
+      "post": {
+        "tags": ["Test Runs"],
+        "summary": "Record a manual reading",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Reading" } } } },
+        "responses": { "201": { "description": "Reading recorded" } }
+      }
+    },
+    "/api/test/runs/{id}/checklist": {
+      "post": {
+        "tags": ["Test Runs"],
+        "summary": "Submit operator checklist and auto-complete test",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "values": { "type": "object", "description": "Checklist key-value pairs" } } } } } },
+        "responses": { "200": { "description": "Checklist submitted, test completed with PASS/FAIL" } }
+      }
+    },
+    "/api/test/runs/{id}/attachments": {
+      "post": {
+        "tags": ["Test Runs"],
+        "summary": "Add attachment to test run",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["url"], "properties": { "type": { "type": "string", "default": "photo" }, "url": { "type": "string" }, "name": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Attachment added" } }
+      }
+    },
+    "/api/test/runs/{id}/notes": {
+      "post": {
+        "tags": ["Test Runs"],
+        "summary": "Add notes to test run",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["notes"], "properties": { "notes": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Notes saved" } }
+      }
+    }
+  }
+}

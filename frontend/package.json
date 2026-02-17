@@ -3,10 +3,16 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
+  "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "electron:compile": "tsc -p electron/tsconfig.json",
+    "electron:dev": "cross-env VITE_ELECTRON=true VITE_API_BASE=https://quickrefurbz.com/api vite build && npm run electron:compile && electron .",
+    "electron:build": "cross-env VITE_ELECTRON=true VITE_API_BASE=https://quickrefurbz.com/api vite build && npm run electron:compile",
+    "electron:pack": "npm run electron:build && electron-builder --win",
+    "electron:publish": "npm run electron:build && electron-builder --win --publish always"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
@@ -15,6 +21,7 @@
     "@tailwindcss/forms": "^0.5.11",
     "@tailwindcss/vite": "^4.1.18",
     "clsx": "^2.1.1",
+    "electron-updater": "^6.3.0",
     "framer-motion": "^12.34.0",
     "lucide-react": "^0.469.0",
     "mini-svg-data-uri": "^1.4.4",
@@ -28,6 +35,9 @@
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.24",
+    "cross-env": "^7.0.3",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.18",
     "typescript": "^5.7.3",

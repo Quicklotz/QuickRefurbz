@@ -120,7 +120,7 @@ export async function getSession(identifier: string): Promise<DiagnosticSession 
 
   const result = await db.query<Record<string, unknown>>(
     `SELECT * FROM diagnostic_sessions
-     WHERE id = $1 OR session_number = $1 OR qlid = $1
+     WHERE id::text = $1 OR session_number = $1 OR qlid = $1
      ORDER BY created_at DESC
      LIMIT 1`,
     [identifier]

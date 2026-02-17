@@ -69,7 +69,7 @@ export async function getPalletById(palletId: string): Promise<Pallet | null> {
   const db = getPool();
   const result = await db.query(`
     SELECT * FROM refurb_pallets
-    WHERE id = $1 OR pallet_id = $1 OR source_pallet_id = $1
+    WHERE pallet_id = $1 OR source_pallet_id = $1 OR id::text = $1
   `, [palletId]);
 
   if (result.rows.length === 0) return null;

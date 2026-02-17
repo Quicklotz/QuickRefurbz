@@ -3,7 +3,7 @@ import React, { createContext, useContext, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { NavLink, useLocation } from "react-router-dom";
-import { IconMenu2, IconX } from "@tabler/icons-react";
+import { IconMenu2, IconX, IconChevronRight } from "@tabler/icons-react";
 
 interface SidebarContextType {
   open: boolean;
@@ -58,13 +58,24 @@ export const Sidebar = ({
         animate={{
           width: animate ? (open ? 256 : 72) : open ? 256 : 72,
         }}
-        onMouseEnter={() => setOpen(true)}
-        onMouseLeave={() => setOpen(false)}
+        transition={{ type: "spring", damping: 26, stiffness: 220 }}
         className={cn(
           "fixed top-0 left-0 bottom-0 z-40 bg-dark-secondary border-r border-border flex-col hidden md:flex",
           className
         )}
       >
+        {/* Toggle button */}
+        <button
+          onClick={() => setOpen(!open)}
+          className="absolute -right-3 top-6 z-50 w-6 h-6 rounded-full bg-dark-secondary border border-border flex items-center justify-center text-zinc-400 hover:text-white hover:bg-dark-tertiary transition-colors"
+        >
+          <motion.div
+            animate={{ rotate: open ? 180 : 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <IconChevronRight size={14} />
+          </motion.div>
+        </button>
         {children}
       </motion.aside>
 

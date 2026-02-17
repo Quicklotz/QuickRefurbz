@@ -1,4 +1,4 @@
-name: Release QuickTestz
+name: Release QuickRefurbz
 
 on:
   push:
@@ -163,10 +163,10 @@ jobs:
           retention-days: 3
 
   # ---------------------------------------------------------------------------
-  # Job 3: Package Windows .zip
+  # Job 3: Package Windows Electron .exe installer
   # ---------------------------------------------------------------------------
   package-windows:
-    name: Package Windows
+    name: Package Windows Electron
     runs-on: windows-latest
     needs: build
 
@@ -174,70 +174,42 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: build-output
-          path: .
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Install production dependencies
-        run: npm ci --omit=dev
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
 
-      - name: Determine tag name
-        id: tag
-        shell: bash
-        run: echo "TAG=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-
-      - name: Create Windows zip
-        shell: pwsh
+      - name: Build frontend for Electron
+        working-directory: frontend
         env:
-          TAG: ${{ steps.tag.outputs.TAG }}
+          VITE_ELECTRON: 'true'
+          VITE_API_BASE: 'https://quickrefurbz.com/api'
         run: |
-          $stagingDir = "QuickTestz-win"
-          New-Item -ItemType Directory -Force -Path $stagingDir
+          npx vite build
+          npx tsc -p electron/tsconfig.json
 
-          # Copy required directories and files
-          Copy-Item -Recurse -Force "dist" "$stagingDir/dist"
+      - name: Build Electron installer
+        working-directory: frontend
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: npx electron-builder --win --publish never
 
-          if (Test-Path "frontend/dist") {
-            New-Item -ItemType Directory -Force -Path "$stagingDir/frontend"
-            Copy-Item -Recurse -Force "frontend/dist" "$stagingDir/frontend/dist"
-          }
+      - name: List release output
+        shell: bash
+        run: ls -lh frontend/release/
 
-          if (Test-Path "scripts") {
-            Copy-Item -Recurse -Force "scripts" "$stagingDir/scripts"
-          }
-
-          Copy-Item -Force "package.json" "$stagingDir/package.json"
-
-          # Copy install.bat if it exists
-          if (Test-Path "install.bat") {
-            Copy-Item -Force "install.bat" "$stagingDir/install.bat"
-          }
-
-          # Copy node_modules for offline install
-          if (Test-Path "node_modules") {
-            Copy-Item -Recurse -Force "node_modules" "$stagingDir/node_modules"
-          }
-
-          # Copy local packages
-          if (Test-Path "packages") {
-            Copy-Item -Recurse -Force "packages" "$stagingDir/packages"
-          }
-
-          Compress-Archive -Path "$stagingDir/*" -DestinationPath "QuickTestz-$env:TAG-windows.zip" -Force
-
-      - name: Upload Windows zip artifact
+      - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: windows-zip
-          path: QuickTestz-${{ steps.tag.outputs.TAG }}-windows.zip
+          name: windows-electron
+          path: |
+            frontend/release/QuickRefurbz-Setup-*.exe
+            frontend/release/latest.yml
           retention-days: 3
 
   # ---------------------------------------------------------------------------
@@ -258,14 +230,14 @@ jobs:
           name: macos-dmg
           path: release-assets/
 
-      - name: Download Windows zip
+      - name: Download Windows Electron installer
         uses: actions/download-artifact@v4
         with:
-          name: windows-zip
+          name: windows-electron
           path: release-assets/
 
       - name: List release assets
-        run: ls -lh release-assets/
+        run: ls -lhR release-assets/
 
       - name: Create GitHub Release
         id: create_release
@@ -273,8 +245,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
+          # Flatten any nested paths from artifact download
+          find release-assets -type f -exec mv {} release-assets/ \; 2>/dev/null || true
+
           gh release create "$TAG" \
-            --title "QuickTestz $TAG" \
+            --title "QuickRefurbz $TAG" \
             --generate-notes \
             release-assets/*
 

@@ -33,7 +33,7 @@ export async function createTicket(options: CreateTicketOptions): Promise<Repair
 
   // Verify technician exists
   const techResult = await db.query(
-    'SELECT id, name FROM technicians WHERE id = $1 OR employee_id = $1 OR LOWER(name) = LOWER($1)',
+    'SELECT id, name FROM technicians WHERE id::text = $1 OR employee_id = $1 OR LOWER(name) = LOWER($1)',
     [options.createdByTechnicianId]
   );
   if (techResult.rows.length === 0) {
@@ -70,7 +70,7 @@ export async function getTicketById(ticketId: string): Promise<RepairTicket | nu
   const db = getPool();
   const result = await db.query(`
     SELECT * FROM repair_tickets
-    WHERE id = $1 OR ticket_number = $1
+    WHERE id::text = $1 OR ticket_number = $1
   `, [ticketId]);
 
   if (result.rows.length === 0) return null;
@@ -115,7 +115,7 @@ export async function listTickets(options: ListTicketsOptions = {}): Promise<Rep
   if (options.technicianId) {
     // Find technician first
     const techResult = await db.query(
-      'SELECT id FROM technicians WHERE id = $1 OR employee_id = $1 OR LOWER(name) = LOWER($1)',
+      'SELECT id FROM technicians WHERE id::text = $1 OR employee_id = $1 OR LOWER(name) = LOWER($1)',
       [options.technicianId]
     );
     if (techResult.rows.length > 0) {
@@ -223,7 +223,7 @@ export async function assignTicket(
 
   // Verify technician exists
   const techResult = await db.query<{ id: string }>(
-    'SELECT id FROM technicians WHERE id = $1 OR employee_id = $1 OR LOWER(name) = LOWER($1)',
+    'SELECT id FROM technicians WHERE id::text = $1 OR employee_id = $1 OR LOWER(name) = LOWER($1)',
     [technicianId]
   );
   if (techResult.rows.length === 0) {
@@ -272,7 +272,7 @@ export async function resolveTicket(
 
   // Verify technician exists
   const techResult = await db.query<{ id: string }>(
-    'SELECT id FROM technicians WHERE id = $1 OR employee_id = $1 OR LOWER(name) = LOWER($1)',
+    'SELECT id FROM technicians WHERE id::text = $1 OR employee_id = $1 OR LOWER(name) = LOWER($1)',
     [options.resolvedByTechnicianId]
   );
   if (techResult.rows.length === 0) {
@@ -302,7 +302,7 @@ export async function markCannotRepair(
 
   // Verify technician exists
   const techResult = await db.query<{ id: string }>(
-    'SELECT id FROM technicians WHERE id = $1 OR employee_id = $1 OR LOWER(name) = LOWER($1)',
+    'SELECT id FROM technicians WHERE id::text = $1 OR employee_id = $1 OR LOWER(name) = LOWER($1)',
     [technicianId]
   );
   if (techResult.rows.length === 0) {

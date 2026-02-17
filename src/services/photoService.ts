@@ -178,7 +178,7 @@ async function insertPhotoRecord(photo: Omit<ItemPhoto, 'id' | 'capturedAt'>): P
   await db.query(`
     INSERT INTO item_photos (
       id, qlid, stage, photo_type, file_path, thumbnail_path,
-      original_filename, mime_type, file_size, caption, captured_by
+      original_filename, mime_type, file_size, caption, uploaded_by
     )
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
   `, [
@@ -206,8 +206,8 @@ async function insertPhotoRecord(photo: Omit<ItemPhoto, 'id' | 'capturedAt'>): P
     mime_type: string | null;
     file_size: number | null;
     caption: string | null;
-    captured_by: string | null;
-    captured_at: string;
+    uploaded_by: string | null;
+    created_at: string;
   }>(`SELECT * FROM item_photos WHERE id = $1`, [id]);
 
   const row = result.rows[0];
@@ -222,8 +222,8 @@ async function insertPhotoRecord(photo: Omit<ItemPhoto, 'id' | 'capturedAt'>): P
     mimeType: row.mime_type,
     fileSize: row.file_size,
     caption: row.caption,
-    capturedBy: row.captured_by,
-    capturedAt: row.captured_at
+    capturedBy: row.uploaded_by,
+    capturedAt: row.created_at
   };
 }
 
@@ -281,12 +281,12 @@ export async function getPhotosForItem(qlid: string): Promise<ItemPhoto[]> {
     mime_type: string | null;
     file_size: number | null;
     caption: string | null;
-    captured_by: string | null;
-    captured_at: string;
+    uploaded_by: string | null;
+    created_at: string;
   }>(`
     SELECT * FROM item_photos
     WHERE qlid = $1
-    ORDER BY captured_at DESC
+    ORDER BY created_at DESC
   `, [qlid]);
 
   return result.rows.map(row => ({
@@ -300,8 +300,8 @@ export async function getPhotosForItem(qlid: string): Promise<ItemPhoto[]> {
     mimeType: row.mime_type,
     fileSize: row.file_size,
     caption: row.caption,
-    capturedBy: row.captured_by,
-    capturedAt: row.captured_at
+    capturedBy: row.uploaded_by,
+    capturedAt: row.created_at
   }));
 }
 
@@ -322,12 +322,12 @@ export async function getPhotosByStage(qlid: string, stage: PhotoStage): Promise
     mime_type: string | null;
     file_size: number | null;
     caption: string | null;
-    captured_by: string | null;
-    captured_at: string;
+    uploaded_by: string | null;
+    created_at: string;
   }>(`
     SELECT * FROM item_photos
     WHERE qlid = $1 AND stage = $2
-    ORDER BY captured_at DESC
+    ORDER BY created_at DESC
   `, [qlid, stage]);
 
   return result.rows.map(row => ({
@@ -341,8 +341,8 @@ export async function getPhotosByStage(qlid: string, stage: PhotoStage): Promise
     mimeType: row.mime_type,
     fileSize: row.file_size,
     caption: row.caption,
-    capturedBy: row.captured_by,
-    capturedAt: row.captured_at
+    capturedBy: row.uploaded_by,
+    capturedAt: row.created_at
   }));
 }
 
@@ -363,8 +363,8 @@ export async function getPhoto(photoId: string): Promise<ItemPhoto | null> {
     mime_type: string | null;
     file_size: number | null;
     caption: string | null;
-    captured_by: string | null;
-    captured_at: string;
+    uploaded_by: string | null;
+    created_at: string;
   }>(`SELECT * FROM item_photos WHERE id = $1`, [photoId]);
 
   if (result.rows.length === 0) return null;
@@ -381,8 +381,8 @@ export async function getPhoto(photoId: string): Promise<ItemPhoto | null> {
     mimeType: row.mime_type,
     fileSize: row.file_size,
     caption: row.caption,
-    capturedBy: row.captured_by,
-    capturedAt: row.captured_at
+    capturedBy: row.uploaded_by,
+    capturedAt: row.created_at
   };
 }
 

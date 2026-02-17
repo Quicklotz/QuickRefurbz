@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, createContext, useContext, useCallback } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { PalletSessionProvider } from './contexts/PalletSessionContext';
 import { AppLayout } from './components/layout/AppLayout';
@@ -25,6 +25,7 @@ import { TestPlans } from './pages/TestPlans';
 import { DeviceDatabase } from './pages/DeviceDatabase';
 import { Verify } from './pages/Verify';
 import Monitor from './pages/Monitor';
+import ExecMonitor from './pages/ExecMonitor';
 import { Download } from './pages/Download';
 import { StationMonitor } from './pages/StationMonitor';
 import { Help } from './pages/Help';
@@ -244,22 +245,22 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       >
-        <Route index element={<Dashboard />} />
+        <Route index element={<Intake />} />
+        <Route path="scan" element={<Scan />} />
+        <Route path="items" element={<Items />} />
         <Route path="workflow" element={<WorkflowStation />} />
+        <Route path="diagnostics" element={<Diagnostics />} />
+        <Route path="datawipe" element={<DataWipePage />} />
+        <Route path="certifications" element={<Certifications />} />
+        <Route path="dashboard" element={<Dashboard />} />
+        <Route path="monitor" element={<Monitor />} />
         <Route path="queue" element={<JobQueue />} />
         <Route path="kanban" element={<Kanban />} />
-        <Route path="items" element={<Items />} />
-        <Route path="intake" element={<Intake />} />
-        <Route path="scan" element={<Scan />} />
-        <Route path="datawipe" element={<DataWipePage />} />
         <Route path="parts" element={<PartsPage />} />
-        <Route path="diagnostics" element={<Diagnostics />} />
-        <Route path="certifications" element={<Certifications />} />
         <Route path="test-plans" element={<TestPlans />} />
         <Route path="device-database" element={<DeviceDatabase />} />
         <Route path="users" element={<UserManagement />} />
         <Route path="settings" element={<SettingsPage />} />
-        <Route path="monitor" element={<Monitor />} />
         <Route
           path="stations"
           element={
@@ -270,21 +271,16 @@ function AppRoutes() {
         />
       </Route>
       {/* Standalone monitor route for monitor.quickrefurbz.com */}
-      <Route
-        path="/monitor-standalone"
-        element={
-          <ProtectedRoute>
-            <Monitor />
-          </ProtectedRoute>
-        }
-      />
+      <Route path="/monitor-standalone" element={<ExecMonitor />} />
     </Routes>
   );
 }
 
+const Router = import.meta.env.VITE_ELECTRON === 'true' ? HashRouter : BrowserRouter;
+
 export default function App() {
   return (
-    <BrowserRouter>
+    <Router>
       <ToastProvider>
         <PageErrorBoundary>
           <AuthProvider>
@@ -294,6 +290,6 @@ export default function App() {
           </AuthProvider>
         </PageErrorBoundary>
       </ToastProvider>
-    </BrowserRouter>
+    </Router>
   );
 }

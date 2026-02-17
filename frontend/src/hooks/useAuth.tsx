@@ -24,13 +24,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check for existing session on mount
-    const token = localStorage.getItem('auth_token');
+    // Migrate old auth_token key to unified 'token' key
+    const oldToken = localStorage.getItem('auth_token');
+    if (oldToken) {
+      localStorage.removeItem('auth_token');
+      if (!api.getToken()) {
+        api.setToken(oldToken);
+      }
+    }
+
+    // Check for existing token on mount (uses same 'token' key as ApiClient)
+    const token = api.getToken();
     if (token) {
       api.getCurrentUser()
         .then(setUser)
         .catch(() => {
-          localStorage.removeItem('auth_token');
+          api.setToken(null);
         })
         .finally(() => setLoading(false));
     } else {
@@ -39,13 +48,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = async (username: string, password: string) => {
+    // api.login() already calls setToken internally
     const response = await api.login(username, password);
-    localStorage.setItem('auth_token', response.token);
     setUser(response.user);
   };
 
   const logout = () => {
-    localStorage.removeItem('auth_token');
+    api.logout();
     setUser(null);
   };
 

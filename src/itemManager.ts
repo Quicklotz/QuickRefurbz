@@ -256,25 +256,35 @@ export async function scanItem(options: ScanItemOptions): Promise<ScanItemResult
  */
 export async function getItem(identifier: string): Promise<RefurbItem | null> {
   const db = getPool();
-  let qlid: string;
 
+  // Try barcode/QLID parsing first
   try {
     const parsed = parseIdentifier(identifier);
-    qlid = parsed.qlid;
-  } catch {
-    // Maybe it's a direct QLID
-    if (!isValidQlid(identifier)) {
-      throw new Error(`Invalid identifier: ${identifier}`);
+    if (isValidQlid(parsed.qlid)) {
+      const result = await db.query(`
+        SELECT * FROM refurb_items WHERE qlid = $1
+      `, [parsed.qlid]);
+      if (result.rows.length > 0) return rowToItem(result.rows[0]);
     }
-    qlid = identifier;
+  } catch {
+    // Not a valid barcode/QLID format
   }
 
-  const result = await db.query(`
-    SELECT * FROM refurb_items WHERE qlid = $1
-  `, [qlid]);
+  // Direct QLID check
+  if (isValidQlid(identifier)) {
+    const result = await db.query(`
+      SELECT * FROM refurb_items WHERE qlid = $1
+    `, [identifier]);
+    if (result.rows.length > 0) return rowToItem(result.rows[0]);
+  }
 
-  if (result.rows.length === 0) return null;
-  return rowToItem(result.rows[0]);
+  // Fallback: UUID lookup
+  const uuidResult = await db.query(`
+    SELECT * FROM refurb_items WHERE id::text = $1
+  `, [identifier]);
+  if (uuidResult.rows.length > 0) return rowToItem(uuidResult.rows[0]);
+
+  return null;
 }
 
 /**
@@ -283,7 +293,7 @@ export async function getItem(identifier: string): Promise<RefurbItem | null> {
 export async function getItemById(id: string): Promise<RefurbItem | null> {
   const db = getPool();
   const result = await db.query(`
-    SELECT * FROM refurb_items WHERE id = $1
+    SELECT * FROM refurb_items WHERE id::text = $1
   `, [id]);
 
   if (result.rows.length === 0) return null;
@@ -413,7 +423,7 @@ export async function advanceStage(
   let technicianName: string | undefined;
   if (options.technicianId) {
     const techResult = await db.query<{ name: string }>(
-      'SELECT name FROM technicians WHERE id = $1 OR employee_id = $1',
+      'SELECT name FROM technicians WHERE id::text = $1 OR employee_id = $1',
       [options.technicianId]
     );
     if (techResult.rows.length > 0) {
@@ -518,7 +528,7 @@ export async function setStage(
   let technicianName: string | undefined;
   if (options.technicianId) {
     const techResult = await db.query<{ name: string }>(
-      'SELECT name FROM technicians WHERE id = $1 OR employee_id = $1',
+      'SELECT name FROM technicians WHERE id::text = $1 OR employee_id = $1',
       [options.technicianId]
     );
     if (techResult.rows.length > 0) {
@@ -595,7 +605,7 @@ export async function assignTechnician(identifier: string, technicianId: string)
 
   // Verify technician exists
   const techResult = await db.query(
-    'SELECT id FROM technicians WHERE id = $1 OR employee_id = $1',
+    'SELECT id FROM technicians WHERE id::text = $1 OR employee_id = $1',
     [technicianId]
   );
 
@@ -780,7 +790,7 @@ function rowToItem(row: Record<string, unknown>): RefurbItem {
 
   return {
     id: row.id as string,
-    qlidTick: BigInt(row.qlid_tick as string),
+    qlidTick: Number(row.qlid_tick),
     qlid: row.qlid as string,
     qrPalletId: row.qr_pallet_id as string | undefined,
     palletId: row.pallet_id as string,

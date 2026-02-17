@@ -1,0 +1,37 @@
+appId: com.quicklotz.quickrefurbz
+productName: QuickRefurbz
+copyright: Copyright 2026 Upscaled / Quicklotz
+
+directories:
+  output: release
+  buildResources: ../assets
+
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - package.json
+
+extraResources:
+  - from: ../assets/icon.ico
+    to: icon.ico
+
+win:
+  icon: ../assets/icon.ico
+  target:
+    - target: nsis
+      arch: [x64]
+
+nsis:
+  oneClick: true
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+  installerIcon: ../assets/icon.ico
+  uninstallerIcon: ../assets/icon.ico
+  deleteAppDataOnUninstall: false
+  shortcutName: QuickRefurbz
+
+publish:
+  provider: github
+  owner: Quicklotz
+  repo: QuickRefurbz
+  releaseType: release

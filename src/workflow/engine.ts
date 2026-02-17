@@ -146,7 +146,7 @@ export class WorkflowEngine {
    */
   async getJob(id: string): Promise<RefurbJob | null> {
     const result = await this.db.query<Record<string, unknown>>(`
-      SELECT * FROM refurb_jobs WHERE id = $1
+      SELECT * FROM refurb_jobs WHERE id::text = $1
     `, [id]);
 
     if (result.rows.length === 0) return null;
@@ -219,7 +219,7 @@ export class WorkflowEngine {
           assigned_technician_name = $2,
           assigned_at = ${now},
           updated_at = ${now}
-      WHERE id = $3
+      WHERE id::text = $3
     `, [technicianId, technicianName || null, jobId]);
 
     const job = await this.getJob(jobId);
@@ -321,7 +321,7 @@ export class WorkflowEngine {
     params.push(jobId);
 
     await this.db.query(`
-      UPDATE refurb_jobs SET ${updates.join(', ')} WHERE id = $${paramIndex}
+      UPDATE refurb_jobs SET ${updates.join(', ')} WHERE id::text = $${paramIndex}
     `, params);
 
     // Log the transition
@@ -463,7 +463,7 @@ export class WorkflowEngine {
     const completedSteps = await this.getCompletedSteps(jobId, job.currentState);
     await this.db.query(`
       UPDATE refurb_jobs SET current_step_index = $1, updated_at = ${now}
-      WHERE id = $2
+      WHERE id::text = $2
     `, [completedSteps.length, jobId]);
 
     const result = await this.db.query<Record<string, unknown>>(`

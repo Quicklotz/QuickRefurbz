@@ -1,4 +1,4 @@
-const API_BASE = '/api';
+const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
 export interface TechnicianStats {
   technicianId: string;
@@ -59,15 +59,12 @@ class ApiClient {
       headers,
     });
 
-    if (response.status === 401) {
-      this.setToken(null);
-      window.location.href = '/login';
-      throw new Error('Unauthorized');
-    }
-
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: 'Request failed' }));
-      throw new Error(error.error || 'Request failed');
+      if (response.status === 401) {
+        this.setToken(null);
+      }
+      throw new Error(error.error || (response.status === 401 ? 'Unauthorized' : 'Request failed'));
     }
 
     return response.json();
@@ -75,6 +72,8 @@ class ApiClient {
 
   // Auth
   async login(email: string, password: string) {
+    // Clear any stale token before login — prevents 401 from old token being sent
+    this.setToken(null);
     const result = await this.request<{ token: string; user: any }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),

@@ -6,9 +6,6 @@ import { useAuth } from '@/hooks/useAuth';
 import { Input } from '@/components/aceternity/input';
 import { Label } from '@/components/aceternity/label';
 import { Button } from '@/components/aceternity/button';
-import { BackgroundBeams } from '@/components/aceternity/background-beams';
-import { BorderBeam } from '@/components/aceternity/border-beam';
-import { TextGenerateEffect } from '@/components/aceternity/text-generate-effect';
 import { IconAlertCircle } from '@tabler/icons-react';
 
 export function Login() {
@@ -36,39 +33,41 @@ export function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-dark-primary flex items-center justify-center p-4 relative overflow-hidden">
-      <BackgroundBeams className="absolute inset-0" />
+    <div className="min-h-screen bg-black flex items-center justify-center p-4 relative overflow-hidden">
+      {/* Subtle grid background */}
+      <div
+        className="absolute inset-0 opacity-[0.03]"
+        style={{
+          backgroundImage: `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)`,
+          backgroundSize: '60px 60px',
+        }}
+      />
+      {/* Top-center yellow glow — very faint */}
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-[radial-gradient(ellipse,rgba(212,168,0,0.06),transparent_70%)]" />
 
       <motion.div
-        initial={{ opacity: 0, y: 20, scale: 0.95 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: "easeOut" }}
-        className="relative z-10 w-full max-w-md"
+        className="relative z-10 w-full max-w-sm"
       >
-        <div className="relative bg-dark-card border border-border rounded-2xl p-8 shadow-2xl overflow-hidden">
-          <BorderBeam size={200} duration={15} delay={0} />
+        {/* Logo */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.1 }}
+          className="text-center mb-10"
+        >
+          <img src="/icons/q-logo-96.png" alt="QuickRefurbz" className="w-14 h-14 mx-auto mb-4 rounded-xl" />
+          <h1 className="text-3xl font-semibold tracking-tight text-white">
+            Quick<span className="text-[#d4a800]">Refurbz</span>
+          </h1>
+          <div className="w-8 h-px bg-[#d4a800] mx-auto mt-3" />
+        </motion.div>
 
-          {/* Logo & Title */}
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-            className="text-center mb-8"
-          >
-            <motion.h1
-              className="text-4xl font-bold text-ql-yellow mb-2"
-              initial={{ scale: 0.9 }}
-              animate={{ scale: 1 }}
-              transition={{ delay: 0.3, type: "spring" }}
-            >
-              QuickRefurbz
-            </motion.h1>
-            <TextGenerateEffect
-              words="Refurbishment Management System"
-              className="text-zinc-400 text-sm"
-              duration={0.3}
-            />
-          </motion.div>
+        <div className="relative bg-[#080808] border border-[#1a1a1a] rounded-xl p-7 z-20">
+          {/* Top accent line */}
+          <div className="absolute top-0 left-6 right-6 h-px bg-gradient-to-r from-transparent via-[#d4a800]/30 to-transparent" />
 
           {/* Error Message */}
           <AnimatePresence>
@@ -77,22 +76,24 @@ export function Login() {
                 initial={{ opacity: 0, height: 0, marginBottom: 0 }}
                 animate={{ opacity: 1, height: "auto", marginBottom: 16 }}
                 exit={{ opacity: 0, height: 0, marginBottom: 0 }}
-                className="flex items-center gap-3 p-4 bg-accent-red/10 border border-accent-red/30 rounded-xl overflow-hidden"
+                className="flex items-center gap-3 p-3 bg-red-500/5 border border-red-500/20 rounded-lg overflow-hidden"
               >
-                <IconAlertCircle size={18} className="text-accent-red flex-shrink-0" />
-                <span className="text-sm text-accent-red">{error}</span>
+                <IconAlertCircle size={16} className="text-red-400 flex-shrink-0" />
+                <span className="text-sm text-red-400">{error}</span>
               </motion.div>
             )}
           </AnimatePresence>
 
           {/* Login Form */}
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form onSubmit={handleSubmit} className="space-y-5 relative z-10 pointer-events-auto">
             <motion.div
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.3 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.2 }}
             >
-              <Label htmlFor="email" className="mb-2 block">Email</Label>
+              <Label htmlFor="email" className="mb-2 block text-zinc-400 text-xs uppercase tracking-wider">
+                Email
+              </Label>
               <Input
                 id="email"
                 type="email"
@@ -105,11 +106,13 @@ export function Login() {
             </motion.div>
 
             <motion.div
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.4 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.3 }}
             >
-              <Label htmlFor="password" className="mb-2 block">Password</Label>
+              <Label htmlFor="password" className="mb-2 block text-zinc-400 text-xs uppercase tracking-wider">
+                Password
+              </Label>
               <Input
                 id="password"
                 type="password"
@@ -122,9 +125,9 @@ export function Login() {
             </motion.div>
 
             <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.5 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.4 }}
               className="pt-2"
             >
               <Button
@@ -140,18 +143,22 @@ export function Login() {
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ delay: 0.6 }}
-              className="text-center pt-4"
+              transition={{ delay: 0.5 }}
+              className="text-center pt-3"
             >
               <Link
                 to="/forgot-password"
-                className="text-sm text-zinc-500 hover:text-ql-yellow transition-colors"
+                className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
               >
                 Forgot your password?
               </Link>
             </motion.div>
           </form>
         </div>
+
+        <p className="text-center text-zinc-700 text-[11px] mt-6 tracking-wide uppercase">
+          Refurbishment Management System
+        </p>
       </motion.div>
     </div>
   );
