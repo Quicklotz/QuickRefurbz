@@ -39,7 +39,9 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 700,
     title: 'QuickRefurbz',
-    icon: path.join(__dirname, '../../assets/icon.ico'),
+    icon: app.isPackaged
+      ? path.join(process.resourcesPath, 'icon.ico')
+      : path.join(__dirname, '../../assets/icon.ico'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -66,6 +68,13 @@ function createWindow() {
     return { action: 'deny' };
   });
 
+  // Prevent closing in kiosk mode (catches Alt+F4 at the window level)
+  mainWindow.on('close', (e) => {
+    if (kioskActive) {
+      e.preventDefault();
+    }
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -81,8 +90,15 @@ function createWindow() {
 app.whenReady().then(() => {
   createWindow();
 
-  // Check for updates silently
-  autoUpdater.checkForUpdatesAndNotify();
+  // Auto-updater for private GitHub releases — token from station config or env
+  const ghToken = stationConfig?.apiBase
+    ? undefined  // skip updates when using custom API base
+    : process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
+  if (ghToken) {
+    autoUpdater.requestHeaders = { Authorization: `token ${ghToken}` };
+  }
+  autoUpdater.autoDownload = false;
+  autoUpdater.checkForUpdatesAndNotify().catch(() => {});
 });
 
 app.on('window-all-closed', () => {
