@@ -109,7 +109,7 @@ jobs:
           bash scripts/create-macos-app.sh
 
       - name: Codesign .app bundle
-        if: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION != '' }}
+        if: env.DEVELOPER_ID != ''
         env:
           DEVELOPER_ID: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION }}
         run: |
@@ -134,14 +134,14 @@ jobs:
             "QuickTestz-${TAG}.dmg"
 
       - name: Codesign DMG
-        if: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION != '' }}
+        if: env.DEVELOPER_ID != ''
         env:
           DEVELOPER_ID: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION }}
         run: |
           codesign --force --sign "$DEVELOPER_ID" "QuickTestz-${{ steps.tag.outputs.TAG }}.dmg"
 
       - name: Notarize DMG
-        if: ${{ secrets.APPLE_ID != '' && secrets.APPLE_TEAM_ID != '' && secrets.APPLE_APP_PASSWORD != '' }}
+        if: env.APPLE_ID != '' && env.APPLE_TEAM_ID != '' && env.APPLE_APP_PASSWORD != ''
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
