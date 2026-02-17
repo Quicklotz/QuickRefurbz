@@ -23,6 +23,12 @@ jobs:
           node-version: 20
           cache: npm
 
+      - name: Build packages/database
+        run: cd packages/database && npm ci && npm run build
+
+      - name: Build packages/api
+        run: cd packages/api && npm ci && npm run build
+
       - name: Install backend dependencies
         run: npm ci
 
