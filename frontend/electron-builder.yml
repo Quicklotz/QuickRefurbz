@@ -23,12 +23,13 @@ win:
 
 nsis:
   oneClick: true
-  perMachine: false
+  perMachine: true
   allowToChangeInstallationDirectory: false
   installerIcon: ../assets/icon.ico
   uninstallerIcon: ../assets/icon.ico
   deleteAppDataOnUninstall: false
   shortcutName: QuickRefurbz
+  runAfterFinish: true
 
 publish:
   provider: github

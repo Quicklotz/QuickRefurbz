@@ -1,11 +1,39 @@
-import { app, BrowserWindow, shell, ipcMain } from 'electron';
+import { app, BrowserWindow, shell, ipcMain, globalShortcut } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import * as path from 'path';
+import * as fs from 'fs';
+
+interface StationConfig {
+  stationId: string;
+  email: string;
+  password: string;
+  kioskMode: boolean;
+  apiBase?: string;
+  adminPin?: string;
+}
 
 let mainWindow: BrowserWindow | null = null;
+let stationConfig: StationConfig | null = null;
+let kioskActive = false;
+
+function loadStationConfig(): StationConfig | null {
+  const configDir = path.join(app.getPath('appData'), 'QuickRefurbz');
+  const configPath = path.join(configDir, 'station-config.json');
+  try {
+    if (fs.existsSync(configPath)) {
+      return JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    }
+  } catch (err) {
+    console.error('Failed to load station config:', err);
+  }
+  return null;
+}
 
 function createWindow() {
-  mainWindow = new BrowserWindow({
+  stationConfig = loadStationConfig();
+  kioskActive = stationConfig?.kioskMode === true;
+
+  const windowOptions: Electron.BrowserWindowConstructorOptions = {
     width: 1280,
     height: 900,
     minWidth: 1024,
@@ -18,7 +46,16 @@ function createWindow() {
       nodeIntegration: false,
     },
     autoHideMenuBar: true,
-  });
+  };
+
+  if (kioskActive) {
+    windowOptions.kiosk = true;
+    windowOptions.fullscreen = true;
+    windowOptions.closable = false;
+    windowOptions.minimizable = false;
+  }
+
+  mainWindow = new BrowserWindow(windowOptions);
 
   // Load the built frontend from dist/
   mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
@@ -32,6 +69,13 @@ function createWindow() {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+
+  // Block close shortcuts in kiosk mode
+  if (kioskActive) {
+    globalShortcut.register('Alt+F4', () => {});
+    globalShortcut.register('CommandOrControl+W', () => {});
+    globalShortcut.register('CommandOrControl+Q', () => {});
+  }
 }
 
 app.whenReady().then(() => {
@@ -49,8 +93,32 @@ app.on('activate', () => {
   if (mainWindow === null) createWindow();
 });
 
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
+});
+
 // IPC handlers
 ipcMain.handle('get-version', () => app.getVersion());
+
+ipcMain.handle('get-station-config', () => {
+  return stationConfig;
+});
+
+ipcMain.handle('unlock-kiosk', (_event, pin: string) => {
+  if (!stationConfig?.adminPin) return false;
+  if (pin === stationConfig.adminPin) {
+    kioskActive = false;
+    globalShortcut.unregisterAll();
+    if (mainWindow) {
+      mainWindow.setKiosk(false);
+      mainWindow.setFullScreen(false);
+      mainWindow.setClosable(true);
+      mainWindow.setMinimizable(true);
+    }
+    return true;
+  }
+  return false;
+});
 
 ipcMain.on('install-update', () => {
   autoUpdater.quitAndInstall();

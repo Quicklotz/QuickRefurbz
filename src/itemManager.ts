@@ -56,6 +56,7 @@ import {
   parseRfbBarcode
 } from './rfbIdGenerator.js';
 import { incrementReceivedItems, incrementCompletedItems } from './palletManager.js';
+import { notifyItemCompleted } from './services/dataFeedService.js';
 
 // ==================== RECEIVE ITEM (INTAKE) ====================
 
@@ -495,17 +496,19 @@ export async function advanceStage(
     await incrementCompletedItems(item.qrPalletId);
   }
 
-  // Handle case where RETURNING doesn't return rows (SQLite compatibility)
-  if (result.rows[0]) {
-    return rowToItem(result.rows[0]);
-  } else {
-    // Fallback: fetch the updated item
-    const updatedItem = await getItem(item.qlid);
-    if (!updatedItem) {
-      throw new Error(`Failed to fetch updated item: ${item.qlid}`);
-    }
-    return updatedItem;
+  const updatedItem = result.rows[0] ? rowToItem(result.rows[0]) : await getItem(item.qlid);
+  if (!updatedItem) {
+    throw new Error(`Failed to fetch updated item: ${item.qlid}`);
   }
+
+  // Fire webhook when item reaches COMPLETE
+  if (nextStage === 'COMPLETE') {
+    notifyItemCompleted(updatedItem).catch(err =>
+      console.error(`[webhook] notifyItemCompleted failed for ${item.qlid}:`, err)
+    );
+  }
+
+  return updatedItem;
 }
 
 export async function setStage(
@@ -581,16 +584,19 @@ export async function setStage(
     await incrementCompletedItems(item.qrPalletId);
   }
 
-  // Handle case where RETURNING doesn't return rows (SQLite compatibility)
-  if (result.rows[0]) {
-    return rowToItem(result.rows[0]);
-  } else {
-    const updatedItem = await getItem(item.qlid);
-    if (!updatedItem) {
-      throw new Error(`Failed to fetch updated item: ${item.qlid}`);
-    }
-    return updatedItem;
+  const updatedItem = result.rows[0] ? rowToItem(result.rows[0]) : await getItem(item.qlid);
+  if (!updatedItem) {
+    throw new Error(`Failed to fetch updated item: ${item.qlid}`);
   }
+
+  // Fire webhook when item reaches COMPLETE
+  if (stage === 'COMPLETE') {
+    notifyItemCompleted(updatedItem).catch(err =>
+      console.error(`[webhook] notifyItemCompleted failed for ${item.qlid}:`, err)
+    );
+  }
+
+  return updatedItem;
 }
 
 // ==================== ASSIGNMENT ====================

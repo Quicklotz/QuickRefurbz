@@ -23,9 +23,28 @@ export interface TechnicianStats {
 
 class ApiClient {
   private token: string | null = null;
+  private _autoLoginPromise: Promise<void> | null = null;
 
   constructor() {
     this.token = localStorage.getItem('token');
+    this._autoLoginPromise = this.tryStationAutoLogin();
+  }
+
+  private async tryStationAutoLogin() {
+    const electron = (window as any).electronAPI;
+    if (!electron?.getStationConfig || this.token) return;
+    try {
+      const config = await electron.getStationConfig();
+      if (config?.email && config?.password) {
+        await this.login(config.email, config.password);
+      }
+    } catch (err) {
+      console.error('Station auto-login failed:', err);
+    }
+  }
+
+  get autoLoginReady() {
+    return this._autoLoginPromise;
   }
 
   setToken(token: string | null) {
