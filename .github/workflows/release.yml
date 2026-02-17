@@ -209,7 +209,7 @@ jobs:
         with:
           name: windows-electron
           path: |
-            frontend/release/QuickRefurbz-Setup-*.exe
+            frontend/release/QuickRefurbz*.exe
             frontend/release/latest.yml
           retention-days: 3
 
