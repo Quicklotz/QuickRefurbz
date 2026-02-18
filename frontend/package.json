@@ -1,14 +1,14 @@
 {
   "name": "quickrefurbz-frontend",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.1.1",
   "type": "module",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "electron:compile": "tsc -p electron/tsconfig.json",
+    "electron:compile": "tsc -p electron/tsconfig.json && node -e \"require('fs').writeFileSync('dist-electron/package.json','{\\\"type\\\":\\\"commonjs\\\"}\\n')\"",
     "electron:dev": "cross-env VITE_ELECTRON=true VITE_API_BASE=https://quickrefurbz.com/api vite build && npm run electron:compile && electron .",
     "electron:build": "cross-env VITE_ELECTRON=true VITE_API_BASE=https://quickrefurbz.com/api vite build && npm run electron:compile",
     "electron:pack": "npm run electron:build && electron-builder --win",
