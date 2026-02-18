@@ -73,20 +73,33 @@ class ApiClient {
       headers['Authorization'] = `Bearer ${this.token}`;
     }
 
-    const response = await fetch(`${API_BASE}${endpoint}`, {
-      ...options,
-      headers,
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: 'Request failed' }));
-      if (response.status === 401) {
-        this.setToken(null);
+    try {
+      const response = await fetch(`${API_BASE}${endpoint}`, {
+        ...options,
+        headers,
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: 'Request failed' }));
+        if (response.status === 401) {
+          this.setToken(null);
+        }
+        throw new Error(error.error || (response.status === 401 ? 'Unauthorized' : 'Request failed'));
       }
-      throw new Error(error.error || (response.status === 401 ? 'Unauthorized' : 'Request failed'));
-    }
 
-    return response.json();
+      return response.json();
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        throw new Error('Request timed out');
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 
   // Auth

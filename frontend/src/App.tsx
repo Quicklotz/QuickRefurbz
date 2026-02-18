@@ -1,39 +1,64 @@
-import { useState, useEffect, useRef, createContext, useContext, useCallback } from 'react';
-import { BrowserRouter, HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { useState, useEffect, useRef, createContext, useContext, useCallback, lazy, Suspense } from 'react';
+import { BrowserRouter, HashRouter, Routes, Route, Navigate, useLocation, Link } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { PalletSessionProvider } from './contexts/PalletSessionContext';
 import { AppLayout } from './components/layout/AppLayout';
 import { PageErrorBoundary } from './components/ErrorBoundary';
-import { Login } from './pages/Login';
-import { AcceptInvite } from './pages/AcceptInvite';
-import { ForgotPassword } from './pages/ForgotPassword';
-import { ResetPassword } from './pages/ResetPassword';
-import { Dashboard } from './pages/Dashboard';
-import { Kanban } from './pages/Kanban';
-import { Items } from './pages/Items';
-import { Intake } from './pages/Intake';
-import { Scan } from './pages/Scan';
-import { WorkflowStation } from './pages/WorkflowStation';
-import { JobQueue } from './pages/JobQueue';
-import { SettingsPage } from './pages/Settings';
-import { DataWipePage } from './pages/DataWipe';
-import { PartsPage } from './pages/Parts';
-import { UserManagement } from './pages/UserManagement';
-import { Diagnostics } from './pages/Diagnostics';
-import { Certifications } from './pages/Certifications';
-import { TestPlans } from './pages/TestPlans';
-import { DeviceDatabase } from './pages/DeviceDatabase';
-import { Verify } from './pages/Verify';
-import Monitor from './pages/Monitor';
-import ExecMonitor from './pages/ExecMonitor';
-import { Download } from './pages/Download';
-import { StationMonitor } from './pages/StationMonitor';
-import { Help } from './pages/Help';
 import { SessionPrompt } from './components/SessionPrompt';
 import { SetupWizard } from './components/SetupWizard';
 import { Loader } from './components/aceternity/loader';
 import { ToastProvider } from './components/aceternity/toast';
 import { api } from './api/client';
+
+// Lazy-loaded page components
+const Login = lazy(() => import('./pages/Login').then(m => ({ default: m.Login })));
+const AcceptInvite = lazy(() => import('./pages/AcceptInvite').then(m => ({ default: m.AcceptInvite })));
+const ForgotPassword = lazy(() => import('./pages/ForgotPassword').then(m => ({ default: m.ForgotPassword })));
+const ResetPassword = lazy(() => import('./pages/ResetPassword').then(m => ({ default: m.ResetPassword })));
+const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })));
+const Kanban = lazy(() => import('./pages/Kanban').then(m => ({ default: m.Kanban })));
+const Items = lazy(() => import('./pages/Items').then(m => ({ default: m.Items })));
+const Intake = lazy(() => import('./pages/Intake').then(m => ({ default: m.Intake })));
+const Scan = lazy(() => import('./pages/Scan').then(m => ({ default: m.Scan })));
+const WorkflowStation = lazy(() => import('./pages/WorkflowStation').then(m => ({ default: m.WorkflowStation })));
+const JobQueue = lazy(() => import('./pages/JobQueue').then(m => ({ default: m.JobQueue })));
+const SettingsPage = lazy(() => import('./pages/Settings').then(m => ({ default: m.SettingsPage })));
+const DataWipePage = lazy(() => import('./pages/DataWipe').then(m => ({ default: m.DataWipePage })));
+const PartsPage = lazy(() => import('./pages/Parts').then(m => ({ default: m.PartsPage })));
+const UserManagement = lazy(() => import('./pages/UserManagement').then(m => ({ default: m.UserManagement })));
+const Diagnostics = lazy(() => import('./pages/Diagnostics').then(m => ({ default: m.Diagnostics })));
+const Certifications = lazy(() => import('./pages/Certifications').then(m => ({ default: m.Certifications })));
+const TestPlans = lazy(() => import('./pages/TestPlans').then(m => ({ default: m.TestPlans })));
+const DeviceDatabase = lazy(() => import('./pages/DeviceDatabase').then(m => ({ default: m.DeviceDatabase })));
+const Verify = lazy(() => import('./pages/Verify').then(m => ({ default: m.Verify })));
+const Download = lazy(() => import('./pages/Download').then(m => ({ default: m.Download })));
+const StationMonitor = lazy(() => import('./pages/StationMonitor').then(m => ({ default: m.StationMonitor })));
+const Help = lazy(() => import('./pages/Help').then(m => ({ default: m.Help })));
+
+// Loading fallback for Suspense
+function LoadingSpinner() {
+  return (
+    <div className="min-h-screen bg-dark-primary flex items-center justify-center">
+      <Loader size="xl" variant="dots" text="Loading..." />
+    </div>
+  );
+}
+
+// 404 page
+function NotFound() {
+  return (
+    <div className="min-h-screen bg-dark-primary flex flex-col items-center justify-center text-white">
+      <h1 className="text-6xl font-bold mb-4">404</h1>
+      <p className="text-xl text-gray-400 mb-8">Page not found</p>
+      <Link
+        to="/"
+        className="px-6 py-3 bg-accent-primary hover:bg-accent-primary/80 rounded-lg text-white font-medium transition-colors"
+      >
+        Go Home
+      </Link>
+    </div>
+  );
+}
 
 // Session Context
 interface WorkSession {
@@ -226,53 +251,54 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
 
 function AppRoutes() {
   return (
-    <Routes>
-      {/* Public routes */}
-      <Route path="/login" element={<Login />} />
-      <Route path="/download" element={<Download />} />
-      <Route path="/accept-invite" element={<AcceptInvite />} />
-      <Route path="/forgot-password" element={<ForgotPassword />} />
-      <Route path="/reset-password" element={<ResetPassword />} />
-      <Route path="/verify/:certificationId" element={<Verify />} />
-      <Route path="/help" element={<Help />} />
-      <Route path="/help/:section" element={<Help />} />
-      <Route path="/help/:section/:article" element={<Help />} />
-      <Route
-        path="/"
-        element={
-          <ProtectedRoute>
-            <AppLayout />
-          </ProtectedRoute>
-        }
-      >
-        <Route index element={<Intake />} />
-        <Route path="scan" element={<Scan />} />
-        <Route path="items" element={<Items />} />
-        <Route path="workflow" element={<WorkflowStation />} />
-        <Route path="diagnostics" element={<Diagnostics />} />
-        <Route path="datawipe" element={<DataWipePage />} />
-        <Route path="certifications" element={<Certifications />} />
-        <Route path="dashboard" element={<Dashboard />} />
-        <Route path="monitor" element={<Monitor />} />
-        <Route path="queue" element={<JobQueue />} />
-        <Route path="kanban" element={<Kanban />} />
-        <Route path="parts" element={<PartsPage />} />
-        <Route path="test-plans" element={<TestPlans />} />
-        <Route path="device-database" element={<DeviceDatabase />} />
-        <Route path="users" element={<UserManagement />} />
-        <Route path="settings" element={<SettingsPage />} />
+    <Suspense fallback={<LoadingSpinner />}>
+      <Routes>
+        {/* Public routes */}
+        <Route path="/login" element={<Login />} />
+        <Route path="/download" element={<Download />} />
+        <Route path="/accept-invite" element={<AcceptInvite />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/verify/:certificationId" element={<Verify />} />
+        <Route path="/help" element={<Help />} />
+        <Route path="/help/:section" element={<Help />} />
+        <Route path="/help/:section/:article" element={<Help />} />
         <Route
-          path="stations"
+          path="/"
           element={
-            <AdminRoute>
-              <StationMonitor />
-            </AdminRoute>
+            <ProtectedRoute>
+              <AppLayout />
+            </ProtectedRoute>
           }
-        />
-      </Route>
-      {/* Standalone monitor route for monitor.quickrefurbz.com */}
-      <Route path="/monitor-standalone" element={<ExecMonitor />} />
-    </Routes>
+        >
+          <Route index element={<Intake />} />
+          <Route path="scan" element={<Scan />} />
+          <Route path="items" element={<Items />} />
+          <Route path="workflow" element={<WorkflowStation />} />
+          <Route path="diagnostics" element={<Diagnostics />} />
+          <Route path="datawipe" element={<DataWipePage />} />
+          <Route path="certifications" element={<Certifications />} />
+          <Route path="dashboard" element={<Dashboard />} />
+          <Route path="queue" element={<JobQueue />} />
+          <Route path="kanban" element={<Kanban />} />
+          <Route path="parts" element={<PartsPage />} />
+          <Route path="test-plans" element={<TestPlans />} />
+          <Route path="device-database" element={<DeviceDatabase />} />
+          <Route path="users" element={<UserManagement />} />
+          <Route path="settings" element={<SettingsPage />} />
+          <Route
+            path="stations"
+            element={
+              <AdminRoute>
+                <StationMonitor />
+              </AdminRoute>
+            }
+          />
+        </Route>
+        {/* 404 catch-all */}
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    </Suspense>
   );
 }
 

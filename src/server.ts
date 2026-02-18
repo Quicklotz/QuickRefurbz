@@ -32,8 +32,13 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3001;
-const JWT_SECRET = process.env.JWT_SECRET || 'quickrefurbz-dev-secret-change-in-production';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  console.error('FATAL: JWT_SECRET environment variable is required');
+  process.exit(1);
+}
 
 // Middleware
 
@@ -107,7 +112,7 @@ app.use('/api/monitor', monitorLimiter);
 // Apply general rate limiter to all /api routes
 app.use('/api', generalLimiter);
 
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 
 // Sanitize string input: strip HTML tags to prevent stored XSS
 function sanitize(input: string | undefined | null): string {
@@ -3017,7 +3022,7 @@ app.post('/api/webhooks/process-retries', authMiddleware, async (_req: Request, 
 // ==================== PRODUCT FEED API ====================
 
 // Get product feed (supports multiple formats)
-app.get('/api/feed/products', async (req: Request, res: Response) => {
+app.get('/api/feed/products', authMiddleware, async (req: Request, res: Response) => {
   try {
     const format = (queryString(req.query.format) || 'json') as dataFeedService.FeedFormat;
     const filters: dataFeedService.FeedFilters = {
@@ -3047,7 +3052,7 @@ app.get('/api/feed/products', async (req: Request, res: Response) => {
 });
 
 // Get Shopify-formatted feed
-app.get('/api/feed/shopify', async (req: Request, res: Response) => {
+app.get('/api/feed/shopify', authMiddleware, async (req: Request, res: Response) => {
   try {
     const filters: dataFeedService.FeedFilters = {
       since: queryString(req.query.since),
@@ -3067,7 +3072,7 @@ app.get('/api/feed/shopify', async (req: Request, res: Response) => {
 });
 
 // Get eBay-formatted feed
-app.get('/api/feed/ebay', async (req: Request, res: Response) => {
+app.get('/api/feed/ebay', authMiddleware, async (req: Request, res: Response) => {
   try {
     const filters: dataFeedService.FeedFilters = {
       since: queryString(req.query.since),
@@ -3087,7 +3092,7 @@ app.get('/api/feed/ebay', async (req: Request, res: Response) => {
 });
 
 // Get CSV feed
-app.get('/api/feed/csv', async (req: Request, res: Response) => {
+app.get('/api/feed/csv', authMiddleware, async (req: Request, res: Response) => {
   try {
     const filters: dataFeedService.FeedFilters = {
       since: queryString(req.query.since),
@@ -3110,7 +3115,7 @@ app.get('/api/feed/csv', async (req: Request, res: Response) => {
 });
 
 // Get XML feed
-app.get('/api/feed/xml', async (req: Request, res: Response) => {
+app.get('/api/feed/xml', authMiddleware, async (req: Request, res: Response) => {
   try {
     const filters: dataFeedService.FeedFilters = {
       since: queryString(req.query.since),
@@ -3132,7 +3137,7 @@ app.get('/api/feed/xml', async (req: Request, res: Response) => {
 });
 
 // Get single product by QLID
-app.get('/api/feed/products/:qlid', async (req: Request, res: Response) => {
+app.get('/api/feed/products/:qlid', authMiddleware, async (req: Request, res: Response) => {
   try {
     const qlid = req.params.qlid as string;
     const item = await dataFeedService.getFeedItem(qlid);
@@ -3168,7 +3173,7 @@ import * as monitoringService from './services/monitoringService.js';
 const sseClients: Set<Response> = new Set();
 
 // Server-Sent Events endpoint for real-time monitoring
-app.get('/api/monitor/stream', (req: Request, res: Response) => {
+app.get('/api/monitor/stream', authMiddleware, (req: Request, res: Response) => {
   // Set SSE headers
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');

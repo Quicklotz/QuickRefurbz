@@ -17,16 +17,16 @@ import {
 } from '@tabler/icons-react';
 
 const STATIONS = [
-  { id: 'RFB-01', email: 'station01@quickrefurbz.local', name: 'Intake', pass: 'refurbz01!' },
-  { id: 'RFB-02', email: 'station02@quickrefurbz.local', name: 'Testing', pass: 'refurbz02!' },
-  { id: 'RFB-03', email: 'station03@quickrefurbz.local', name: 'Diagnostics', pass: 'refurbz03!' },
-  { id: 'RFB-04', email: 'station04@quickrefurbz.local', name: 'Data Wipe', pass: 'refurbz04!' },
-  { id: 'RFB-05', email: 'station05@quickrefurbz.local', name: 'Repair A', pass: 'refurbz05!' },
-  { id: 'RFB-06', email: 'station06@quickrefurbz.local', name: 'Repair B', pass: 'refurbz06!' },
-  { id: 'RFB-07', email: 'station07@quickrefurbz.local', name: 'Cleaning', pass: 'refurbz07!' },
-  { id: 'RFB-08', email: 'station08@quickrefurbz.local', name: 'Final QC', pass: 'refurbz08!' },
-  { id: 'RFB-09', email: 'station09@quickrefurbz.local', name: 'Certification', pass: 'refurbz09!' },
-  { id: 'RFB-10', email: 'station10@quickrefurbz.local', name: 'Packaging', pass: 'refurbz10!' },
+  { id: 'RFB-01', email: 'station01@quickrefurbz.local', name: 'Intake' },
+  { id: 'RFB-02', email: 'station02@quickrefurbz.local', name: 'Testing' },
+  { id: 'RFB-03', email: 'station03@quickrefurbz.local', name: 'Diagnostics' },
+  { id: 'RFB-04', email: 'station04@quickrefurbz.local', name: 'Data Wipe' },
+  { id: 'RFB-05', email: 'station05@quickrefurbz.local', name: 'Repair A' },
+  { id: 'RFB-06', email: 'station06@quickrefurbz.local', name: 'Repair B' },
+  { id: 'RFB-07', email: 'station07@quickrefurbz.local', name: 'Cleaning' },
+  { id: 'RFB-08', email: 'station08@quickrefurbz.local', name: 'Final QC' },
+  { id: 'RFB-09', email: 'station09@quickrefurbz.local', name: 'Certification' },
+  { id: 'RFB-10', email: 'station10@quickrefurbz.local', name: 'Packaging' },
 ];
 
 const DOWNLOAD_URL = 'https://github.com/Quicklotz/QuickRefurbz/releases/latest/download/QuickRefurbz-Setup.exe';
@@ -69,7 +69,6 @@ function StepCard({ step, title, description, icon }: StepCardProps) {
 }
 
 export function Download() {
-  const [showAllPasswords, setShowAllPasswords] = useState(false);
   const [platform, setPlatform] = useState<Platform>(detectPlatform);
 
   const appUrl = `${window.location.origin}`;
@@ -255,13 +254,6 @@ export function Download() {
               <span className="text-xs text-zinc-500 font-medium uppercase tracking-wider">
                 Internal Use Only
               </span>
-              <button
-                onClick={() => setShowAllPasswords(!showAllPasswords)}
-                className="text-xs text-ql-yellow hover:text-ql-yellow-hover transition-colors flex items-center gap-1"
-              >
-                <IconKey size={14} />
-                {showAllPasswords ? 'Hide' : 'Show'} passwords
-              </button>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -271,6 +263,7 @@ export function Download() {
                     <th className="px-4 py-2.5 text-left font-medium">Role</th>
                     <th className="px-4 py-2.5 text-left font-medium">Email</th>
                     <th className="px-4 py-2.5 text-left font-medium">Password</th>
+
                   </tr>
                 </thead>
                 <tbody>
@@ -284,11 +277,7 @@ export function Download() {
                         <code className="text-xs text-zinc-300 bg-dark-tertiary px-2 py-0.5 rounded">{s.email}</code>
                       </td>
                       <td className="px-4 py-2.5">
-                        {showAllPasswords ? (
-                          <code className="text-xs text-accent-green bg-dark-tertiary px-2 py-0.5 rounded">{s.pass}</code>
-                        ) : (
-                          <span className="text-zinc-600 text-xs">{'*'.repeat(10)}</span>
-                        )}
+                        <span className="text-zinc-500 text-xs italic">Contact supervisor</span>
                       </td>
                     </tr>
                   ))}

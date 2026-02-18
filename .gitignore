@@ -2,7 +2,8 @@ node_modules/
 dist/
 dist-electron/
 data/
-.env
+.env*
+!.env.example
 *.log
 .DS_Store
 .claude/

@@ -34,7 +34,6 @@ import {
   IconUsers,
   IconStethoscope,
   IconCertificate,
-  IconChartBar,
   IconDeviceDesktop,
   IconHelp,
 } from '@tabler/icons-react';
@@ -62,7 +61,6 @@ const navSections = [
     title: 'Overview',
     items: [
       { to: '/dashboard', icon: <IconLayoutDashboard size={20} />, label: 'Dashboard' },
-      { to: '/monitor', icon: <IconChartBar size={20} />, label: 'Monitor' },
     ],
   },
 ];

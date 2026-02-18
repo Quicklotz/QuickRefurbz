@@ -68,16 +68,24 @@ export function buildWhereClause(conditions: WhereCondition[]): {
 /**
  * Execute paginated query
  */
+const DEFAULT_ALLOWED_ORDER_COLUMNS = [
+  'created_at', 'updated_at', 'id', 'name', 'status', 'qlid', 'grade',
+  'category', 'brand', 'model', 'serial_number', 'pallet_id', 'manifest_id',
+  'price', 'msrp', 'quantity', 'weight', 'order_date', 'received_date',
+  'completed_at', 'assigned_at', 'started_at', 'email', 'role',
+];
+
 export async function paginate<T>(
   baseQuery: string,
   params: any[],
   options: PaginationOptions,
-  rowMapper: (row: any) => T
+  rowMapper: (row: any) => T,
+  allowedColumns?: string[]
 ): Promise<PaginatedResult<T>> {
   const page = Math.max(1, options.page || 1);
   const limit = Math.min(1000, Math.max(1, options.limit || 50));
   const offset = (page - 1) * limit;
-  const orderBy = options.orderBy || 'created_at';
+  const orderBy = safeOrderColumn(options.orderBy || 'created_at', allowedColumns || DEFAULT_ALLOWED_ORDER_COLUMNS);
   const orderDir = options.orderDir || 'DESC';
 
   // Get total count
