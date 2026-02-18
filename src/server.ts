@@ -11,7 +11,7 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { initializeDatabase } from './database.js';
+import { initializeDatabase, closePool } from './database.js';
 import * as palletManager from './palletManager.js';
 import * as itemManager from './itemManager.js';
 import * as ticketManager from './ticketManager.js';
@@ -34,7 +34,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3001;
-const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_SECRET: string = process.env.JWT_SECRET as string;
 if (!JWT_SECRET) {
   console.error('FATAL: JWT_SECRET environment variable is required');
   process.exit(1);
@@ -113,6 +113,14 @@ app.use('/api/monitor', monitorLimiter);
 app.use('/api', generalLimiter);
 
 app.use(express.json({ limit: '1mb' }));
+
+// Catch body-parser JSON syntax errors and return a clean 400 response
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (err instanceof SyntaxError && 'body' in err) {
+    return res.status(400).json({ error: 'Invalid JSON in request body' });
+  }
+  next(err);
+});
 
 // Sanitize string input: strip HTML tags to prevent stored XSS
 function sanitize(input: string | undefined | null): string {
@@ -223,7 +231,7 @@ async function seedAdminUser() {
 
     console.log('[Auth] No users found, creating initial admin user...');
     const id = generateUUID();
-    const passwordHash = await bcrypt.hash(adminPassword, 10);
+    const passwordHash = await bcrypt.hash(adminPassword, 12);
 
     if (dbType === 'postgres') {
       await db.query(
@@ -253,7 +261,7 @@ function authMiddleware(req: AuthRequest, res: Response, next: NextFunction): vo
   const token = authHeader.substring(7);
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as AuthUser;
+    const decoded = jwt.verify(token, JWT_SECRET) as unknown as AuthUser;
     req.user = decoded;
     next();
   } catch {
@@ -279,7 +287,7 @@ function monitorAuthMiddleware(req: AuthRequest, res: Response, next: NextFuncti
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.substring(7);
     try {
-      const decoded = jwt.verify(token, JWT_SECRET) as AuthUser;
+      const decoded = jwt.verify(token, JWT_SECRET) as unknown as AuthUser;
       req.user = decoded;
       next();
       return;
@@ -421,7 +429,7 @@ app.post('/api/auth/accept-invite', async (req: Request, res: Response) => {
     }
 
     const tokenData = tokenResult.rows[0];
-    const passwordHash = await bcrypt.hash(password, 10);
+    const passwordHash = await bcrypt.hash(password, 12);
 
     // Update user with password and activate
     if (dbType === 'postgres') {
@@ -545,7 +553,7 @@ app.post('/api/auth/reset-password', async (req: Request, res: Response) => {
     }
 
     const tokenData = tokenResult.rows[0];
-    const passwordHash = await bcrypt.hash(password, 10);
+    const passwordHash = await bcrypt.hash(password, 12);
 
     // Update user password
     if (dbType === 'postgres') {
@@ -911,7 +919,7 @@ app.post('/api/pallets', authMiddleware, async (req: Request, res: Response) => 
     const body = { ...req.body };
     // Default liquidationSource if not provided
     if (!body.liquidationSource) {
-      body.liquidationSource = 'DIRECT';
+      body.liquidationSource = 'QUICKLOTZ';
     }
     const pallet = await palletManager.createPallet(body);
     res.status(201).json(pallet);
@@ -936,7 +944,7 @@ app.put('/api/pallets/:id', authMiddleware, async (req: Request, res: Response) 
   }
 });
 
-app.delete('/api/pallets/:id', authMiddleware, async (req: Request, res: Response) => {
+app.delete('/api/pallets/:id', authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
   try {
     const id = req.params.id as string;
     const deleted = await palletManager.deletePallet(id);
@@ -947,7 +955,7 @@ app.delete('/api/pallets/:id', authMiddleware, async (req: Request, res: Respons
     res.json({ success: true });
   } catch (error: any) {
     console.error('Delete pallet error:', error);
-    res.status(400).json({ error: error.message || 'Failed to delete pallet' });
+    res.status(400).json({ error: 'Failed to delete pallet' });
   }
 });
 
@@ -1020,7 +1028,7 @@ app.post('/api/items/scan', authMiddleware, async (req: AuthRequest, res: Respon
     res.json(result);
   } catch (error: any) {
     console.error('Scan item error:', error);
-    res.status(400).json({ error: error.message || 'Failed to scan item' });
+    res.status(400).json({ error: 'Failed to scan item' });
   }
 });
 
@@ -1034,7 +1042,7 @@ app.post('/api/items', authMiddleware, async (req: AuthRequest, res: Response) =
     res.status(201).json(result);
   } catch (error: any) {
     console.error('Receive item error:', error);
-    res.status(400).json({ error: error.message || 'Failed to receive item' });
+    res.status(400).json({ error: 'Failed to receive item' });
   }
 });
 
@@ -1048,7 +1056,7 @@ app.post('/api/items/:id/advance', authMiddleware, async (req: AuthRequest, res:
     res.json(item);
   } catch (error: any) {
     console.error('Advance stage error:', error);
-    res.status(400).json({ error: error.message || 'Failed to advance stage' });
+    res.status(400).json({ error: 'Failed to advance stage' });
   }
 });
 
@@ -1063,7 +1071,7 @@ app.post('/api/items/:id/stage', authMiddleware, async (req: AuthRequest, res: R
     res.json(item);
   } catch (error: any) {
     console.error('Set stage error:', error);
-    res.status(400).json({ error: error.message || 'Failed to set stage' });
+    res.status(400).json({ error: 'Failed to set stage' });
   }
 });
 
@@ -1075,11 +1083,11 @@ app.post('/api/items/:id/assign', authMiddleware, async (req: Request, res: Resp
     res.json(item);
   } catch (error: any) {
     console.error('Assign technician error:', error);
-    res.status(400).json({ error: error.message || 'Failed to assign technician' });
+    res.status(400).json({ error: 'Failed to assign technician' });
   }
 });
 
-app.delete('/api/items/:id', authMiddleware, async (req: Request, res: Response) => {
+app.delete('/api/items/:id', authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
   try {
     const id = req.params.id as string;
     const deleted = await itemManager.deleteItem(id);
@@ -1144,7 +1152,7 @@ app.post('/api/tickets', authMiddleware, async (req: AuthRequest, res: Response)
     res.status(201).json(ticket);
   } catch (error: any) {
     console.error('Create ticket error:', error);
-    res.status(400).json({ error: error.message || 'Failed to create ticket' });
+    res.status(400).json({ error: 'Failed to create ticket' });
   }
 });
 
@@ -1158,7 +1166,7 @@ app.post('/api/tickets/:id/resolve', authMiddleware, async (req: AuthRequest, re
     res.json(ticket);
   } catch (error: any) {
     console.error('Resolve ticket error:', error);
-    res.status(400).json({ error: error.message || 'Failed to resolve ticket' });
+    res.status(400).json({ error: 'Failed to resolve ticket' });
   }
 });
 
@@ -1200,7 +1208,114 @@ app.post('/api/parts', authMiddleware, async (req: Request, res: Response) => {
     res.status(201).json(part);
   } catch (error: any) {
     console.error('Add part error:', error);
-    res.status(400).json({ error: error.message || 'Failed to add part' });
+    res.status(400).json({ error: 'Failed to add part' });
+  }
+});
+
+// NOTE: All GET /api/parts/<word> routes must be defined before GET /api/parts/:id
+// to prevent Express from treating the word as an :id parameter.
+
+// Get parts categories
+app.get('/api/parts/categories', authMiddleware, async (_req: Request, res: Response) => {
+  try {
+    const db = getPool();
+    const result = await db.query<{ category: string }>(
+      'SELECT DISTINCT category FROM parts_inventory ORDER BY category'
+    );
+    const categories = result.rows.map(row => row.category);
+    res.json(categories);
+  } catch (error) {
+    console.error('Get parts categories error:', error);
+    res.status(500).json({ error: 'Failed to get parts categories' });
+  }
+});
+
+// Get parts suppliers
+app.get('/api/parts/suppliers', authMiddleware, async (_req: Request, res: Response) => {
+  try {
+    const db = getPool();
+    const result = await db.query('SELECT * FROM parts_suppliers ORDER BY name');
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Get suppliers error:', error);
+    res.status(500).json({ error: 'Failed to get suppliers' });
+  }
+});
+
+// Get parts stats
+app.get('/api/parts/stats', authMiddleware, async (_req: Request, res: Response) => {
+  try {
+    const stats = await partsInventory.getPartsStats();
+    res.json(stats);
+  } catch (error) {
+    console.error('Get parts stats error:', error);
+    res.status(500).json({ error: 'Failed to get parts stats' });
+  }
+});
+
+// Get individual part by ID
+app.get('/api/parts/:id', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const part = await partsInventory.getPartById(id);
+    if (!part) {
+      return res.status(404).json({ error: 'Part not found' });
+    }
+    res.json(part);
+  } catch (error) {
+    console.error('Get part error:', error);
+    res.status(500).json({ error: 'Failed to get part' });
+  }
+});
+
+// Update part details
+app.put('/api/parts/:id', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const body = req.body;
+
+    // Map frontend field names to Part interface fields
+    const updates: Record<string, any> = {};
+    if (body.name !== undefined) updates.name = body.name;
+    if (body.description !== undefined) updates.description = body.description;
+    if (body.category !== undefined) updates.category = body.category;
+    if (body.quantityOnHand !== undefined || body.quantity_on_hand !== undefined || body.quantity !== undefined) {
+      updates.quantityOnHand = body.quantityOnHand ?? body.quantity_on_hand ?? body.quantity;
+    }
+    if (body.reorderPoint !== undefined || body.reorder_point !== undefined || body.min_quantity !== undefined) {
+      updates.reorderPoint = body.reorderPoint ?? body.reorder_point ?? body.min_quantity;
+    }
+    if (body.reorderQuantity !== undefined || body.reorder_quantity !== undefined) {
+      updates.reorderQuantity = body.reorderQuantity ?? body.reorder_quantity;
+    }
+    if (body.unitCost !== undefined || body.unit_cost !== undefined || body.cost !== undefined) {
+      updates.unitCost = body.unitCost ?? body.unit_cost ?? body.cost;
+    }
+    if (body.location !== undefined) updates.location = body.location;
+
+    const part = await partsInventory.updatePart(id, updates);
+    if (!part) {
+      return res.status(404).json({ error: 'Part not found' });
+    }
+    res.json(part);
+  } catch (error: any) {
+    console.error('Update part error:', error);
+    res.status(400).json({ error: 'Failed to update part' });
+  }
+});
+
+// Delete part
+app.delete('/api/parts/:id', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const deleted = await partsInventory.deletePart(id);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Part not found' });
+    }
+    res.json({ message: 'Part deleted successfully' });
+  } catch (error: any) {
+    console.error('Delete part error:', error);
+    res.status(400).json({ error: 'Failed to delete part' });
   }
 });
 
@@ -1215,7 +1330,7 @@ app.post('/api/parts/:id/adjust', authMiddleware, async (req: AuthRequest, res: 
     res.json(part);
   } catch (error: any) {
     console.error('Adjust stock error:', error);
-    res.status(400).json({ error: error.message || 'Failed to adjust stock' });
+    res.status(400).json({ error: 'Failed to adjust stock' });
   }
 });
 
@@ -1258,7 +1373,7 @@ app.post('/api/items/:qlid/parts', authMiddleware, async (req: AuthRequest, res:
     });
   } catch (error: any) {
     console.error('Use parts error:', error);
-    res.status(400).json({ error: error.message || 'Failed to use parts' });
+    res.status(400).json({ error: 'Failed to use parts' });
   }
 });
 
@@ -1271,17 +1386,6 @@ app.get('/api/parts/compatible/:category', authMiddleware, async (req: Request, 
   } catch (error) {
     console.error('Get compatible parts error:', error);
     res.status(500).json({ error: 'Failed to get compatible parts' });
-  }
-});
-
-// Get parts stats
-app.get('/api/parts/stats', authMiddleware, async (_req: Request, res: Response) => {
-  try {
-    const stats = await partsInventory.getPartsStats();
-    res.json(stats);
-  } catch (error) {
-    console.error('Get parts stats error:', error);
-    res.status(500).json({ error: 'Failed to get parts stats' });
   }
 });
 
@@ -1303,7 +1407,7 @@ app.post('/api/technicians', authMiddleware, async (req: Request, res: Response)
     res.status(201).json(technician);
   } catch (error: any) {
     console.error('Add technician error:', error);
-    res.status(400).json({ error: error.message || 'Failed to add technician' });
+    res.status(400).json({ error: 'Failed to add technician' });
   }
 });
 
@@ -1368,7 +1472,7 @@ app.get('/api/settings', authMiddleware, async (_req: Request, res: Response) =>
   }
 });
 
-app.put('/api/settings', authMiddleware, async (req: Request, res: Response) => {
+app.put('/api/settings', authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
   try {
     const db = getPool();
     const settings = req.body;
@@ -1626,6 +1730,84 @@ app.delete('/api/photos/file/:photoId', authMiddleware, async (req: Request, res
     res.json({ success: true });
   } catch (error) {
     console.error('Delete photo error:', error);
+    res.status(500).json({ error: 'Failed to delete photo' });
+  }
+});
+
+// ==================== PHOTO ALIAS ROUTES ====================
+// The frontend's WorkflowStation uses /api/items/:qlid/photos paths.
+// These aliases map to the existing /api/photos/:qlid handlers above.
+
+// POST /api/items/:qlid/photos  →  simplified photo upload (defaults stage=COMPLETE, photoType=FINAL)
+app.post('/api/items/:qlid/photos', authMiddleware, photoUpload.array('photos', 10), async (req: AuthRequest, res: Response) => {
+  try {
+    const qlid = req.params.qlid as string;
+    const files = req.files as Express.Multer.File[];
+
+    if (!files || files.length === 0) {
+      return res.status(400).json({ error: 'No photos provided' });
+    }
+
+    // Use provided stage/photoType or default to COMPLETE/FINAL for refurb workflow
+    const stage = (req.body.stage || 'COMPLETE') as photoService.PhotoStage;
+    const photoType = (req.body.photoType || 'FINAL') as photoService.PhotoType;
+    const caption = req.body.caption;
+
+    const uploadedPhotos = [];
+    for (const file of files) {
+      const photo = await photoService.uploadPhoto({
+        qlid,
+        stage,
+        photoType,
+        buffer: file.buffer,
+        filename: file.originalname,
+        mimeType: file.mimetype,
+        capturedBy: req.user?.id,
+        caption
+      });
+      uploadedPhotos.push(photo);
+    }
+
+    res.json({ photos: uploadedPhotos, count: uploadedPhotos.length });
+  } catch (error) {
+    console.error('Photo upload (items alias) error:', error);
+    res.status(500).json({ error: 'Failed to upload photos' });
+  }
+});
+
+// GET /api/items/:qlid/photos  →  get all photos for an item
+app.get('/api/items/:qlid/photos', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const qlid = req.params.qlid as string;
+    const stage = queryString(req.query.stage);
+
+    let photos;
+    if (stage) {
+      photos = await photoService.getPhotosByStage(qlid, stage as photoService.PhotoStage);
+    } else {
+      photos = await photoService.getPhotosForItem(qlid);
+    }
+
+    res.json({ photos });
+  } catch (error) {
+    console.error('Get photos (items alias) error:', error);
+    res.status(500).json({ error: 'Failed to get photos' });
+  }
+});
+
+// DELETE /api/items/:qlid/photos/:photoId  →  delete a specific photo
+app.delete('/api/items/:qlid/photos/:photoId', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const photoId = req.params.photoId as string;
+    const deleted = await photoService.deletePhoto(photoId);
+
+    if (!deleted) {
+      return res.status(404).json({ error: 'Photo not found' });
+    }
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Delete photo (items alias) error:', error);
     res.status(500).json({ error: 'Failed to delete photo' });
   }
 });
@@ -2037,17 +2219,6 @@ app.get('/api/datawipe/:qlid/certificate', async (req: Request, res: Response) =
 
 // ==================== PARTS SUPPLIERS API ====================
 
-app.get('/api/parts/suppliers', authMiddleware, async (_req: Request, res: Response) => {
-  try {
-    const db = getPool();
-    const result = await db.query('SELECT * FROM parts_suppliers ORDER BY name');
-    res.json(result.rows);
-  } catch (error) {
-    console.error('Get suppliers error:', error);
-    res.status(500).json({ error: 'Failed to get suppliers' });
-  }
-});
-
 app.post('/api/parts/suppliers', authMiddleware, async (req: Request, res: Response) => {
   try {
     const db = getPool();
@@ -2114,7 +2285,7 @@ app.post('/api/parts/sync/:supplierId', authMiddleware, async (req: Request, res
   }
 });
 
-app.post('/api/parts/import', authMiddleware, async (req: Request, res: Response) => {
+app.post('/api/parts/import', authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
   try {
     const { source, parts } = req.body;
 
@@ -2296,7 +2467,7 @@ app.get('/api/labels/pallet/:palletId', authMiddleware, async (req: AuthRequest,
     }
   } catch (error: any) {
     console.error('Generate pallet label error:', error);
-    res.status(500).json({ error: error.message || 'Failed to generate pallet label' });
+    res.status(500).json({ error: 'Failed to generate pallet label' });
   }
 });
 
@@ -2334,7 +2505,7 @@ app.post('/api/labels/print-zpl', authMiddleware, async (req: AuthRequest, res: 
     res.json({ success: true, message: `Label sent to printer at ${printerIp}` });
   } catch (error: any) {
     console.error('Print ZPL error:', error);
-    res.status(500).json({ error: error.message || 'Failed to print label' });
+    res.status(500).json({ error: 'Failed to print label' });
   }
 });
 
@@ -2390,7 +2561,7 @@ app.get('/api/labels/refurb/:qlid', authMiddleware, async (req: AuthRequest, res
     }
   } catch (error: any) {
     console.error('Generate refurb label error:', error);
-    res.status(500).json({ error: error.message || 'Failed to generate refurb label' });
+    res.status(500).json({ error: 'Failed to generate refurb label' });
   }
 });
 
@@ -2442,7 +2613,7 @@ app.post('/api/labels/refurb/print-zpl', authMiddleware, async (req: AuthRequest
     res.json({ success: true, message: `Refurb label sent to printer at ${printerIp}`, qsku });
   } catch (error: any) {
     console.error('Print refurb ZPL error:', error);
-    res.status(500).json({ error: error.message || 'Failed to print refurb label' });
+    res.status(500).json({ error: 'Failed to print refurb label' });
   }
 });
 
@@ -2456,7 +2627,7 @@ app.get('/api/printers/discover', authMiddleware, async (req: AuthRequest, res: 
     res.json({ printers });
   } catch (err: any) {
     console.error('Printer discovery error:', err);
-    res.status(500).json({ error: 'Printer discovery failed', details: err.message });
+    res.status(500).json({ error: 'Printer discovery failed' });
   }
 });
 
@@ -2466,7 +2637,8 @@ app.get('/api/printers/status/:ip', authMiddleware, async (req: AuthRequest, res
     const status = await checkPrinterStatus(req.params.ip as string);
     res.json(status);
   } catch (err: any) {
-    res.status(500).json({ error: 'Failed to check printer status', details: err.message });
+    console.error('Printer status check error:', err);
+    res.status(500).json({ error: 'Failed to check printer status' });
   }
 });
 
@@ -2480,7 +2652,8 @@ app.get('/api/printers/settings', authMiddleware, async (req: AuthRequest, res: 
     );
     res.json({ printers: result.rows });
   } catch (err: any) {
-    res.status(500).json({ error: 'Failed to get printer settings', details: err.message });
+    console.error('Get printer settings error:', err);
+    res.status(500).json({ error: 'Failed to get printer settings' });
   }
 });
 
@@ -2530,7 +2703,8 @@ app.post('/api/printers/settings', authMiddleware, async (req: AuthRequest, res:
 
     res.json({ printer: result.rows[0] });
   } catch (err: any) {
-    res.status(500).json({ error: 'Failed to save printer settings', details: err.message });
+    console.error('Save printer settings error:', err);
+    res.status(500).json({ error: 'Failed to save printer settings' });
   }
 });
 
@@ -2544,7 +2718,8 @@ app.delete('/api/printers/settings/:id', authMiddleware, async (req: AuthRequest
     );
     res.json({ ok: true });
   } catch (err: any) {
-    res.status(500).json({ error: 'Failed to delete printer settings', details: err.message });
+    console.error('Delete printer settings error:', err);
+    res.status(500).json({ error: 'Failed to delete printer settings' });
   }
 });
 
@@ -2574,7 +2749,8 @@ app.post('/api/printers/test', authMiddleware, async (req: AuthRequest, res: Res
     await labelGenerator.sendZplToPrinter(printer_ip, testZpl);
     res.json({ ok: true, message: 'Test label sent' });
   } catch (err: any) {
-    res.status(500).json({ error: 'Test print failed', details: err.message });
+    console.error('Test print error:', err);
+    res.status(500).json({ error: 'Test print failed' });
   }
 });
 
@@ -2584,7 +2760,8 @@ app.get('/api/printers/label-size/:ip', authMiddleware, async (req: AuthRequest,
     const labelSize = await getPrinterLabelSize(req.params.ip as string);
     res.json(labelSize);
   } catch (err: any) {
-    res.status(500).json({ error: 'Failed to get label size', details: err.message });
+    console.error('Get label size error:', err);
+    res.status(500).json({ error: 'Failed to get label size' });
   }
 });
 
@@ -2842,7 +3019,7 @@ app.get('/api/exports/download/:exportName/:filename', authMiddleware, async (re
 });
 
 // Delete an export
-app.delete('/api/exports/:exportName', authMiddleware, async (req: Request, res: Response) => {
+app.delete('/api/exports/:exportName', authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
   try {
     const exportName = req.params.exportName as string;
     const deleted = await batchExporter.deleteExport(exportName);
@@ -2873,7 +3050,7 @@ app.get('/api/exports/stats/summary', authMiddleware, async (_req: Request, res:
 // ==================== DATA FEED & WEBHOOK API ====================
 
 // Create webhook subscription
-app.post('/api/webhooks', authMiddleware, async (req: AuthRequest, res: Response) => {
+app.post('/api/webhooks', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const { name, url, events, format, headers } = req.body;
 
@@ -2948,7 +3125,7 @@ app.patch('/api/webhooks/:id', authMiddleware, async (req: Request, res: Respons
 });
 
 // Delete webhook
-app.delete('/api/webhooks/:id', authMiddleware, async (req: Request, res: Response) => {
+app.delete('/api/webhooks/:id', authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
   try {
     const id = req.params.id as string;
     const deleted = await dataFeedService.deleteWebhook(id);
@@ -3439,7 +3616,7 @@ app.post('/api/admin/seed-stations', authMiddleware, adminMiddleware, async (req
       const existing = await getUserByEmail(email);
       if (existing) {
         if (forceReset) {
-          const passwordHash = await bcrypt.hash(s.pass, 10);
+          const passwordHash = await bcrypt.hash(s.pass, 12);
           const dbType = process.env.DB_TYPE || 'sqlite';
           const nowExpr = dbType === 'postgres' ? 'now()' : "datetime('now')";
           await db.query(
@@ -3454,7 +3631,7 @@ app.post('/api/admin/seed-stations', authMiddleware, adminMiddleware, async (req
       }
 
       const id = generateUUID();
-      const passwordHash = await bcrypt.hash(s.pass, 10);
+      const passwordHash = await bcrypt.hash(s.pass, 12);
       const dbType = process.env.DB_TYPE || 'sqlite';
       const nowExpr = dbType === 'postgres' ? 'now()' : "datetime('now')";
       const trueVal = dbType === 'postgres' ? 'true' : '1';
@@ -3675,6 +3852,8 @@ app.get('*', (_req: Request, res: Response) => {
 
 // ==================== START SERVER ====================
 
+let server: ReturnType<typeof app.listen>;
+
 async function start() {
   try {
     await initializeDatabase();
@@ -3689,7 +3868,21 @@ async function start() {
       console.log(`[QuickTestz] Seeded ${seedResult.equipmentSeeded} equipment items, ${seedResult.profilesSeeded} test profiles`);
     }
 
-    app.listen(PORT, () => {
+    // Clean up old activity logs daily (365-day retention)
+    setInterval(async () => {
+      try {
+        const db = getPool();
+        const result = await db.query("DELETE FROM public.activity_log WHERE created_at < NOW() - INTERVAL '365 days'");
+        const deleted = (result as any).rowCount ?? 0;
+        if (deleted > 0) {
+          console.log(`[Cleanup] Removed ${deleted} activity log entries older than 365 days`);
+        }
+      } catch (err) {
+        console.error('Activity log cleanup error:', err);
+      }
+    }, 24 * 60 * 60 * 1000);
+
+    server = app.listen(PORT, () => {
       console.log(`QuickRefurbz API running on port ${PORT}`);
       console.log(`Frontend: http://localhost:${PORT}`);
       console.log(`QuickTestz API: http://localhost:${PORT}/api/test`);
@@ -3700,17 +3893,29 @@ async function start() {
   }
 }
 
-// Graceful shutdown: stop QuickTestz polling and monitoring
-process.on('SIGTERM', () => {
+// Graceful shutdown: stop accepting connections, close DB pool, stop QuickTestz services
+async function gracefulShutdown(signal: string) {
+  console.log(`${signal} received, shutting down gracefully...`);
   readingsCollector.stopAll();
   safetyMonitor.stopAll();
-  process.exit(0);
-});
-process.on('SIGINT', () => {
-  readingsCollector.stopAll();
-  safetyMonitor.stopAll();
-  process.exit(0);
-});
+  if (server) {
+    server.close(async () => {
+      try { await closePool(); } catch (e) { /* ignore */ }
+      process.exit(0);
+    });
+  } else {
+    try { await closePool(); } catch (e) { /* ignore */ }
+    process.exit(0);
+  }
+  // Force exit after 10 seconds if graceful shutdown stalls
+  setTimeout(() => {
+    console.error('Graceful shutdown timed out, forcing exit');
+    process.exit(1);
+  }, 10000);
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 start();
 

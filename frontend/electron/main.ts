@@ -62,10 +62,29 @@ function createWindow() {
   // Load the built frontend from dist/
   mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
 
+  // Disable DevTools shortcuts in production
+  if (app.isPackaged) {
+    mainWindow.webContents.on('before-input-event', (event, input) => {
+      if (input.key === 'F12' ||
+          (input.control && input.shift && (input.key === 'I' || input.key === 'J')) ||
+          (input.control && input.shift && input.key === 'C')) {
+        event.preventDefault();
+      }
+    });
+  }
+
   // Open external links in default browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: 'deny' };
+  });
+
+  // Prevent navigation to external URLs
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (!url.startsWith('file://')) {
+      event.preventDefault();
+      shell.openExternal(url);
+    }
   });
 
   // Prevent closing in kiosk mode (catches Alt+F4 at the window level)
@@ -84,6 +103,11 @@ function createWindow() {
     globalShortcut.register('Alt+F4', () => {});
     globalShortcut.register('CommandOrControl+W', () => {});
     globalShortcut.register('CommandOrControl+Q', () => {});
+    globalShortcut.register('F12', () => {});
+    globalShortcut.register('CommandOrControl+Shift+I', () => {});
+    globalShortcut.register('CommandOrControl+Shift+J', () => {});
+    globalShortcut.register('CommandOrControl+R', () => {});
+    globalShortcut.register('F5', () => {});
   }
 }
 
@@ -117,7 +141,9 @@ app.on('will-quit', () => {
 ipcMain.handle('get-version', () => app.getVersion());
 
 ipcMain.handle('get-station-config', () => {
-  return stationConfig;
+  if (!stationConfig) return null;
+  const { password, adminPin, ...safeConfig } = stationConfig;
+  return safeConfig;
 });
 
 ipcMain.handle('unlock-kiosk', (_event, pin: string) => {
@@ -147,4 +173,8 @@ autoUpdater.on('update-available', () => {
 
 autoUpdater.on('update-downloaded', () => {
   mainWindow?.webContents.send('update-downloaded');
+});
+
+autoUpdater.on('error', (err) => {
+  console.error('Auto-updater error:', err.message);
 });

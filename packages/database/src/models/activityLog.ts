@@ -219,7 +219,8 @@ export class ActivityLogModel {
   async cleanup(retentionDays = 365): Promise<number> {
     const result = await query(
       `DELETE FROM public.activity_log
-       WHERE created_at < NOW() - INTERVAL '${retentionDays} days'`
+       WHERE created_at < NOW() - ($1 || ' days')::INTERVAL`,
+      [retentionDays]
     );
     return result.rowCount ?? 0;
   }

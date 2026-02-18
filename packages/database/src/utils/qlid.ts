@@ -6,8 +6,8 @@ import { query } from '../connection.js';
 
 /**
  * Generate a new unique QLID
- * Format: QLID[SERIES][10-DIGIT-COUNTER]
- * Examples: QLID0000000001, QLIDA0000000000
+ * Format: QLID[SERIES][9-DIGIT-COUNTER]
+ * Examples: QLID000000001, QLIDA000000001
  */
 export async function generateQLID(): Promise<string> {
   const result = await query(
@@ -15,19 +15,19 @@ export async function generateQLID(): Promise<string> {
   );
 
   const seqVal = BigInt(result.rows[0].seq_val);
-  const maxPerSeries = BigInt(9999999999);
+  const maxPerSeries = BigInt(999999999);
 
   let seriesLetter = '';
   let counterPart: string;
 
   if (seqVal <= maxPerSeries) {
-    counterPart = seqVal.toString().padStart(10, '0');
+    counterPart = seqVal.toString().padStart(9, '0');
   } else {
     // Calculate series letter (A=1, B=2, etc.)
     const seriesNum = Number((seqVal - BigInt(1)) / maxPerSeries);
     seriesLetter = String.fromCharCode(64 + seriesNum);
     const remainder = ((seqVal - BigInt(1)) % maxPerSeries) + BigInt(1);
-    counterPart = remainder.toString().padStart(10, '0');
+    counterPart = remainder.toString().padStart(9, '0');
   }
 
   return `QLID${seriesLetter}${counterPart}`;
@@ -42,7 +42,7 @@ export function parseQLID(qlid: string): {
   counter: bigint;
   sequential: bigint;
 } {
-  const match = qlid.match(/^QLID([A-Z]?)(\d{10})$/);
+  const match = qlid.match(/^QLID([A-Z]?)(\d{9,10})$/);
 
   if (!match) {
     return {
@@ -62,7 +62,7 @@ export function parseQLID(qlid: string): {
     sequential = counter;
   } else {
     const seriesNum = BigInt(series.charCodeAt(0) - 64);
-    const maxPerSeries = BigInt(9999999999);
+    const maxPerSeries = BigInt(999999999);
     sequential = seriesNum * maxPerSeries + counter;
   }
 
@@ -78,7 +78,7 @@ export function parseQLID(qlid: string): {
  * Validate a QLID format
  */
 export function isValidQLID(qlid: string): boolean {
-  return /^QLID[A-Z]?\d{10}$/.test(qlid);
+  return /^QLID[A-Z]?\d{9,10}$/.test(qlid);
 }
 
 /**
