@@ -264,6 +264,58 @@ export async function completePallet(palletId: string): Promise<Pallet | null> {
   });
 }
 
+// ==================== RENAME ====================
+
+export async function renamePallet(
+  currentPalletId: string,
+  newPalletId: string
+): Promise<Pallet | null> {
+  const pallet = await getPalletById(currentPalletId);
+  if (!pallet) return null;
+
+  const normalizedNew = newPalletId.toUpperCase().trim();
+  if (!normalizedNew) throw new Error('New pallet ID cannot be empty');
+
+  // Check new ID doesn't already exist
+  const existing = await getPalletById(normalizedNew);
+  if (existing && existing.id !== pallet.id) {
+    throw new Error(`Pallet ID ${normalizedNew} already exists`);
+  }
+
+  const db = getPool();
+
+  // Update pallet_id in refurb_pallets and all referencing items in a transaction
+  if (isPostgres()) {
+    await db.query('BEGIN');
+    try {
+      await db.query(
+        'UPDATE refurb_items SET qr_pallet_id = $1 WHERE qr_pallet_id = $2',
+        [normalizedNew, pallet.palletId]
+      );
+      await db.query(
+        `UPDATE refurb_pallets SET pallet_id = $1, ${isPostgres() ? 'updated_at = now()' : "updated_at = datetime('now')"} WHERE id = $2`,
+        [normalizedNew, pallet.id]
+      );
+      await db.query('COMMIT');
+    } catch (error) {
+      await db.query('ROLLBACK');
+      throw error;
+    }
+  } else {
+    // SQLite doesn't support real transactions the same way via this pool abstraction
+    await db.query(
+      'UPDATE refurb_items SET qr_pallet_id = $1 WHERE qr_pallet_id = $2',
+      [normalizedNew, pallet.palletId]
+    );
+    await db.query(
+      `UPDATE refurb_pallets SET pallet_id = $1, updated_at = datetime('now') WHERE id = $2`,
+      [normalizedNew, pallet.id]
+    );
+  }
+
+  return getPalletById(normalizedNew);
+}
+
 // ==================== DELETE ====================
 
 export async function deletePallet(palletId: string): Promise<boolean> {

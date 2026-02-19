@@ -1,500 +1,260 @@
 "use client";
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Package,
-  Plus,
-  Search,
   Boxes,
-  RefreshCw,
-  CheckCircle,
-  AlertCircle,
+  XCircle,
+  ShieldCheck,
 } from 'lucide-react';
 import { api } from '@/api/client';
 import { usePalletSession } from '@/contexts/PalletSessionContext';
-import { Input } from '@/components/aceternity/input';
-import { Label } from '@/components/aceternity/label';
 import { Button } from '@/components/aceternity/button';
 import { Loader } from '@/components/aceternity/loader';
-import { Badge } from '@/components/shared/Badge';
-import { AnimatedModal } from '@/components/aceternity/animated-modal';
-import { PalletSessionCard } from '@/components/pallet-session/PalletSessionCard';
-import { PalletLabelModal } from '@/components/pallet-session/PalletLabelModal';
+import { SourcingPalletFlow } from '@/components/intake/SourcingPalletFlow';
+import { WorkstationPrompt } from '@/components/intake/WorkstationPrompt';
+import { IdentificationPanel } from '@/components/intake/IdentificationPanel';
+import { ReviewConfirmCard } from '@/components/intake/ReviewConfirmCard';
+import { LastItemCard } from '@/components/intake/LastItemCard';
+import { SupervisorOverride } from '@/components/intake/SupervisorOverride';
 
-interface Pallet {
-  palletId: string;
-  status: string;
-  retailer: string;
-  receivedAt: string;
-  totalCogs: number;
-  expectedCount: number;
-  actualCount: number;
-}
-
-interface IntakeItem {
-  qlid: string;
-  palletId: string;
-  manufacturer: string;
-  model: string;
-  category: string;
-  currentStage: string;
-  createdAt: string;
-}
-
-const CATEGORIES = [
-  'PHONE', 'TABLET', 'LAPTOP', 'DESKTOP', 'MONITOR',
-  'APPLIANCE_SMALL', 'APPLIANCE_LARGE', 'ICE_MAKER', 'VACUUM', 'OTHER',
-];
+type IntakeState =
+  | 'no-session'
+  | 'pallet-scan'
+  | 'workstation-prompt'
+  | 'ready'
+  | 'identifying'
+  | 'reviewing';
 
 export function Intake() {
-  const { session, isActive } = usePalletSession();
+  const { t } = useTranslation();
+  const { session, isActive, startSession, endSession, workstationId, setWorkstationId } = usePalletSession();
 
-  const [pallets, setPallets] = useState<Pallet[]>([]);
-  const [recentItems, setRecentItems] = useState<IntakeItem[]>([]);
+  const [state, setState] = useState<IntakeState>('no-session');
+  const [identifiedData, setIdentifiedData] = useState<any>(null);
+  const [lastItem, setLastItem] = useState<any>(null);
+  const [itemCount, setItemCount] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [recentItems, setRecentItems] = useState<any[]>([]);
+  const [showSupervisor, setShowSupervisor] = useState(false);
 
-  // Modals
-  const [showCreatePallet, setShowCreatePallet] = useState(false);
-  const [showAddItem, setShowAddItem] = useState(false);
-  const [showPrintLabel, setShowPrintLabel] = useState(false);
-
-  // Create pallet form
-  const [newPallet, setNewPallet] = useState({
-    palletId: '',
-    retailer: 'BEST_BUY',
-    liquidationSource: 'DIRECT',
-    totalCogs: 0,
-    expectedCount: 0,
-  });
-
-  // Add item form
-  const [newItem, setNewItem] = useState({
-    manufacturer: '',
-    model: '',
-    category: 'PHONE',
-    upc: '',
-    serialNumber: '',
-  });
-
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-
+  // Determine initial state from session
   useEffect(() => {
-    loadData();
+    if (loading) return;
+    if (isActive && workstationId) {
+      setState('ready');
+    } else if (isActive && !workstationId) {
+      setState('workstation-prompt');
+    } else {
+      setState('no-session');
+    }
+  }, [isActive, workstationId, loading]);
+
+  // Load recent items
+  useEffect(() => {
+    loadRecentItems();
   }, []);
 
-  const loadData = async () => {
-    setLoading(true);
+  const loadRecentItems = async () => {
     try {
-      const [palletsData, itemsData] = await Promise.all([
-        api.getPallets({ status: 'RECEIVING,IN_PROGRESS' }),
-        api.getItems({ stage: 'INTAKE', limit: '10' }),
-      ]);
-      setPallets(palletsData);
-      setRecentItems(itemsData);
-    } catch (err) {
-      console.error('Failed to load data:', err);
-    } finally {
-      setLoading(false);
-    }
+      const items = await api.getItems({ stage: 'INTAKE', limit: '5' });
+      setRecentItems(items);
+    } catch { /* ignore */ }
+    setLoading(false);
   };
 
-  const handleCreatePallet = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
-    setMessage(null);
+  const handlePalletCreated = useCallback(async (pallet: any) => {
     try {
-      await api.createPallet(newPallet);
-      setMessage({ type: 'success', text: `Pallet ${newPallet.palletId} created successfully` });
-      setShowCreatePallet(false);
-      setNewPallet({ palletId: '', retailer: 'BEST_BUY', liquidationSource: 'DIRECT', totalCogs: 0, expectedCount: 0 });
-      loadData();
-    } catch (err: any) {
-      setMessage({ type: 'error', text: err.message || 'Failed to create pallet' });
-    } finally {
-      setSubmitting(false);
+      await startSession(pallet.palletId || pallet.pallet_id);
+      if (workstationId) {
+        setState('ready');
+      } else {
+        setState('workstation-prompt');
+      }
+    } catch {
+      // startSession will throw if pallet not found - try with pallet data
+      setState('workstation-prompt');
     }
-  };
+  }, [startSession, workstationId]);
 
-  const handleAddItem = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!session?.palletId) {
-      setMessage({ type: 'error', text: 'Please select a pallet first' });
-      return;
-    }
-    setSubmitting(true);
-    setMessage(null);
+  const handleWorkstationConfirm = useCallback((id: string) => {
+    setWorkstationId(id);
+    setState('ready');
+  }, [setWorkstationId]);
+
+  const handleIdentified = useCallback((data: any) => {
+    setIdentifiedData(data);
+    setState('reviewing');
+  }, []);
+
+  const handleItemSaved = useCallback((item: any) => {
+    setLastItem(item);
+    setItemCount((c) => c + 1);
+    setIdentifiedData(null);
+    setState('ready');
+    loadRecentItems();
+  }, []);
+
+  const handleCancelReview = useCallback(() => {
+    setIdentifiedData(null);
+    setState('ready');
+  }, []);
+
+  const handleEndSession = useCallback(() => {
+    endSession();
+    setLastItem(null);
+    setItemCount(0);
+    setIdentifiedData(null);
+    setState('no-session');
+  }, [endSession]);
+
+  const handlePalletRenamed = useCallback(async (newPalletId: string) => {
+    // Re-start session with the new pallet ID to refresh context
     try {
-      const item = await api.createItem({
-        palletId: session.palletId,
-        ...newItem,
-      });
-      setMessage({ type: 'success', text: `Item ${item.qlid} added successfully` });
-      setShowAddItem(false);
-      setNewItem({ manufacturer: '', model: '', category: 'PHONE', upc: '', serialNumber: '' });
-      loadData();
-    } catch (err: any) {
-      setMessage({ type: 'error', text: err.message || 'Failed to add item' });
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const filteredPallets = pallets.filter((p) =>
-    !searchQuery || p.palletId.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  const activeCount = pallets.filter((p) => p.status === 'IN_PROGRESS').length;
-  const receivingCount = pallets.filter((p) => p.status === 'RECEIVING').length;
+      await startSession(newPalletId);
+    } catch { /* session will still work with stale data */ }
+    setShowSupervisor(false);
+  }, [startSession]);
 
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <Loader size="xl" variant="bars" text="Loading intake data..." />
+        <Loader size="xl" variant="bars" text={t('common.loading')} />
       </div>
     );
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 max-w-4xl mx-auto">
       {/* Header */}
       <div className="flex justify-between items-start">
         <div>
-          <h1 className="text-2xl font-semibold text-white">Intake</h1>
-          <p className="mt-1 text-zinc-500">Receive pallets and add items to the system</p>
+          <h1 className="text-2xl font-semibold text-white">{t('intake.title')}</h1>
+          <p className="mt-1 text-zinc-500">{t('intake.subtitle')}</p>
         </div>
-        <div className="flex gap-3">
-          <Button variant="secondary" onClick={loadData}>
-            <RefreshCw size={18} />
-            Refresh
-          </Button>
-          <Button variant="primary" onClick={() => setShowCreatePallet(true)}>
-            <Plus size={18} />
-            New Pallet
-          </Button>
-        </div>
-      </div>
-
-      {/* Stats */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-dark-card)] p-6 transition-colors hover:border-[var(--color-border-light)]">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-zinc-500">Total Pallets</p>
-            <Boxes size={18} className="text-zinc-600" />
-          </div>
-          <p className="mt-3 text-3xl font-semibold text-white">{pallets.length}</p>
-        </div>
-        <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-dark-card)] p-6 transition-colors hover:border-[var(--color-border-light)]">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-zinc-500">Receiving</p>
-            <Package size={18} className="text-zinc-600" />
-          </div>
-          <p className="mt-3 text-3xl font-semibold text-[var(--color-ql-yellow)]">{receivingCount}</p>
-        </div>
-        <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-dark-card)] p-6 transition-colors hover:border-[var(--color-border-light)]">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-zinc-500">In Progress</p>
-            <RefreshCw size={18} className="text-zinc-600" />
-          </div>
-          <p className="mt-3 text-3xl font-semibold text-[var(--color-accent-blue)]">{activeCount}</p>
-        </div>
-        <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-dark-card)] p-6 transition-colors hover:border-[var(--color-border-light)]">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-zinc-500">Recent Items</p>
-            <CheckCircle size={18} className="text-zinc-600" />
-          </div>
-          <p className="mt-3 text-3xl font-semibold text-[var(--color-accent-green)]">{recentItems.length}</p>
-        </div>
-      </div>
-
-      {/* Pallet Session Card */}
-      <PalletSessionCard onPrintLabel={() => setShowPrintLabel(true)} />
-
-      {/* Message */}
-      {message && (
-        <div
-          className={`flex items-center gap-3 p-4 rounded-lg border ${
-            message.type === 'success'
-              ? 'bg-[var(--color-accent-green)]/10 border-[var(--color-accent-green)]/30 text-[var(--color-accent-green)]'
-              : 'bg-[var(--color-accent-red)]/10 border-[var(--color-accent-red)]/30 text-[var(--color-accent-red)]'
-          }`}
-        >
-          {message.type === 'success' ? <CheckCircle size={18} /> : <AlertCircle size={18} />}
-          {message.text}
-        </div>
-      )}
-
-      {/* Content Grid */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Pallets List */}
-        <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-dark-card)]">
-          <div className="p-6 flex justify-between items-center">
-            <h2 className="text-base font-medium text-white">Active Pallets</h2>
-            <div className="relative">
-              <Input
-                type="text"
-                placeholder="Search pallets..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 w-48"
-              />
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+        <div className="flex gap-3 items-center">
+          {isActive && (
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--color-dark-tertiary)] border border-[var(--color-border)]">
+              <div className="w-2 h-2 rounded-full bg-[var(--color-accent-green)] animate-pulse" />
+              <span className="text-sm font-mono text-[var(--color-ql-yellow)]">{session?.palletId}</span>
+              {workstationId && <span className="text-xs text-zinc-500">| {workstationId}</span>}
             </div>
-          </div>
-          <div className="px-6 pb-6">
-            {filteredPallets.length === 0 ? (
-              <div className="py-12 text-center text-zinc-500">
-                <Boxes size={32} className="mx-auto mb-3 text-zinc-600" />
-                <p>No active pallets</p>
-                <p className="text-sm text-zinc-600">Create a new pallet to get started</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {filteredPallets.map((pallet) => (
-                  <div
-                    key={pallet.palletId}
-                    className="flex items-center justify-between rounded-lg border border-[var(--color-border)] p-4 hover:border-[var(--color-border-light)] transition-colors"
-                  >
-                    <div>
-                      <p className="font-mono font-semibold text-[var(--color-ql-yellow)]">{pallet.palletId}</p>
-                      <p className="text-sm text-zinc-500">
-                        {pallet.retailer} | {pallet.actualCount}/{pallet.expectedCount} items
-                      </p>
-                    </div>
-                    <Badge
-                      variant={pallet.status === 'RECEIVING' ? 'warning' : 'info'}
-                      size="sm"
-                    >
-                      {pallet.status}
-                    </Badge>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Quick Add Item */}
-        <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-dark-card)]">
-          <div className="p-6">
-            <h2 className="text-base font-medium text-white">Quick Add Item</h2>
-            <p className="text-sm text-zinc-500 mt-1">Add an item to the current pallet session</p>
-          </div>
-          <div className="px-6 pb-6">
-            {!isActive ? (
-              <div className="py-12 text-center text-zinc-500">
-                <Package size={32} className="mx-auto mb-3 text-zinc-600" />
-                <p>No active pallet session</p>
-                <p className="text-sm text-zinc-600">Start a pallet session to add items</p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 p-3 rounded-lg bg-[var(--color-dark-tertiary)]">
-                  <CheckCircle size={16} className="text-[var(--color-accent-green)]" />
-                  <span className="text-sm text-zinc-300">Active: <span className="font-mono text-[var(--color-ql-yellow)]">{session?.palletId}</span></span>
-                </div>
-                <Button variant="primary" className="w-full" onClick={() => setShowAddItem(true)}>
-                  <Plus size={18} />
-                  Add Item to Pallet
-                </Button>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Recent Items */}
-      <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-dark-card)]">
-        <div className="p-6">
-          <h2 className="text-base font-medium text-white">Recent Intake Items</h2>
-        </div>
-        <div className="px-6 pb-6">
-          {recentItems.length === 0 ? (
-            <div className="py-8 text-center text-zinc-500">No recent items</div>
-          ) : (
-            <div className="overflow-hidden rounded-lg border border-[var(--color-border)]">
-              <table className="w-full">
-                <thead>
-                  <tr className="bg-[var(--color-dark-tertiary)]/50">
-                    <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">QLID</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Product</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Category</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Pallet</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Time</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[var(--color-border)]">
-                  {recentItems.map((item) => (
-                    <tr key={item.qlid} className="hover:bg-[var(--color-dark-tertiary)]/30 transition-colors">
-                      <td className="px-4 py-3 font-mono text-[var(--color-ql-yellow)]">{item.qlid}</td>
-                      <td className="px-4 py-3 text-white">{item.manufacturer} {item.model}</td>
-                      <td className="px-4 py-3 text-zinc-400">{item.category}</td>
-                      <td className="px-4 py-3 font-mono text-zinc-400">{item.palletId}</td>
-                      <td className="px-4 py-3 text-zinc-500 text-sm">{new Date(item.createdAt).toLocaleTimeString()}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          )}
+          {isActive && (
+            <button
+              onClick={() => setShowSupervisor(true)}
+              className="p-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-dark-tertiary)] text-zinc-500 hover:text-amber-500 hover:border-amber-500/30 transition-colors"
+              title={t('supervisor.title')}
+            >
+              <ShieldCheck size={16} />
+            </button>
+          )}
+          {isActive && (
+            <Button variant="secondary" size="sm" onClick={handleEndSession}>
+              <XCircle size={16} />
+              {t('common.close')}
+            </Button>
           )}
         </div>
       </div>
 
-      {/* Create Pallet Modal */}
-      <AnimatedModal isOpen={showCreatePallet} onClose={() => setShowCreatePallet(false)} title="Create New Pallet">
-        <form onSubmit={handleCreatePallet} className="space-y-4">
-          <div>
-            <Label htmlFor="palletId">Pallet ID *</Label>
-            <Input
-              id="palletId"
-              value={newPallet.palletId}
-              onChange={(e) => setNewPallet({ ...newPallet, palletId: e.target.value.toUpperCase() })}
-              placeholder="e.g., P1BBY"
-              className="font-mono"
-              required
-            />
+      {/* Session stats bar (when active) */}
+      {isActive && itemCount > 0 && (
+        <div className="grid grid-cols-3 gap-4">
+          <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-dark-card)] p-4 text-center">
+            <p className="text-3xl font-semibold text-[var(--color-ql-yellow)]">{itemCount}</p>
+            <p className="text-xs text-zinc-500 mt-1">{t('review.itemCount')}</p>
           </div>
-          <div>
-            <Label htmlFor="retailer">Retailer</Label>
-            <select
-              id="retailer"
-              className="w-full bg-[var(--color-dark-tertiary)] border border-[var(--color-border)] rounded-lg px-4 py-2.5 text-white focus:border-[var(--color-ql-yellow)] focus:outline-none"
-              value={newPallet.retailer}
-              onChange={(e) => setNewPallet({ ...newPallet, retailer: e.target.value })}
-            >
-              <option value="BEST_BUY">Best Buy</option>
-              <option value="TARGET">Target</option>
-              <option value="AMAZON">Amazon</option>
-              <option value="COSTCO">Costco</option>
-              <option value="WALMART">Walmart</option>
-              <option value="OTHER">Other</option>
-            </select>
+          <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-dark-card)] p-4 text-center">
+            <p className="text-3xl font-semibold text-white">{session?.pallet?.receivedItems || 0}</p>
+            <p className="text-xs text-zinc-500 mt-1">{t('intake.receiving')}</p>
           </div>
-          <div>
-            <Label htmlFor="liquidationSource">Liquidation Source</Label>
-            <select
-              id="liquidationSource"
-              className="w-full"
-              value={newPallet.liquidationSource}
-              onChange={(e) => setNewPallet({ ...newPallet, liquidationSource: e.target.value })}
-            >
-              <option value="DIRECT">Direct from Retailer</option>
-              <option value="TECH_LIQUIDATORS">Tech Liquidators</option>
-              <option value="BULQ">BULQ</option>
-              <option value="LIQUIDATION_COM">Liquidation.com</option>
-              <option value="BSTOCK">B-Stock</option>
-              <option value="DIRECT_LIQUIDATION">Direct Liquidation</option>
-              <option value="OTHER">Other</option>
-            </select>
+          <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-dark-card)] p-4 text-center">
+            <p className="text-3xl font-semibold text-zinc-400">{session?.pallet?.expectedItems || '\u2014'}</p>
+            <p className="text-xs text-zinc-500 mt-1">{t('palletScan.expectedItems')}</p>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor="totalCogs">Total COGS ($)</Label>
-              <Input
-                id="totalCogs"
-                type="number"
-                min={0}
-                step={0.01}
-                value={newPallet.totalCogs}
-                onChange={(e) => setNewPallet({ ...newPallet, totalCogs: parseFloat(e.target.value) || 0 })}
-              />
-            </div>
-            <div>
-              <Label htmlFor="expectedCount">Expected Count</Label>
-              <Input
-                id="expectedCount"
-                type="number"
-                min={0}
-                value={newPallet.expectedCount}
-                onChange={(e) => setNewPallet({ ...newPallet, expectedCount: parseInt(e.target.value) || 0 })}
-              />
-            </div>
-          </div>
-          <div className="flex justify-end gap-3 pt-4 border-t border-[var(--color-border)]">
-            <Button type="button" variant="secondary" onClick={() => setShowCreatePallet(false)}>Cancel</Button>
-            <Button type="submit" variant="primary" loading={submitting}>Create Pallet</Button>
-          </div>
-        </form>
-      </AnimatedModal>
+        </div>
+      )}
 
-      {/* Add Item Modal */}
-      <AnimatedModal isOpen={showAddItem} onClose={() => setShowAddItem(false)} title="Add Item to Pallet">
-        <form onSubmit={handleAddItem} className="space-y-4">
-          <div className="flex items-center gap-2 p-3 rounded-lg bg-[var(--color-dark-tertiary)]">
-            <Boxes size={16} className="text-[var(--color-ql-yellow)]" />
-            <span className="text-sm text-zinc-300">Adding to: <span className="font-mono text-[var(--color-ql-yellow)]">{session?.palletId}</span></span>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor="manufacturer">Manufacturer *</Label>
-              <Input
-                id="manufacturer"
-                value={newItem.manufacturer}
-                onChange={(e) => setNewItem({ ...newItem, manufacturer: e.target.value })}
-                placeholder="e.g., Apple"
-                required
-              />
-            </div>
-            <div>
-              <Label htmlFor="model">Model *</Label>
-              <Input
-                id="model"
-                value={newItem.model}
-                onChange={(e) => setNewItem({ ...newItem, model: e.target.value })}
-                placeholder="e.g., iPhone 14 Pro"
-                required
-              />
-            </div>
-          </div>
-          <div>
-            <Label htmlFor="category">Category</Label>
-            <select
-              id="category"
-              className="w-full bg-[var(--color-dark-tertiary)] border border-[var(--color-border)] rounded-lg px-4 py-2.5 text-white focus:border-[var(--color-ql-yellow)] focus:outline-none"
-              value={newItem.category}
-              onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
-            >
-              {CATEGORIES.map((cat) => (
-                <option key={cat} value={cat}>{cat.replace(/_/g, ' ')}</option>
-              ))}
-            </select>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor="upc">UPC (optional)</Label>
-              <Input
-                id="upc"
-                value={newItem.upc}
-                onChange={(e) => setNewItem({ ...newItem, upc: e.target.value })}
-                placeholder="Barcode"
-              />
-            </div>
-            <div>
-              <Label htmlFor="serialNumber">Serial (optional)</Label>
-              <Input
-                id="serialNumber"
-                value={newItem.serialNumber}
-                onChange={(e) => setNewItem({ ...newItem, serialNumber: e.target.value })}
-                placeholder="Serial number"
-              />
-            </div>
-          </div>
-          <div className="flex justify-end gap-3 pt-4 border-t border-[var(--color-border)]">
-            <Button type="button" variant="secondary" onClick={() => setShowAddItem(false)}>Cancel</Button>
-            <Button type="submit" variant="primary" loading={submitting}>
-              <Plus size={18} />
-              Add Item
+      {/* State-based content */}
+
+      {/* No session -> Show start options */}
+      {state === 'no-session' && (
+        <div className="space-y-6">
+          <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-dark-card)] p-8 text-center">
+            <Package size={48} className="mx-auto mb-4 text-zinc-600" />
+            <h2 className="text-lg font-medium text-white mb-2">{t('intake.noSession')}</h2>
+            <p className="text-zinc-500 mb-6">{t('intake.startSession')}</p>
+            <Button variant="primary" size="lg" onClick={() => setState('pallet-scan')}>
+              <Boxes size={20} />
+              {t('intake.newPallet')}
             </Button>
           </div>
-        </form>
-      </AnimatedModal>
 
-      {/* Pallet Label Modal */}
-      <PalletLabelModal
-        isOpen={showPrintLabel}
-        onClose={() => setShowPrintLabel(false)}
-        session={session}
-      />
+          {/* Recent items */}
+          {recentItems.length > 0 && (
+            <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-dark-card)]">
+              <div className="p-4 border-b border-[var(--color-border)]">
+                <h3 className="text-sm font-medium text-zinc-400">{t('intake.recentItems')}</h3>
+              </div>
+              <div className="divide-y divide-[var(--color-border)]">
+                {recentItems.map((item: any) => (
+                  <div key={item.qlid} className="px-4 py-3 flex items-center justify-between">
+                    <div>
+                      <span className="font-mono text-sm text-[var(--color-ql-yellow)]">{item.qlid}</span>
+                      <span className="text-zinc-400 text-sm ml-3">{item.manufacturer} {item.model}</span>
+                    </div>
+                    <span className="text-xs text-zinc-600">{new Date(item.createdAt).toLocaleTimeString()}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Pallet scan flow */}
+      {state === 'pallet-scan' && (
+        <SourcingPalletFlow
+          onPalletCreated={handlePalletCreated}
+          onCancel={() => setState('no-session')}
+        />
+      )}
+
+      {/* Workstation prompt */}
+      {state === 'workstation-prompt' && (
+        <WorkstationPrompt
+          onConfirm={handleWorkstationConfirm}
+          currentWorkstation={workstationId}
+        />
+      )}
+
+      {/* Ready -> Show identification panel */}
+      {state === 'ready' && (
+        <div className="space-y-6">
+          {lastItem && <LastItemCard item={lastItem} itemCount={itemCount} />}
+          <IdentificationPanel onIdentified={handleIdentified} />
+        </div>
+      )}
+
+      {/* Reviewing -> Show review card */}
+      {state === 'reviewing' && identifiedData && (
+        <ReviewConfirmCard
+          data={identifiedData}
+          palletId={session?.palletId || ''}
+          workstationId={workstationId || 'wk-0'}
+          onSaved={handleItemSaved}
+          onCancel={handleCancelReview}
+        />
+      )}
+      {/* Supervisor Override Modal */}
+      {showSupervisor && session?.palletId && (
+        <SupervisorOverride
+          palletId={session.palletId}
+          onClose={() => setShowSupervisor(false)}
+          onPalletRenamed={handlePalletRenamed}
+        />
+      )}
     </div>
   );
 }

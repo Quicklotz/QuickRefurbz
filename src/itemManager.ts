@@ -81,6 +81,12 @@ export interface ReceiveItemOptions {
   // Required intake metadata
   employeeId: string;                  // Who is intaking
   warehouseId: string;                 // Where
+
+  // Sourcing integration (optional)
+  workstationId?: string;              // Workstation that performed intake
+  msrp?: number;                       // Manufacturer suggested retail price
+  manifestMatch?: boolean;             // Whether item matched a manifest line item
+  identificationMethod?: string;       // 'barcode' | 'manual' | 'label-photo' | 'product-photo'
 }
 
 export interface ReceiveItemResult {
@@ -147,8 +153,9 @@ export async function receiveItem(options: ReceiveItemOptions): Promise<ReceiveI
       intake_employee_id, warehouse_id,
       manufacturer, model, category,
       upc, asin, serial_number, condition_notes,
-      priority, notes
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+      priority, notes,
+      workstation_id, identification_method, msrp, manifest_match
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
     RETURNING *
   `, [
     id,
@@ -166,7 +173,11 @@ export async function receiveItem(options: ReceiveItemOptions): Promise<ReceiveI
     options.serialNumber || null,
     options.condition || null,
     options.priority || 'NORMAL',
-    options.notes || null
+    options.notes || null,
+    options.workstationId || null,
+    options.identificationMethod || null,
+    options.msrp || null,
+    options.manifestMatch || false
   ]);
 
   if (!result.rows.length) throw new Error('Failed to insert refurb item: INSERT RETURNING returned no rows');

@@ -474,10 +474,20 @@ async function initializePostgres(db: DatabaseAdapter): Promise<void> {
       next_workflow TEXT,
       completed_at TIMESTAMPTZ,
       notes TEXT,
+      workstation_id TEXT,
+      identification_method TEXT,
+      msrp NUMERIC,
+      manifest_match BOOLEAN DEFAULT false,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `);
+
+  // Add new columns for existing databases
+  await db.query(`ALTER TABLE refurb_items ADD COLUMN IF NOT EXISTS workstation_id TEXT`);
+  await db.query(`ALTER TABLE refurb_items ADD COLUMN IF NOT EXISTS identification_method TEXT`);
+  await db.query(`ALTER TABLE refurb_items ADD COLUMN IF NOT EXISTS msrp NUMERIC`);
+  await db.query(`ALTER TABLE refurb_items ADD COLUMN IF NOT EXISTS manifest_match BOOLEAN DEFAULT false`);
 
   await db.query(`CREATE INDEX IF NOT EXISTS idx_refurb_items_qlid ON refurb_items(qlid)`);
   await db.query(`CREATE INDEX IF NOT EXISTS idx_refurb_items_stage ON refurb_items(current_stage)`);
@@ -2645,6 +2655,19 @@ async function initializeSQLite(db: DatabaseAdapter): Promise<void> {
 
   await db.query(`CREATE INDEX IF NOT EXISTS idx_printer_settings_user ON printer_settings(user_id)`);
   await db.query(`CREATE INDEX IF NOT EXISTS idx_printer_settings_station ON printer_settings(station_id)`);
+
+  // AI actions log
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS ai_actions (
+      id TEXT PRIMARY KEY,
+      qlid TEXT NOT NULL,
+      action TEXT NOT NULL,
+      result TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    )
+  `);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_ai_actions_qlid ON ai_actions(qlid)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_ai_actions_action ON ai_actions(action)`);
 
   // Seed default grading rubrics if empty
   const rubricCheck = await db.query(`SELECT COUNT(*) as count FROM grading_rubrics`);

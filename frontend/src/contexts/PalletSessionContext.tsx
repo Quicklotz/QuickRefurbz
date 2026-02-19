@@ -23,6 +23,8 @@ export interface PalletSession {
   pallet: Pallet;
   startedAt: string;
   expiresAt: string;
+  workstationId?: string;
+  warehouseId?: string;
 }
 
 export interface ValidationResult {
@@ -42,6 +44,10 @@ interface PalletSessionContextValue {
   validateBarcode: (barcode: string) => ValidationResult;
   isActive: boolean;
   activePalletId: string | null;
+  workstationId: string | null;
+  warehouseId: string | null;
+  setWorkstationId: (id: string) => void;
+  setWarehouseId: (id: string) => void;
 }
 
 const STORAGE_KEY = 'qr_active_pallet';
@@ -60,8 +66,10 @@ export function PalletSessionProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<PalletSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [workstationId, setWorkstationIdState] = useState<string | null>(null);
+  const [warehouseId, setWarehouseIdState] = useState<string | null>(null);
 
-  // Load session from localStorage on mount
+  // Load session and workstation/warehouse from localStorage on mount
   useEffect(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
@@ -78,9 +86,16 @@ export function PalletSessionProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       console.error('Failed to load pallet session from localStorage:', err);
       localStorage.removeItem(STORAGE_KEY);
-    } finally {
-      setLoading(false);
     }
+
+    // Load workstation and warehouse IDs
+    const storedWorkstation = localStorage.getItem('qr_workstation_id');
+    if (storedWorkstation) setWorkstationIdState(storedWorkstation);
+
+    const storedWarehouse = localStorage.getItem('qr_warehouse_id');
+    if (storedWarehouse) setWarehouseIdState(storedWarehouse);
+
+    setLoading(false);
   }, []);
 
   // Save session to localStorage whenever it changes
@@ -131,6 +146,20 @@ export function PalletSessionProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(STORAGE_KEY);
   }, []);
 
+  const setWorkstationId = useCallback((id: string) => {
+    setWorkstationIdState(id);
+    localStorage.setItem('qr_workstation_id', id);
+    // Also save to recent stations list
+    const recent = JSON.parse(localStorage.getItem('qr_recent_stations') || '[]') as string[];
+    const updated = [id, ...recent.filter(s => s !== id)].slice(0, 5);
+    localStorage.setItem('qr_recent_stations', JSON.stringify(updated));
+  }, []);
+
+  const setWarehouseId = useCallback((id: string) => {
+    setWarehouseIdState(id);
+    localStorage.setItem('qr_warehouse_id', id);
+  }, []);
+
   const validateBarcode = useCallback((barcode: string): ValidationResult => {
     const parsed = parseBarcode(barcode);
 
@@ -175,6 +204,10 @@ export function PalletSessionProvider({ children }: { children: ReactNode }) {
     validateBarcode,
     isActive: !!session,
     activePalletId: session?.palletId || null,
+    workstationId,
+    warehouseId,
+    setWorkstationId,
+    setWarehouseId,
   };
 
   return (

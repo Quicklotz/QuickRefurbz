@@ -21,6 +21,8 @@ import {
 } from '@/components/aceternity/sidebar';
 import { Spotlight } from '@/components/aceternity/spotlight';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
+import { Globe } from 'lucide-react';
 import {
   IconLayoutDashboard,
   IconPackage,
@@ -96,6 +98,37 @@ function SessionInfo() {
         </motion.div>
       )}
     </AnimatePresence>
+  );
+}
+
+function LanguageToggle() {
+  const { i18n } = useTranslation();
+  const { open } = useSidebar();
+
+  const toggleLanguage = () => {
+    const next = i18n.language === 'en' ? 'es' : 'en';
+    i18n.changeLanguage(next);
+  };
+
+  return (
+    <button
+      onClick={toggleLanguage}
+      className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-zinc-400 hover:text-white hover:bg-[var(--color-dark-tertiary)] transition-colors"
+    >
+      <Globe size={20} className="flex-shrink-0" />
+      <AnimatePresence>
+        {open && (
+          <motion.span
+            initial={{ opacity: 0, width: 0 }}
+            animate={{ opacity: 1, width: 'auto' }}
+            exit={{ opacity: 0, width: 0 }}
+            className="text-sm whitespace-nowrap overflow-hidden"
+          >
+            {i18n.language === 'en' ? 'Español' : 'English'}
+          </motion.span>
+        )}
+      </AnimatePresence>
+    </button>
   );
 }
 
@@ -186,6 +219,9 @@ function SidebarNav() {
               onClick={handleHelp}
             />
           )}
+
+          <SidebarDivider />
+          <LanguageToggle />
         </SidebarContent>
 
         <SidebarFooter>

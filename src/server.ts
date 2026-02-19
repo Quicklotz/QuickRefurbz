@@ -27,6 +27,9 @@ import * as safetyMonitor from './quicktestz/services/safetyMonitor.js';
 import { sendInviteEmail, sendPasswordResetEmail, sendWelcomeEmail } from './email.js';
 import swaggerUi from 'swagger-ui-express';
 import { readFileSync } from 'fs';
+import { getSourcingPool, isSourcingConfigured, testSourcingConnection } from './services/sourcingDb.js';
+import * as sourcingLookup from './services/sourcingLookup.js';
+import * as intakeIdentificationService from './services/intakeIdentificationService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -959,6 +962,257 @@ app.delete('/api/pallets/:id', authMiddleware, adminMiddleware, async (req: Requ
   }
 });
 
+// ==================== SUPERVISOR OVERRIDE ====================
+
+const SUPERVISOR_CODE = process.env.SUPERVISOR_CODE || '2026';
+
+app.post('/api/supervisor/pallet-action', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const { code, action, palletId, newPalletId, printerIp } = req.body;
+
+    if (!code || code !== SUPERVISOR_CODE) {
+      res.status(403).json({ error: 'Invalid supervisor code' });
+      return;
+    }
+
+    if (!palletId) {
+      res.status(400).json({ error: 'palletId is required' });
+      return;
+    }
+
+    if (action === 'rename') {
+      if (!newPalletId) {
+        res.status(400).json({ error: 'newPalletId is required for rename action' });
+        return;
+      }
+      const pallet = await palletManager.renamePallet(palletId, newPalletId);
+      if (!pallet) {
+        res.status(404).json({ error: 'Pallet not found' });
+        return;
+      }
+      res.json({ success: true, pallet, message: `Pallet renamed to ${pallet.palletId}` });
+    } else if (action === 'reprint') {
+      const pallet = await palletManager.getPalletById(palletId);
+      if (!pallet) {
+        res.status(404).json({ error: 'Pallet not found' });
+        return;
+      }
+      // Return pallet data for reprinting (client handles print via existing /api/labels/print-zpl)
+      res.json({ success: true, pallet, message: 'Pallet data retrieved for reprint' });
+    } else {
+      res.status(400).json({ error: 'Invalid action. Use "rename" or "reprint".' });
+    }
+  } catch (error: any) {
+    console.error('Supervisor pallet action error:', error);
+    res.status(400).json({ error: error.message || 'Supervisor action failed' });
+  }
+});
+
+// ==================== MULTER (file upload middleware) ====================
+
+import multer from 'multer';
+
+// Configure multer for memory storage (used by photo and intake identification endpoints)
+const photoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB max
+    files: 10 // Max 10 files per request
+  },
+  fileFilter: (_req, file, cb) => {
+    // Accept only images
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed'));
+    }
+  }
+});
+
+// ==================== SOURCING INTEGRATION ====================
+
+// Look up a sourcing pallet by its pallet ID (e.g. PTRF88569)
+app.get('/api/sourcing/pallet/:palletId', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const palletId = req.params.palletId as string;
+    const pallet = await sourcingLookup.lookupPalletById(palletId);
+
+    if (!pallet) {
+      return res.status(404).json({ error: 'Sourcing pallet not found', palletId });
+    }
+
+    // Also fetch line items for this pallet
+    const lineItems = await sourcingLookup.lookupLineItems(palletId);
+
+    res.json({ pallet, lineItems });
+  } catch (error) {
+    console.error('Sourcing pallet lookup error:', error);
+    res.status(500).json({ error: 'Failed to look up sourcing pallet' });
+  }
+});
+
+// Look up all pallets for a given order ID
+app.get('/api/sourcing/order/:orderId', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const orderId = req.params.orderId as string;
+    const pallets = await sourcingLookup.lookupPalletsByOrderId(orderId);
+
+    if (pallets.length === 0) {
+      return res.status(404).json({ error: 'No pallets found for order', orderId });
+    }
+
+    res.json({ pallets });
+  } catch (error) {
+    console.error('Sourcing order lookup error:', error);
+    res.status(500).json({ error: 'Failed to look up sourcing order' });
+  }
+});
+
+// Create an internal pallet from a sourcing pallet
+app.post('/api/pallets/from-sourcing', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const { sourcingPalletId, sourcingOrderId, workstationId } = req.body;
+
+    if (!sourcingPalletId) {
+      return res.status(400).json({ error: 'sourcingPalletId is required' });
+    }
+
+    // Look up the sourcing pallet
+    const sourcingPallet = await sourcingLookup.lookupPalletById(sourcingPalletId);
+    if (!sourcingPallet) {
+      return res.status(404).json({ error: 'Sourcing pallet not found', sourcingPalletId });
+    }
+
+    // Derive retailer from sourcing data
+    const retailer = sourcingLookup.deriveRetailer(sourcingPallet) as Retailer;
+
+    // Generate internal pallet ID
+    const internalPalletId = await generateRfbPalletId(retailer);
+
+    // Create internal pallet with mapped data
+    const pallet = await palletManager.createPallet({
+      palletId: internalPalletId,
+      retailer,
+      liquidationSource: 'OTHER' as LiquidationSource,
+      sourcePalletId: sourcingPallet.palletId,
+      sourceOrderId: sourcingPallet.orderId || sourcingOrderId || undefined,
+      sourceManifestUrl: sourcingPallet.manifestUrl || undefined,
+      purchaseDate: sourcingPallet.orderDate ? new Date(sourcingPallet.orderDate) : undefined,
+      totalCogs: sourcingPallet.estimatedCogs || 0,
+      expectedItems: sourcingPallet.estimatedItems || 0,
+      warehouseId: workstationId || undefined,
+      notes: `Imported from sourcing pallet ${sourcingPallet.palletId}`,
+    });
+
+    res.status(201).json({
+      pallet,
+      sourcingContext: {
+        sourcingPalletId: sourcingPallet.palletId,
+        sourcingOrderId: sourcingPallet.orderId,
+        derivedRetailer: retailer,
+      },
+    });
+  } catch (error) {
+    console.error('Create pallet from sourcing error:', error);
+    res.status(500).json({ error: 'Failed to create pallet from sourcing data' });
+  }
+});
+
+// Health check for sourcing database connection
+app.get('/api/health/sourcing', async (_req: Request, res: Response) => {
+  try {
+    if (!isSourcingConfigured()) {
+      return res.json({ status: 'not_configured', latencyMs: -1 });
+    }
+
+    const start = Date.now();
+    const connected = await testSourcingConnection();
+    const latencyMs = Date.now() - start;
+
+    res.json({
+      status: connected ? 'connected' : 'disconnected',
+      latencyMs,
+    });
+  } catch (error) {
+    console.error('Sourcing health check error:', error);
+    res.json({ status: 'disconnected', latencyMs: -1 });
+  }
+});
+
+// ==================== INTAKE IDENTIFICATION ====================
+
+// Identify product by barcode scan (cascading lookup)
+app.post('/api/intake/identify/barcode', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const { barcode } = req.body;
+
+    if (!barcode || typeof barcode !== 'string') {
+      return res.status(400).json({ error: 'barcode is required (string)' });
+    }
+
+    const result = await intakeIdentificationService.identifyByBarcode(barcode);
+    res.json(result);
+  } catch (error) {
+    console.error('Barcode identification error:', error);
+    res.status(500).json({ error: 'Failed to identify product by barcode' });
+  }
+});
+
+// Search for products by text query
+app.post('/api/intake/identify/search', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const { query } = req.body;
+
+    if (!query || typeof query !== 'string') {
+      return res.status(400).json({ error: 'query is required (string)' });
+    }
+
+    const results = await intakeIdentificationService.identifyBySearch(query);
+    res.json({ results });
+  } catch (error) {
+    console.error('Search identification error:', error);
+    res.status(500).json({ error: 'Failed to search products' });
+  }
+});
+
+// Identify product from label photo (AI vision)
+app.post('/api/intake/identify/label-photo', authMiddleware, photoUpload.single('photo'), async (req: AuthRequest, res: Response) => {
+  try {
+    const file = req.file;
+    if (!file) {
+      return res.status(400).json({ error: 'photo file is required' });
+    }
+
+    const result = await intakeIdentificationService.identifyFromLabelPhoto(file.buffer, file.mimetype);
+    res.json(result);
+  } catch (error: any) {
+    console.error('Label photo identification error:', error);
+    if (error.message?.includes('OPENAI_API_KEY')) {
+      return res.status(503).json({ error: 'AI service not configured' });
+    }
+    res.status(500).json({ error: 'Failed to identify product from label photo' });
+  }
+});
+
+// Identify product from product photo (AI vision)
+app.post('/api/intake/identify/product-photo', authMiddleware, photoUpload.single('photo'), async (req: AuthRequest, res: Response) => {
+  try {
+    const file = req.file;
+    if (!file) {
+      return res.status(400).json({ error: 'photo file is required' });
+    }
+
+    const result = await intakeIdentificationService.identifyFromProductPhoto(file.buffer, file.mimetype);
+    res.json(result);
+  } catch (error: any) {
+    console.error('Product photo identification error:', error);
+    if (error.message?.includes('OPENAI_API_KEY')) {
+      return res.status(503).json({ error: 'AI service not configured' });
+    }
+    res.status(500).json({ error: 'Failed to identify product from photo' });
+  }
+});
+
 // ==================== ITEMS ====================
 
 app.get('/api/items', authMiddleware, async (req: Request, res: Response) => {
@@ -1585,25 +1839,7 @@ app.get('/api/upc/:upc', authMiddleware, async (req: Request, res: Response) => 
 
 // ==================== PHOTO API ====================
 
-import multer from 'multer';
 import * as photoService from './services/photoService.js';
-
-// Configure multer for memory storage
-const photoUpload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB max
-    files: 10 // Max 10 files per request
-  },
-  fileFilter: (_req, file, cb) => {
-    // Accept only images
-    if (file.mimetype.startsWith('image/')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only image files are allowed'));
-    }
-  }
-});
 
 // Upload photos for an item
 app.post('/api/photos/:qlid', authMiddleware, photoUpload.array('photos', 10), async (req: AuthRequest, res: Response) => {
@@ -2432,6 +2668,7 @@ import { discoverPrinters, checkPrinterStatus, getPrinterLabelSize } from './pri
 import * as certificateGenerator from './services/certificateGenerator.js';
 import * as batchExporter from './services/batchExporter.js';
 import * as dataFeedService from './services/dataFeedService.js';
+import * as aiService from './services/aiService.js';
 
 // Generate pallet-only label
 app.get('/api/labels/pallet/:palletId', authMiddleware, async (req: AuthRequest, res: Response) => {
@@ -3835,6 +4072,104 @@ app.get('/api/admin/stations/:id/activity', authMiddleware, adminMiddleware, asy
   } catch (error) {
     console.error('Get station activity error:', error);
     res.status(500).json({ error: 'Failed to get station activity' });
+  }
+});
+
+// ==================== AI ENDPOINTS ====================
+
+// Check if AI is configured
+app.get('/api/ai/status', authMiddleware, (_req: Request, res: Response) => {
+  res.json({
+    configured: aiService.isConfigured(),
+    model: 'gpt-4o',
+    features: ['grade-photos', 'describe', 'identify'],
+  });
+});
+
+// Auto-grade item from photos using AI vision
+app.post('/api/ai/grade-photos/:qlid', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const qlid = req.params.qlid as string;
+    const item = await itemManager.getItem(qlid);
+    if (!item) {
+      res.status(404).json({ error: 'Item not found' });
+      return;
+    }
+
+    const result = await aiService.gradeFromPhotos(
+      item.qlid,
+      item.category,
+      item.conditionNotes || undefined
+    );
+
+    res.json(result);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'AI grading failed';
+    const status = message.includes('not configured') ? 503 : message.includes('No photos') ? 400 : 500;
+    console.error('AI grade-photos error:', error);
+    res.status(status).json({ error: message });
+  }
+});
+
+// Generate marketplace description using AI
+app.post('/api/ai/describe/:qlid', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const qlid = req.params.qlid as string;
+    const item = await itemManager.getItem(qlid);
+    if (!item) {
+      res.status(404).json({ error: 'Item not found' });
+      return;
+    }
+
+    const grade = (req.body.grade as string) || undefined;
+    const result = await aiService.generateDescription(
+      item.qlid,
+      item,
+      grade as any
+    );
+
+    res.json(result);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'AI description failed';
+    const status = message.includes('not configured') ? 503 : 500;
+    console.error('AI describe error:', error);
+    res.status(status).json({ error: message });
+  }
+});
+
+// Identify item from photos using AI vision
+app.post('/api/ai/identify/:qlid', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const qlid = req.params.qlid as string;
+    const item = await itemManager.getItem(qlid);
+    if (!item) {
+      res.status(404).json({ error: 'Item not found' });
+      return;
+    }
+
+    const result = await aiService.identifyItem(item.qlid, item.upc || undefined);
+    res.json(result);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'AI identification failed';
+    const status = message.includes('not configured') ? 503 : message.includes('No photos') ? 400 : 500;
+    console.error('AI identify error:', error);
+    res.status(status).json({ error: message });
+  }
+});
+
+// Get AI action history for an item
+app.get('/api/ai/history/:qlid', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { qlid } = req.params;
+    const db = getPool();
+    const result = await db.query(
+      `SELECT id, action, result, created_at FROM ai_actions WHERE qlid = $1 ORDER BY created_at DESC LIMIT 50`,
+      [qlid]
+    );
+    res.json(result.rows);
+  } catch (error) {
+    console.error('AI history error:', error);
+    res.status(500).json({ error: 'Failed to fetch AI history' });
   }
 });
 
