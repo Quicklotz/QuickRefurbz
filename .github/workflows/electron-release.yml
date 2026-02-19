@@ -228,26 +228,44 @@ jobs:
           VERSION="${{ steps.installer.outputs.version }}"
           EXE_NAME="${{ steps.installer.outputs.exe_name }}"
           SHA256=$(sha256sum "${{ steps.installer.outputs.exe_path }}" | awk '{print $1}')
-          DOWNLOAD_URL="https://quickrefurbz.com/downloads/$EXE_NAME"
+          # URL-encode spaces for the download URL
+          DOWNLOAD_URL="https://quickrefurbz.com/downloads/$(echo "$EXE_NAME" | sed 's/ /%20/g')"
+
+          # Build autoupdate URL template (replace version with $version placeholder)
+          AUTOUPDATE_URL="$(echo "$DOWNLOAD_URL" | sed "s/$VERSION/\\\$version/g")"
 
           # Update scoop manifest with jq
           jq \
             --arg ver "$VERSION" \
             --arg url "$DOWNLOAD_URL" \
             --arg hash "$SHA256" \
-            '.version = $ver | .architecture."64bit".url = $url | .architecture."64bit".hash = $hash' \
+            --arg autourl "$AUTOUPDATE_URL" \
+            '.version = $ver | .architecture."64bit".url = $url | .architecture."64bit".hash = $hash | .autoupdate.architecture."64bit".url = $autourl' \
             scoop/quickrefurbz.json > scoop/quickrefurbz.json.tmp
 
           mv scoop/quickrefurbz.json.tmp scoop/quickrefurbz.json
 
+          # Also update the installer script filename pattern
+          jq \
+            --arg exe_base "$(echo "$EXE_NAME" | sed "s/ $VERSION//" | sed 's/\.exe$//')" \
+            '.installer.script = ["Start-Process -FilePath \"$dir\\\\" + $exe_base + " $version.exe\" -ArgumentList '"'"'/S'"'"' -Wait"]' \
+            scoop/quickrefurbz.json > scoop/quickrefurbz.json.tmp 2>/dev/null || true
+
+          if [ -f scoop/quickrefurbz.json.tmp ] && [ -s scoop/quickrefurbz.json.tmp ]; then
+            mv scoop/quickrefurbz.json.tmp scoop/quickrefurbz.json
+          fi
+
           echo "Updated scoop/quickrefurbz.json:"
           cat scoop/quickrefurbz.json
+
+      - name: Sync bucket manifest
+        run: cp scoop/quickrefurbz.json bucket/quickrefurbz.json
 
       - name: Commit and push Scoop manifest
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add scoop/quickrefurbz.json
+          git add scoop/quickrefurbz.json bucket/quickrefurbz.json
           if git diff --cached --quiet; then
             echo "No changes to Scoop manifest -- skipping commit"
           else
