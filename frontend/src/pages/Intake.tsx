@@ -217,22 +217,23 @@ export function Intake() {
 
   const handleBarcodeScan = async () => {
     const code = barcodeInput.trim();
-    if (!code || code.length < 6) return;
+    if (!code || code.length < 3) return;
     setLoading(true);
     setError(null);
     try {
       const data = await api.identifyByBarcode(code);
-      if (data.found) {
-        populateReview({
-          ...data,
-          upc: code,
-          identificationMethod: 'barcode',
-        });
-      } else {
-        setError('Product not found by barcode. Try manual search or photo.');
-      }
+      // Always proceed to review with whatever data we got — barcode is always saved
+      populateReview({
+        ...(data.found ? data : {}),
+        upc: code,
+        identificationMethod: 'barcode',
+      });
     } catch {
-      setError('Barcode lookup failed.');
+      // Even if lookup fails, still proceed with the barcode saved as UPC
+      populateReview({
+        upc: code,
+        identificationMethod: 'barcode',
+      });
     } finally {
       setLoading(false);
     }
