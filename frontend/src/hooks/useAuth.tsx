@@ -33,18 +33,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    // Check for existing token on mount (uses same 'token' key as ApiClient)
-    const token = api.getToken();
-    if (token) {
-      api.getCurrentUser()
-        .then(setUser)
-        .catch(() => {
+    // Wait for Electron station auto-login to finish (if running), then check token
+    const init = async () => {
+      if (api.autoLoginReady) {
+        await api.autoLoginReady;
+      }
+      const token = api.getToken();
+      if (token) {
+        try {
+          const currentUser = await api.getCurrentUser();
+          setUser(currentUser);
+        } catch {
           api.setToken(null);
-        })
-        .finally(() => setLoading(false));
-    } else {
+        }
+      }
       setLoading(false);
-    }
+    };
+    init();
   }, []);
 
   const login = async (username: string, password: string) => {

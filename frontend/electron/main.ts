@@ -10,6 +10,7 @@ interface StationConfig {
   kioskMode: boolean;
   apiBase?: string;
   adminPin?: string;
+  githubToken?: string;
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -114,10 +115,10 @@ function createWindow() {
 app.whenReady().then(() => {
   createWindow();
 
-  // Auto-updater for private GitHub releases — token from station config or env
+  // Auto-updater for private GitHub releases — token from env or station config
   const ghToken = stationConfig?.apiBase
     ? undefined  // skip updates when using custom API base
-    : process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
+    : process.env.GH_TOKEN || process.env.GITHUB_TOKEN || stationConfig?.githubToken;
   if (ghToken) {
     autoUpdater.requestHeaders = { Authorization: `token ${ghToken}` };
   }
@@ -142,8 +143,33 @@ ipcMain.handle('get-version', () => app.getVersion());
 
 ipcMain.handle('get-station-config', () => {
   if (!stationConfig) return null;
-  const { password, adminPin, ...safeConfig } = stationConfig;
+  const { password, adminPin, githubToken, ...safeConfig } = stationConfig;
   return safeConfig;
+});
+
+ipcMain.handle('get-station-credentials', () => {
+  if (!stationConfig) return null;
+  if (!stationConfig.email || !stationConfig.password) return null;
+  return { email: stationConfig.email, password: stationConfig.password };
+});
+
+ipcMain.handle('save-credentials', (_event, email: string, password: string) => {
+  const configDir = path.join(app.getPath('appData'), 'QuickRefurbz');
+  const configPath = path.join(configDir, 'station-config.json');
+  try {
+    if (!fs.existsSync(configDir)) {
+      fs.mkdirSync(configDir, { recursive: true });
+    }
+    // Merge with existing config or create new
+    const existing = stationConfig || {} as StationConfig;
+    const updated = { ...existing, email, password };
+    fs.writeFileSync(configPath, JSON.stringify(updated, null, 2), 'utf-8');
+    stationConfig = updated;
+    return true;
+  } catch (err) {
+    console.error('Failed to save credentials:', err);
+    return false;
+  }
 });
 
 ipcMain.handle('unlock-kiosk', (_event, pin: string) => {

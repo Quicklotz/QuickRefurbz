@@ -32,11 +32,11 @@ class ApiClient {
 
   private async tryStationAutoLogin() {
     const electron = (window as any).electronAPI;
-    if (!electron?.getStationConfig || this.token) return;
+    if (!electron?.getStationCredentials || this.token) return;
     try {
-      const config = await electron.getStationConfig();
-      if (config?.email && config?.password) {
-        await this.login(config.email, config.password);
+      const creds = await electron.getStationCredentials();
+      if (creds?.email && creds?.password) {
+        await this.login(creds.email, creds.password);
       }
     } catch (err) {
       console.error('Station auto-login failed:', err);
@@ -111,6 +111,15 @@ class ApiClient {
       body: JSON.stringify({ email, password }),
     });
     this.setToken(result.token);
+    // Persist credentials in Electron station config for auto-login on next launch
+    try {
+      const electron = (window as any).electronAPI;
+      if (electron?.saveCredentials) {
+        await electron.saveCredentials(email, password);
+      }
+    } catch (_) {
+      // Non-critical — ignore if not running in Electron or save fails
+    }
     return result;
   }
 
@@ -222,6 +231,17 @@ class ApiClient {
 
   async deletePallet(id: string) {
     return this.request<any>(`/pallets/${id}`, { method: 'DELETE' });
+  }
+
+  async createPalletFromSourcing(data: {
+    sourcingPalletId: string;
+    sourcingOrderId?: string;
+    workstationId?: string;
+  }) {
+    return this.request<any>('/pallets/from-sourcing', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
   }
 
   async generateRfbPalletId(retailer?: string) {
@@ -874,6 +894,96 @@ class ApiClient {
       total: number;
       byProvider: Record<string, number>;
     }>('/upc/stats');
+  }
+
+  // ==================== SUPERVISOR ====================
+
+  async supervisorPalletAction(data: {
+    code: string;
+    action: 'rename' | 'reprint';
+    palletId: string;
+    newPalletId?: string;
+  }) {
+    return this.request<any>('/supervisor/pallet-action', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // ==================== SOURCING LOOKUP ====================
+
+  async lookupSourcingPallet(palletId: string) {
+    return this.request<any>(`/sourcing/pallet/${encodeURIComponent(palletId)}`);
+  }
+
+  async lookupSourcingOrder(orderId: string) {
+    return this.request<any>(`/sourcing/order/${encodeURIComponent(orderId)}`);
+  }
+
+  async checkSourcingHealth() {
+    return this.request<any>('/health/sourcing');
+  }
+
+  // ==================== INTAKE IDENTIFICATION ====================
+
+  async identifyByBarcode(barcode: string) {
+    return this.request<any>('/intake/identify/barcode', {
+      method: 'POST',
+      body: JSON.stringify({ barcode }),
+    });
+  }
+
+  async identifyBySearch(query: string) {
+    return this.request<any>('/intake/identify/search', {
+      method: 'POST',
+      body: JSON.stringify({ query }),
+    });
+  }
+
+  async identifyFromLabelPhoto(photo: File) {
+    const formData = new FormData();
+    formData.append('photo', photo);
+
+    const headers: Record<string, string> = {};
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+
+    const response = await fetch(`${API_BASE}/intake/identify/label-photo`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ error: 'Label photo identification failed' }));
+      throw new Error(err.error || 'Label photo identification failed');
+    }
+
+    return response.json();
+  }
+
+  async identifyFromProductPhoto(photo: File) {
+    const formData = new FormData();
+    formData.append('photo', photo);
+
+    const headers: Record<string, string> = {};
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+
+    const response = await fetch(`${API_BASE}/intake/identify/product-photo`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ error: 'Product photo identification failed' }));
+      throw new Error(err.error || 'Product photo identification failed');
+    }
+
+    return response.json();
   }
 
   // ==================== PHOTO API ====================

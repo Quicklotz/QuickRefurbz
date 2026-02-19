@@ -1,5 +1,5 @@
 "use client";
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { api } from '../api/client';
 import { Input } from '@/components/aceternity/input';
@@ -11,20 +11,55 @@ import {
   IconBuilding,
   IconAlertCircle,
   IconArrowRight,
+  IconLock,
 } from '@tabler/icons-react';
 
 interface SessionPromptProps {
   onSessionStarted: (session: any) => void;
 }
 
+/**
+ * Derive Workstation ID from station-config.json stationId.
+ * e.g. stationId "RFB-13" → "L1-WK-13" (default to Line 1)
+ */
+function deriveWorkstationId(stationId: string | undefined | null): string {
+  if (!stationId) return '';
+  const match = stationId.match(/RFB-(\d+)/i);
+  if (!match) return '';
+  const stationNum = match[1]; // e.g. "13"
+  return `L1-WK-${stationNum}`;
+}
+
 export function SessionPrompt({ onSessionStarted }: SessionPromptProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
   const [formData, setFormData] = useState({
     employeeId: '',
     workstationId: '',
-    warehouseId: '',
+    warehouseId: 'WH01',
   });
+
+  // Load station config from Electron to auto-populate workstation ID
+  useEffect(() => {
+    const loadStationConfig = async () => {
+      try {
+        const electron = (window as any).electronAPI;
+        if (electron?.getStationConfig) {
+          const config = await electron.getStationConfig();
+          if (config?.stationId) {
+            const derived = deriveWorkstationId(config.stationId);
+            if (derived) {
+              setFormData(prev => ({ ...prev, workstationId: derived }));
+            }
+          }
+        }
+      } catch {
+        // Not in Electron or config unavailable — leave empty
+      }
+    };
+    loadStationConfig();
+  }, []);
 
   const today = new Date().toLocaleDateString('en-US', {
     weekday: 'long',
@@ -33,9 +68,53 @@ export function SessionPrompt({ onSessionStarted }: SessionPromptProps) {
     day: 'numeric',
   });
 
+  // Validate Employee ID: exactly 4 digits
+  const validateEmployeeId = (value: string): string | null => {
+    if (!value) return 'Employee ID is required';
+    if (!/^\d{4}$/.test(value)) return 'Must be exactly 4 digits';
+    return null;
+  };
+
+  // Validate Workstation ID: L{n}-WK-{nn}
+  const validateWorkstationId = (value: string): string | null => {
+    if (!value) return 'Workstation ID is required';
+    if (!/^L\d+-WK-\d+$/i.test(value)) return 'Format: L{line}-WK-{station} (e.g. L4-WK-13)';
+    return null;
+  };
+
+  const handleEmployeeIdChange = (value: string) => {
+    // Only allow digits, max 4
+    const cleaned = value.replace(/\D/g, '').slice(0, 4);
+    setFormData(prev => ({ ...prev, employeeId: cleaned }));
+    if (validationErrors.employeeId) {
+      setValidationErrors(prev => ({ ...prev, employeeId: '' }));
+    }
+  };
+
+  const handleWorkstationIdChange = (value: string) => {
+    // Uppercase the L and WK parts automatically
+    const upper = value.toUpperCase();
+    setFormData(prev => ({ ...prev, workstationId: upper }));
+    if (validationErrors.workstationId) {
+      setValidationErrors(prev => ({ ...prev, workstationId: '' }));
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    // Run validation
+    const empErr = validateEmployeeId(formData.employeeId);
+    const wkErr = validateWorkstationId(formData.workstationId);
+    if (empErr || wkErr) {
+      setValidationErrors({
+        employeeId: empErr || '',
+        workstationId: wkErr || '',
+      });
+      return;
+    }
+    setValidationErrors({});
     setLoading(true);
 
     try {
@@ -105,6 +184,7 @@ export function SessionPrompt({ onSessionStarted }: SessionPromptProps) {
 
             {/* Form */}
             <form onSubmit={handleSubmit} className="space-y-4">
+              {/* Employee ID — 4-digit number */}
               <div>
                 <Label htmlFor="employeeId" className="mb-2 block text-zinc-400 text-xs uppercase tracking-wider">
                   Employee ID
@@ -113,10 +193,12 @@ export function SessionPrompt({ onSessionStarted }: SessionPromptProps) {
                   <Input
                     id="employeeId"
                     type="text"
+                    inputMode="numeric"
                     value={formData.employeeId}
-                    onChange={(e) => setFormData({ ...formData, employeeId: e.target.value })}
-                    placeholder="Enter your employee ID"
-                    className="pl-10"
+                    onChange={(e) => handleEmployeeIdChange(e.target.value)}
+                    placeholder="1294"
+                    maxLength={4}
+                    className="pl-10 font-mono tracking-widest"
                     autoFocus
                     required
                   />
@@ -125,8 +207,13 @@ export function SessionPrompt({ onSessionStarted }: SessionPromptProps) {
                     className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600"
                   />
                 </div>
+                {validationErrors.employeeId && (
+                  <p className="text-xs text-red-400 mt-1">{validationErrors.employeeId}</p>
+                )}
+                <p className="text-[11px] text-zinc-600 mt-1">4-digit employee number</p>
               </div>
 
+              {/* Workstation ID — L{line}-WK-{station} */}
               <div>
                 <Label htmlFor="workstationId" className="mb-2 block text-zinc-400 text-xs uppercase tracking-wider">
                   Workstation ID
@@ -136,9 +223,9 @@ export function SessionPrompt({ onSessionStarted }: SessionPromptProps) {
                     id="workstationId"
                     type="text"
                     value={formData.workstationId}
-                    onChange={(e) => setFormData({ ...formData, workstationId: e.target.value })}
-                    placeholder="e.g., WS-001"
-                    className="pl-10"
+                    onChange={(e) => handleWorkstationIdChange(e.target.value)}
+                    placeholder="L4-WK-13"
+                    className="pl-10 font-mono"
                     required
                   />
                   <IconDeviceDesktop
@@ -146,8 +233,13 @@ export function SessionPrompt({ onSessionStarted }: SessionPromptProps) {
                     className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600"
                   />
                 </div>
+                {validationErrors.workstationId && (
+                  <p className="text-xs text-red-400 mt-1">{validationErrors.workstationId}</p>
+                )}
+                <p className="text-[11px] text-zinc-600 mt-1">Format: L{'{line}'}-WK-{'{station}'}</p>
               </div>
 
+              {/* Warehouse ID — read-only, auto-populated */}
               <div>
                 <Label htmlFor="warehouseId" className="mb-2 block text-zinc-400 text-xs uppercase tracking-wider">
                   Warehouse ID
@@ -157,16 +249,19 @@ export function SessionPrompt({ onSessionStarted }: SessionPromptProps) {
                     id="warehouseId"
                     type="text"
                     value={formData.warehouseId}
-                    onChange={(e) => setFormData({ ...formData, warehouseId: e.target.value })}
-                    placeholder="e.g., WH-001"
-                    className="pl-10"
-                    required
+                    readOnly
+                    className="pl-10 font-mono cursor-not-allowed opacity-70"
                   />
                   <IconBuilding
                     size={16}
                     className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600"
                   />
+                  <IconLock
+                    size={12}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-700"
+                  />
                 </div>
+                <p className="text-[11px] text-zinc-600 mt-1">Default warehouse</p>
               </div>
 
               <div className="pt-3">

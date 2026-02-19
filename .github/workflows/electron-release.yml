@@ -1,0 +1,256 @@
+name: Electron Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - 'assets/**'
+      - '.github/workflows/electron-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: electron-release
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # macOS: build DMG (universal: x64 + arm64) and publish to GitHub Releases
+  # ---------------------------------------------------------------------------
+  build-macos:
+    name: Build macOS DMG
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend for Electron
+        working-directory: frontend
+        env:
+          VITE_ELECTRON: 'true'
+          VITE_API_BASE: 'https://quickrefurbz.com/api'
+        run: |
+          npx vite build
+          npx tsc -p electron/tsconfig.json
+          echo '{"type":"commonjs"}' > dist-electron/package.json
+
+      - name: Build and publish macOS DMG
+        working-directory: frontend
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN || github.token }}
+          # Code signing (optional - skipped if secrets are not set)
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          # Apple notarization (optional - skipped if secrets are not set)
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          # Skip code signing if certificate is not configured
+          if [ -z "$CSC_LINK" ]; then
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+            echo "Code signing certificate not configured -- building unsigned DMG"
+          fi
+          npx electron-builder --mac --publish always
+
+      - name: List release output
+        run: ls -lh frontend/release/ || true
+
+  # ---------------------------------------------------------------------------
+  # Windows: build NSIS installer (x64) and publish to GitHub Releases
+  # ---------------------------------------------------------------------------
+  build-windows:
+    name: Build Windows Installer
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend for Electron
+        working-directory: frontend
+        env:
+          VITE_ELECTRON: 'true'
+          VITE_API_BASE: 'https://quickrefurbz.com/api'
+        run: |
+          npx vite build
+          npx tsc -p electron/tsconfig.json
+          echo '{"type":"commonjs"}' > dist-electron/package.json
+
+      - name: Build Windows installer
+        working-directory: frontend
+        run: npx electron-builder --win --publish never
+
+      - name: List release output
+        shell: bash
+        run: ls -lh frontend/release/ || true
+
+      - name: Find installer artifact
+        id: find_exe
+        shell: bash
+        run: |
+          EXE_PATH=$(find frontend/release/ -maxdepth 1 -name '*.exe' ! -name 'Uninstall*' | head -1)
+          if [ -z "$EXE_PATH" ]; then
+            echo "ERROR: No .exe installer found in frontend/release/"
+            exit 1
+          fi
+          EXE_NAME=$(basename "$EXE_PATH")
+          VERSION=$(node -p "require('./frontend/package.json').version")
+          echo "exe_path=$EXE_PATH" >> "$GITHUB_OUTPUT"
+          echo "exe_name=$EXE_NAME" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Found installer: $EXE_NAME (v$VERSION)"
+
+      - name: Upload installer as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: ${{ steps.find_exe.outputs.exe_path }}
+          retention-days: 5
+
+  # ---------------------------------------------------------------------------
+  # Deploy: upload installer to server and update Scoop manifest
+  # ---------------------------------------------------------------------------
+  deploy-installer:
+    name: Deploy Installer to Server
+    needs: build-windows
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ github.token }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Download installer artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-installer
+          path: installer/
+
+      - name: Find installer artifact
+        id: installer
+        run: |
+          EXE_PATH=$(find installer/ -maxdepth 1 -name '*.exe' | head -1)
+          if [ -z "$EXE_PATH" ]; then
+            echo "ERROR: No .exe found in downloaded artifact"
+            exit 1
+          fi
+          EXE_NAME=$(basename "$EXE_PATH")
+          VERSION=$(node -p "require('./frontend/package.json').version")
+          echo "exe_path=$EXE_PATH" >> "$GITHUB_OUTPUT"
+          echo "exe_name=$EXE_NAME" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Found: $EXE_NAME (v$VERSION)"
+
+      - name: Generate latest.json
+        run: |
+          EXE_PATH="${{ steps.installer.outputs.exe_path }}"
+          EXE_NAME="${{ steps.installer.outputs.exe_name }}"
+          VERSION="${{ steps.installer.outputs.version }}"
+          SHA256=$(sha256sum "$EXE_PATH" | awk '{print $1}')
+          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          jq -n \
+            --arg ver "$VERSION" \
+            --arg file "$EXE_NAME" \
+            --arg url "https://quickrefurbz.com/downloads/$EXE_NAME" \
+            --arg hash "$SHA256" \
+            --arg ts "$TIMESTAMP" \
+            '{version: $ver, filename: $file, url: $url, sha256: $hash, updated_at: $ts}' \
+            > latest.json
+          echo "Generated latest.json:"
+          cat latest.json
+
+      - name: Upload to server
+        env:
+          SSH_KEY: ${{ secrets.HETZNER_QL_SSH_KEY }}
+          SSH_HOST: ${{ secrets.HETZNER_QL_HOST }}
+          SSH_USER: ${{ secrets.HETZNER_QL_USER }}
+        run: |
+          # Write SSH key to temp file
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          # Disable strict host key checking for CI
+          echo "StrictHostKeyChecking no" >> ~/.ssh/config
+
+          # Ensure remote directory exists
+          ssh -i ~/.ssh/deploy_key "$SSH_USER@$SSH_HOST" \
+            "mkdir -p /var/www/quickrefurbz-downloads"
+
+          # Upload .exe and latest.json
+          scp -i ~/.ssh/deploy_key \
+            "${{ steps.installer.outputs.exe_path }}" \
+            "$SSH_USER@$SSH_HOST:/var/www/quickrefurbz-downloads/"
+
+          scp -i ~/.ssh/deploy_key \
+            latest.json \
+            "$SSH_USER@$SSH_HOST:/var/www/quickrefurbz-downloads/"
+
+          echo "Uploaded ${{ steps.installer.outputs.exe_name }} and latest.json to server"
+
+          # Clean up
+          rm -f ~/.ssh/deploy_key
+
+      - name: Update Scoop manifest
+        run: |
+          VERSION="${{ steps.installer.outputs.version }}"
+          EXE_NAME="${{ steps.installer.outputs.exe_name }}"
+          SHA256=$(sha256sum "${{ steps.installer.outputs.exe_path }}" | awk '{print $1}')
+          DOWNLOAD_URL="https://quickrefurbz.com/downloads/$EXE_NAME"
+
+          # Update scoop manifest with jq
+          jq \
+            --arg ver "$VERSION" \
+            --arg url "$DOWNLOAD_URL" \
+            --arg hash "$SHA256" \
+            '.version = $ver | .architecture."64bit".url = $url | .architecture."64bit".hash = $hash' \
+            scoop/quickrefurbz.json > scoop/quickrefurbz.json.tmp
+
+          mv scoop/quickrefurbz.json.tmp scoop/quickrefurbz.json
+
+          echo "Updated scoop/quickrefurbz.json:"
+          cat scoop/quickrefurbz.json
+
+      - name: Commit and push Scoop manifest
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add scoop/quickrefurbz.json
+          if git diff --cached --quiet; then
+            echo "No changes to Scoop manifest -- skipping commit"
+          else
+            git commit -m "chore: update Scoop manifest to v${{ steps.installer.outputs.version }}"
+            git push
+          fi
