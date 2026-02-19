@@ -20,6 +20,12 @@ interface SavedPrinter {
 }
 
 type PrintMethod = 'browser' | 'zebra';
+type PalletLabelSize = '4x6' | '2x1';
+
+const LABEL_SIZE_OPTIONS: { value: PalletLabelSize; label: string; description: string }[] = [
+  { value: '4x6', label: '4" x 6"', description: 'Warehouse thermal (recommended)' },
+  { value: '2x1', label: '2" x 1"', description: 'Small label' },
+];
 
 interface PalletLabelModalProps {
   isOpen: boolean;
@@ -39,6 +45,7 @@ const RETAILER_DISPLAY: Record<string, string> = {
 
 export function PalletLabelModal({ isOpen, onClose, session }: PalletLabelModalProps) {
   const [printMethod, setPrintMethod] = useState<PrintMethod>('browser');
+  const [labelSize, setLabelSize] = useState<PalletLabelSize>('4x6');
   const [printerIp, setPrinterIp] = useState('');
   const [labelPreview, setLabelPreview] = useState<string | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
@@ -57,6 +64,13 @@ export function PalletLabelModal({ isOpen, onClose, session }: PalletLabelModalP
       setPrintResult(null);
     }
   }, [isOpen, session]);
+
+  // Reload preview when label size changes
+  useEffect(() => {
+    if (isOpen && session) {
+      loadPreview();
+    }
+  }, [labelSize]);
 
   const loadSavedPrinters = async () => {
     setLoadingPrinters(true);
@@ -82,7 +96,7 @@ export function PalletLabelModal({ isOpen, onClose, session }: PalletLabelModalP
 
     setLoadingPreview(true);
     try {
-      const previewUrl = await api.getPalletLabel(session.palletId, 'png');
+      const previewUrl = await api.getPalletLabel(session.palletId, 'png', labelSize);
       setLabelPreview(previewUrl);
     } catch (err) {
       console.error('Failed to load label preview:', err);
@@ -97,11 +111,15 @@ export function PalletLabelModal({ isOpen, onClose, session }: PalletLabelModalP
     setPrinting(true);
     setPrintResult(null);
 
+    // Page size for browser print based on label size
+    const pageWidth = labelSize === '4x6' ? '4in' : '2in';
+    const pageHeight = labelSize === '4x6' ? '6in' : '1in';
+
     try {
       if (printMethod === 'browser') {
         // Browser print - open print dialog
-        const imageUrl = await api.getPalletLabel(session.palletId, 'png');
-        const printWindow = window.open('', '_blank', 'width=400,height=300');
+        const imageUrl = await api.getPalletLabel(session.palletId, 'png', labelSize);
+        const printWindow = window.open('', '_blank', 'width=500,height=700');
         if (printWindow) {
           printWindow.document.write(`
             <!DOCTYPE html>
@@ -118,16 +136,19 @@ export function PalletLabelModal({ isOpen, onClose, session }: PalletLabelModalP
                   background: white;
                 }
                 img {
-                  max-width: 4in;
+                  max-width: ${pageWidth};
                   height: auto;
                 }
                 @media print {
                   @page {
-                    size: 4in 2in;
+                    size: ${pageWidth} ${pageHeight};
                     margin: 0;
                   }
                   body {
                     min-height: auto;
+                  }
+                  img {
+                    width: ${pageWidth};
                   }
                 }
               </style>
@@ -146,8 +167,8 @@ export function PalletLabelModal({ isOpen, onClose, session }: PalletLabelModalP
           throw new Error('Please enter the Zebra printer IP address');
         }
 
-        await api.printZplLabel(printerIp.trim(), session.palletId);
-        setPrintResult({ success: true, message: 'Label sent to printer' });
+        await api.printZplLabel(printerIp.trim(), session.palletId, labelSize);
+        setPrintResult({ success: true, message: `Label sent to printer (${labelSize})` });
       }
     } catch (err: any) {
       setPrintResult({ success: false, message: err.message || 'Print failed' });
@@ -167,6 +188,32 @@ export function PalletLabelModal({ isOpen, onClose, session }: PalletLabelModalP
       title="Print Pallet Label"
     >
       <div className="space-y-6">
+        {/* Label Size Selection */}
+        <div>
+          <Label className="mb-3 block">Label Size</Label>
+          <div className="grid grid-cols-2 gap-3">
+            {LABEL_SIZE_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setLabelSize(opt.value)}
+                className={`p-3 rounded-lg border-2 transition-all text-left ${
+                  labelSize === opt.value
+                    ? 'border-ql-yellow bg-ql-yellow/10'
+                    : 'border-border bg-dark-tertiary hover:border-zinc-600'
+                }`}
+              >
+                <span className={`text-sm font-bold ${labelSize === opt.value ? 'text-white' : 'text-zinc-400'}`}>
+                  {opt.label}
+                </span>
+                <span className={`block text-xs mt-0.5 ${labelSize === opt.value ? 'text-ql-yellow' : 'text-zinc-500'}`}>
+                  {opt.description}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Label Preview */}
         <div className="bg-white rounded-lg p-4 flex items-center justify-center min-h-[120px]">
           {loadingPreview ? (
@@ -175,7 +222,7 @@ export function PalletLabelModal({ isOpen, onClose, session }: PalletLabelModalP
             <motion.img
               src={labelPreview}
               alt={`Label for ${session.palletId}`}
-              className="max-w-full h-auto"
+              className={`h-auto ${labelSize === '4x6' ? 'max-w-full max-h-[280px]' : 'max-w-full'}`}
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
             />
@@ -258,7 +305,7 @@ export function PalletLabelModal({ isOpen, onClose, session }: PalletLabelModalP
                         {p.printer_name || p.printer_ip}
                       </div>
                       <div className="text-xs text-zinc-500">
-                        {p.printer_ip} · {p.label_width_mm}×{p.label_height_mm}mm
+                        {p.printer_ip} · {p.label_width_mm}x{p.label_height_mm}mm
                       </div>
                     </div>
                     {p.is_default && (
@@ -323,7 +370,7 @@ export function PalletLabelModal({ isOpen, onClose, session }: PalletLabelModalP
             disabled={printMethod === 'zebra' && !printerIp.trim()}
           >
             <Printer size={16} />
-            Print Label
+            Print Label ({labelSize})
           </Button>
         </div>
       </div>

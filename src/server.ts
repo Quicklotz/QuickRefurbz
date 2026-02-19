@@ -2671,10 +2671,18 @@ import * as dataFeedService from './services/dataFeedService.js';
 import * as aiService from './services/aiService.js';
 
 // Generate pallet-only label
+// Query params: format=png|zpl, labelSize=4x6|2x1 (default: 4x6)
 app.get('/api/labels/pallet/:palletId', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const palletId = req.params.palletId as string;
     const format = queryString(req.query.format) || 'png';
+    const labelSize = (queryString(req.query.labelSize) || '4x6') as labelGenerator.PalletLabelSize;
+
+    // Validate labelSize
+    if (labelSize !== '2x1' && labelSize !== '4x6') {
+      res.status(400).json({ error: 'Invalid labelSize. Use "2x1" or "4x6"' });
+      return;
+    }
 
     // Get pallet from database
     const pallet = await palletManager.getPalletById(palletId);
@@ -2691,9 +2699,10 @@ app.get('/api/labels/pallet/:palletId', authMiddleware, async (req: AuthRequest,
       receivedItems: pallet.receivedItems,
       expectedItems: pallet.expectedItems,
       warehouseId: pallet.warehouseId,
+      dateReceived: pallet.createdAt ? new Date(pallet.createdAt) : undefined,
     };
 
-    const label = await labelGenerator.generatePalletLabel(labelData);
+    const label = await labelGenerator.generatePalletLabel(labelData, labelSize);
 
     if (format === 'zpl') {
       res.setHeader('Content-Type', 'text/plain');
@@ -2709,12 +2718,19 @@ app.get('/api/labels/pallet/:palletId', authMiddleware, async (req: AuthRequest,
 });
 
 // Print ZPL directly to Zebra printer
+// Body: { printerIp, palletId, labelSize? } - labelSize defaults to '4x6'
 app.post('/api/labels/print-zpl', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const { printerIp, palletId } = req.body;
+    const { printerIp, palletId, labelSize: rawLabelSize } = req.body;
+    const labelSize = (rawLabelSize || '4x6') as labelGenerator.PalletLabelSize;
 
     if (!printerIp || !palletId) {
       res.status(400).json({ error: 'Printer IP and pallet ID required' });
+      return;
+    }
+
+    if (labelSize !== '2x1' && labelSize !== '4x6') {
+      res.status(400).json({ error: 'Invalid labelSize. Use "2x1" or "4x6"' });
       return;
     }
 
@@ -2732,14 +2748,15 @@ app.post('/api/labels/print-zpl', authMiddleware, async (req: AuthRequest, res: 
       receivedItems: pallet.receivedItems,
       expectedItems: pallet.expectedItems,
       warehouseId: pallet.warehouseId,
+      dateReceived: pallet.createdAt ? new Date(pallet.createdAt) : undefined,
     };
 
-    const label = await labelGenerator.generatePalletLabel(labelData);
+    const label = await labelGenerator.generatePalletLabel(labelData, labelSize);
 
     // Send ZPL to printer
     await labelGenerator.sendZplToPrinter(printerIp, label.zpl);
 
-    res.json({ success: true, message: `Label sent to printer at ${printerIp}` });
+    res.json({ success: true, message: `Label sent to printer at ${printerIp}`, labelSize });
   } catch (error: any) {
     console.error('Print ZPL error:', error);
     res.status(500).json({ error: 'Failed to print label' });
@@ -2749,10 +2766,18 @@ app.post('/api/labels/print-zpl', authMiddleware, async (req: AuthRequest, res: 
 // ==================== REFURBISHED ITEM LABELS ====================
 
 // Generate refurbished item label (RFB-QLID format)
+// Query params: format=png|zpl, labelSize=2x1.5|4x6 (default: 2x1.5)
 app.get('/api/labels/refurb/:qlid', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const qlid = req.params.qlid as string;
     const format = queryString(req.query.format) || 'png';
+    const labelSize = (queryString(req.query.labelSize) || '2x1.5') as labelGenerator.RefurbLabelSize;
+
+    // Validate labelSize
+    if (labelSize !== '2x1.5' && labelSize !== '4x6') {
+      res.status(400).json({ error: 'Invalid labelSize. Use "2x1.5" or "4x6"' });
+      return;
+    }
 
     // Get item from database
     const item = await itemManager.getItem(qlid);
@@ -2787,7 +2812,7 @@ app.get('/api/labels/refurb/:qlid', authMiddleware, async (req: AuthRequest, res
       serialNumber: item.serialNumber,
     };
 
-    const label = await labelGenerator.generateRefurbLabel(labelData);
+    const label = await labelGenerator.generateRefurbLabel(labelData, labelSize);
 
     if (format === 'zpl') {
       res.setHeader('Content-Type', 'text/plain');
@@ -2803,12 +2828,19 @@ app.get('/api/labels/refurb/:qlid', authMiddleware, async (req: AuthRequest, res
 });
 
 // Print refurb label directly to Zebra printer
+// Body: { printerIp, qlid, labelSize? } - labelSize defaults to '2x1.5'
 app.post('/api/labels/refurb/print-zpl', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const { printerIp, qlid } = req.body;
+    const { printerIp, qlid, labelSize: rawLabelSize } = req.body;
+    const labelSize = (rawLabelSize || '2x1.5') as labelGenerator.RefurbLabelSize;
 
     if (!printerIp || !qlid) {
       res.status(400).json({ error: 'Printer IP and QLID required' });
+      return;
+    }
+
+    if (labelSize !== '2x1.5' && labelSize !== '4x6') {
+      res.status(400).json({ error: 'Invalid labelSize. Use "2x1.5" or "4x6"' });
       return;
     }
 
@@ -2842,7 +2874,7 @@ app.post('/api/labels/refurb/print-zpl', authMiddleware, async (req: AuthRequest
       serialNumber: item.serialNumber,
     };
 
-    const label = await labelGenerator.generateRefurbLabel(labelData);
+    const label = await labelGenerator.generateRefurbLabel(labelData, labelSize);
 
     // Send ZPL to printer
     await labelGenerator.sendZplToPrinter(printerIp, label.zpl);

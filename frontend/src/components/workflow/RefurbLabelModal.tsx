@@ -20,6 +20,18 @@ interface SavedPrinter {
 }
 
 type PrintMethod = 'browser' | 'zebra';
+type RefurbLabelSize = '2x1.5' | '4x6';
+
+const LABEL_SIZE_OPTIONS: { value: RefurbLabelSize; label: string; description: string }[] = [
+  { value: '2x1.5', label: '2" x 1.5"', description: 'Standard item label' },
+  { value: '4x6', label: '4" x 6"', description: 'Large warehouse thermal' },
+];
+
+// Page dimensions for browser printing
+const PAGE_SIZES: Record<RefurbLabelSize, { width: string; height: string }> = {
+  '2x1.5': { width: '2in', height: '1.5in' },
+  '4x6': { width: '4in', height: '6in' },
+};
 
 interface RefurbLabelModalProps {
   isOpen: boolean;
@@ -59,6 +71,7 @@ export function RefurbLabelModal({
   warrantyEligible,
 }: RefurbLabelModalProps) {
   const [printMethod, setPrintMethod] = useState<PrintMethod>('browser');
+  const [labelSize, setLabelSize] = useState<RefurbLabelSize>('2x1.5');
   const [printerIp, setPrinterIp] = useState('');
   const [labelPreview, setLabelPreview] = useState<string | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
@@ -80,6 +93,13 @@ export function RefurbLabelModal({
       setPrintResult(null);
     }
   }, [isOpen, qlid]);
+
+  // Reload preview when label size changes
+  useEffect(() => {
+    if (isOpen && qlid) {
+      loadPreview();
+    }
+  }, [labelSize]);
 
   const loadSavedPrinters = async () => {
     setLoadingPrinters(true);
@@ -105,7 +125,7 @@ export function RefurbLabelModal({
 
     setLoadingPreview(true);
     try {
-      const previewUrl = await api.getRefurbLabel(qlid, 'png');
+      const previewUrl = await api.getRefurbLabel(qlid, 'png', labelSize);
       setLabelPreview(previewUrl);
     } catch (err) {
       console.error('Failed to load refurb label preview:', err);
@@ -120,11 +140,15 @@ export function RefurbLabelModal({
     setPrinting(true);
     setPrintResult(null);
 
+    const pageSize = PAGE_SIZES[labelSize];
+
     try {
       if (printMethod === 'browser') {
         // Browser print - open print dialog
-        const imageUrl = await api.getRefurbLabel(qlid, 'png');
-        const printWindow = window.open('', '_blank', 'width=450,height=350');
+        const imageUrl = await api.getRefurbLabel(qlid, 'png', labelSize);
+        const winWidth = labelSize === '4x6' ? 500 : 450;
+        const winHeight = labelSize === '4x6' ? 700 : 350;
+        const printWindow = window.open('', '_blank', `width=${winWidth},height=${winHeight}`);
         if (printWindow) {
           printWindow.document.write(`
             <!DOCTYPE html>
@@ -141,16 +165,19 @@ export function RefurbLabelModal({
                   background: white;
                 }
                 img {
-                  max-width: 4in;
+                  max-width: ${pageSize.width};
                   height: auto;
                 }
                 @media print {
                   @page {
-                    size: 4in 2in;
+                    size: ${pageSize.width} ${pageSize.height};
                     margin: 0;
                   }
                   body {
                     min-height: auto;
+                  }
+                  img {
+                    width: ${pageSize.width};
                   }
                 }
               </style>
@@ -169,7 +196,7 @@ export function RefurbLabelModal({
           throw new Error('Please enter the Zebra printer IP address');
         }
 
-        const result = await api.printRefurbLabel(printerIp.trim(), qlid);
+        const result = await api.printRefurbLabel(printerIp.trim(), qlid, labelSize);
         setPrintResult({ success: true, message: 'Refurb label sent to printer', qsku: result.qsku });
       }
     } catch (err: any) {
@@ -213,6 +240,32 @@ export function RefurbLabelModal({
           </div>
         </div>
 
+        {/* Label Size Selection */}
+        <div>
+          <Label className="mb-3 block">Label Size</Label>
+          <div className="grid grid-cols-2 gap-3">
+            {LABEL_SIZE_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setLabelSize(opt.value)}
+                className={`p-3 rounded-lg border-2 transition-all text-left ${
+                  labelSize === opt.value
+                    ? 'border-accent-green bg-accent-green/10'
+                    : 'border-border bg-dark-tertiary hover:border-zinc-600'
+                }`}
+              >
+                <span className={`text-sm font-bold ${labelSize === opt.value ? 'text-white' : 'text-zinc-400'}`}>
+                  {opt.label}
+                </span>
+                <span className={`block text-xs mt-0.5 ${labelSize === opt.value ? 'text-accent-green' : 'text-zinc-500'}`}>
+                  {opt.description}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Label Preview */}
         <div className="bg-white rounded-lg p-4 flex items-center justify-center min-h-[140px]">
           {loadingPreview ? (
@@ -221,7 +274,7 @@ export function RefurbLabelModal({
             <motion.img
               src={labelPreview}
               alt={`Refurb label for ${qsku}`}
-              className="max-w-full h-auto"
+              className={`h-auto ${labelSize === '4x6' ? 'max-w-full max-h-[280px]' : 'max-w-full'}`}
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
             />
@@ -305,7 +358,7 @@ export function RefurbLabelModal({
                         {p.printer_name || p.printer_ip}
                       </div>
                       <div className="text-xs text-zinc-500">
-                        {p.printer_ip} · {p.label_width_mm}×{p.label_height_mm}mm
+                        {p.printer_ip} · {p.label_width_mm}x{p.label_height_mm}mm
                       </div>
                     </div>
                     {p.is_default && (
@@ -371,7 +424,7 @@ export function RefurbLabelModal({
             className="bg-accent-green hover:bg-accent-green/90"
           >
             <Printer size={16} />
-            Print RFB Label
+            Print RFB Label ({labelSize})
           </Button>
         </div>
       </div>

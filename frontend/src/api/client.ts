@@ -1316,8 +1316,17 @@ class ApiClient {
 
   // ==================== PALLET LABELS API ====================
 
-  async getPalletLabel(palletId: string, format: 'png' | 'zpl' = 'png'): Promise<string> {
-    const response = await fetch(`${API_BASE}/labels/pallet/${palletId}?format=${format}`, {
+  /**
+   * Get pallet label as PNG blob URL or ZPL text
+   * @param labelSize - '4x6' (default, warehouse thermal) or '2x1' (small)
+   */
+  async getPalletLabel(
+    palletId: string,
+    format: 'png' | 'zpl' = 'png',
+    labelSize: '4x6' | '2x1' = '4x6'
+  ): Promise<string> {
+    const params = new URLSearchParams({ format, labelSize });
+    const response = await fetch(`${API_BASE}/labels/pallet/${palletId}?${params}`, {
       headers: this.token ? { Authorization: `Bearer ${this.token}` } : {},
     });
     if (!response.ok) {
@@ -1332,17 +1341,34 @@ class ApiClient {
     return URL.createObjectURL(blob);
   }
 
-  async printZplLabel(printerIp: string, palletId: string): Promise<{ success: boolean }> {
+  /**
+   * Print pallet label via ZPL to a Zebra printer
+   * @param labelSize - '4x6' (default, warehouse thermal) or '2x1' (small)
+   */
+  async printZplLabel(
+    printerIp: string,
+    palletId: string,
+    labelSize: '4x6' | '2x1' = '4x6'
+  ): Promise<{ success: boolean }> {
     return this.request<{ success: boolean }>('/labels/print-zpl', {
       method: 'POST',
-      body: JSON.stringify({ printerIp, palletId }),
+      body: JSON.stringify({ printerIp, palletId, labelSize }),
     });
   }
 
   // ==================== REFURB LABELS API (RFB-QLID format) ====================
 
-  async getRefurbLabel(qlid: string, format: 'png' | 'zpl' = 'png'): Promise<string> {
-    const response = await fetch(`${API_BASE}/labels/refurb/${qlid}?format=${format}`, {
+  /**
+   * Get refurb label as PNG blob URL or ZPL text
+   * @param labelSize - '2x1.5' (default) or '4x6' (warehouse thermal)
+   */
+  async getRefurbLabel(
+    qlid: string,
+    format: 'png' | 'zpl' = 'png',
+    labelSize: '2x1.5' | '4x6' = '2x1.5'
+  ): Promise<string> {
+    const params = new URLSearchParams({ format, labelSize });
+    const response = await fetch(`${API_BASE}/labels/refurb/${qlid}?${params}`, {
       headers: this.token ? { Authorization: `Bearer ${this.token}` } : {},
     });
     if (!response.ok) {
@@ -1357,10 +1383,18 @@ class ApiClient {
     return URL.createObjectURL(blob);
   }
 
-  async printRefurbLabel(printerIp: string, qlid: string): Promise<{ success: boolean; qsku: string }> {
+  /**
+   * Print refurb label via ZPL to a Zebra printer
+   * @param labelSize - '2x1.5' (default) or '4x6' (warehouse thermal)
+   */
+  async printRefurbLabel(
+    printerIp: string,
+    qlid: string,
+    labelSize: '2x1.5' | '4x6' = '2x1.5'
+  ): Promise<{ success: boolean; qsku: string }> {
     return this.request<{ success: boolean; qsku: string }>('/labels/refurb/print-zpl', {
       method: 'POST',
-      body: JSON.stringify({ printerIp, qlid }),
+      body: JSON.stringify({ printerIp, qlid, labelSize }),
     });
   }
 

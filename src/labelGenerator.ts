@@ -162,6 +162,8 @@ export function exportLabelsToCSV(labels: LabelData[]): string {
 
 // ==================== PALLET-ONLY LABELS ====================
 
+export type PalletLabelSize = '2x1' | '4x6';
+
 export interface PalletLabelData {
   palletId: string;
   retailer: string;
@@ -169,34 +171,41 @@ export interface PalletLabelData {
   receivedItems: number;
   expectedItems: number;
   warehouseId?: string;
+  dateReceived?: Date;
 }
 
 /**
  * Generate a pallet-only label (no QLID)
+ * @param labelSize - '2x1' for small labels, '4x6' for warehouse thermal labels (default)
  */
-export async function generatePalletLabel(pallet: PalletLabelData): Promise<{ png: Buffer; zpl: string }> {
-  const retailerName = RETAILER_DISPLAY[pallet.retailer as keyof typeof RETAILER_DISPLAY] || pallet.retailer;
+export async function generatePalletLabel(
+  pallet: PalletLabelData,
+  labelSize: PalletLabelSize = '4x6'
+): Promise<{ png: Buffer; zpl: string }> {
+  // Scale barcode parameters based on label size
+  const is4x6 = labelSize === '4x6';
 
-  // Generate Code128 barcode with just palletId
   const png = await bwipjs.toBuffer({
     bcid: 'code128',
     text: pallet.palletId,
-    scale: 4,
-    height: 15,
+    scale: is4x6 ? 6 : 4,
+    height: is4x6 ? 30 : 15,
     includetext: true,
     textxalign: 'center',
-    textsize: 12,
-    paddingwidth: 4,
-    paddingheight: 4
+    textsize: is4x6 ? 16 : 12,
+    paddingwidth: is4x6 ? 8 : 4,
+    paddingheight: is4x6 ? 8 : 4,
   });
 
-  const zpl = generatePalletZPL(pallet);
+  const zpl = labelSize === '4x6'
+    ? generatePalletZPL4x6(pallet)
+    : generatePalletZPL(pallet);
 
   return { png, zpl };
 }
 
 /**
- * Generate ZPL for pallet-only label
+ * Generate ZPL for pallet-only label (small 2x1 format)
  */
 export function generatePalletZPL(pallet: PalletLabelData, widthDots?: number, heightDots?: number): string {
   const retailerName = RETAILER_DISPLAY[pallet.retailer as keyof typeof RETAILER_DISPLAY] || pallet.retailer;
@@ -215,6 +224,60 @@ export function generatePalletZPL(pallet: PalletLabelData, widthDots?: number, h
 ^FO${Math.round(20*sx)},${Math.round(135*sy)}^A0N,${Math.round(20*sy)},${Math.round(20*sx)}^FD${retailerName}^FS
 ^FO${Math.round(20*sx)},${Math.round(160*sy)}^A0N,${Math.round(18*sy)},${Math.round(18*sx)}^FD${sourceName}^FS
 ^FO${Math.round(20*sx)},${Math.round(185*sy)}^A0N,${Math.round(16*sy)},${Math.round(16*sx)}^FDItems: ${pallet.receivedItems} / ${pallet.expectedItems}^FS
+^XZ
+`.trim();
+}
+
+/**
+ * Generate ZPL for 4" x 6" pallet label at 203 DPI (812 x 1218 dots)
+ * Designed for warehouse thermal printers - large barcode scannable from arm's length
+ *
+ * Layout (top to bottom):
+ *  - Large PalletID header text (bold, centered)
+ *  - Horizontal rule
+ *  - Large Code128 barcode (centered, tall enough for easy scanning)
+ *  - PalletID text under barcode (auto from ^BC)
+ *  - Horizontal rule
+ *  - Retailer name (large)
+ *  - Liquidation source
+ *  - Expected items count
+ *  - Date received
+ *  - Warehouse ID (if present)
+ */
+export function generatePalletZPL4x6(pallet: PalletLabelData): string {
+  const retailerName = RETAILER_DISPLAY[pallet.retailer as keyof typeof RETAILER_DISPLAY] || pallet.retailer;
+  const sourceName = pallet.liquidationSource;
+  const dateStr = pallet.dateReceived
+    ? pallet.dateReceived.toISOString().split('T')[0]
+    : new Date().toISOString().split('T')[0];
+  const warehouseStr = pallet.warehouseId || '';
+
+  // 4" x 6" at 203 DPI = 812 x 1218 dots
+  const W = 812;
+
+  // Calculate barcode width for centering (approximate)
+  // ^BY4 = module width 4 dots; Code128 char ~11 modules; plus start/stop
+  // For a typical 10-char pallet ID: ~11*10 + 35 start/stop = ~145 modules * 4 = 580 dots
+  // Center offset: (812 - 580) / 2 ~ 116
+  const barcodeX = 40; // left margin for barcode - slightly off-center-left looks better with ZPL
+
+  return `
+^XA
+^CI28
+^PW${W}
+^LL1218
+^FO30,30^A0N,64,64^FD${pallet.palletId}^FS
+^FO30,100^GB752,3,3,B^FS
+^FO${barcodeX},130^BY4,3.0^BCN,280,Y,N,N^FD${pallet.palletId}^FS
+^FO30,460^GB752,3,3,B^FS
+^FO30,490^A0N,52,52^FD${retailerName}^FS
+^FO30,560^A0N,36,36^FDSource: ${sourceName}^FS
+^FO30,620^A0N,40,40^FDExpected Items: ${pallet.expectedItems}^FS
+^FO30,680^A0N,40,40^FDReceived Items: ${pallet.receivedItems}^FS
+^FO30,750^A0N,36,36^FDDate: ${dateStr}^FS
+${warehouseStr ? `^FO30,810^A0N,36,36^FDWarehouse: ${warehouseStr}^FS` : ''}
+^FO30,880^GB752,3,3,B^FS
+^FO30,910^A0N,28,28^FDQuickRefurbz - Scan to track^FS
 ^XZ
 `.trim();
 }
@@ -246,58 +309,52 @@ export async function sendZplToPrinter(printerIp: string, zpl: string): Promise<
 
 // ==================== REFURBISHED ITEM LABELS ====================
 
+export type RefurbLabelSize = '2x1.5' | '4x6';
+
 /**
  * Generate a refurbished item label (RFB-QLID format)
  * Used when an item completes refurbishment and is certified
+ * @param labelSize - '2x1.5' for small labels, '4x6' for warehouse thermal labels
  */
-export async function generateRefurbLabel(item: RefurbLabelData): Promise<{ png: Buffer; zpl: string }> {
+export async function generateRefurbLabel(
+  item: RefurbLabelData,
+  labelSize: RefurbLabelSize = '2x1.5'
+): Promise<{ png: Buffer; zpl: string }> {
+  const is4x6 = labelSize === '4x6';
+
   // Generate Code128 barcode with QSKU (RFB-QLID format)
   const png = await bwipjs.toBuffer({
     bcid: 'code128',
     text: item.qsku,
-    scale: 4,
-    height: 12,
+    scale: is4x6 ? 6 : 4,
+    height: is4x6 ? 25 : 12,
     includetext: true,
     textxalign: 'center',
-    textsize: 10,
-    paddingwidth: 4,
-    paddingheight: 4
+    textsize: is4x6 ? 14 : 10,
+    paddingwidth: is4x6 ? 8 : 4,
+    paddingheight: is4x6 ? 8 : 4,
   });
 
-  const zpl = generateRefurbZPL(item);
+  const zpl = labelSize === '4x6'
+    ? generateRefurbZPL4x6(item)
+    : generateRefurbZPL(item);
 
   return { png, zpl };
 }
 
 /**
  * Generate ZPL for refurbished item label with enhanced grade badge
- * 2" x 1.5" label format at 203 DPI
+ * 2" x 1.5" label format at 203 DPI (406 x 305 dots)
  */
 export function generateRefurbZPL(item: RefurbLabelData, widthDots?: number, heightDots?: number): string {
   const gradeDisplay = GRADE_DISPLAY[item.finalGrade] || item.finalGrade;
   const categoryDisplay = CATEGORY_DISPLAY[item.category] || item.category;
   const retailerDisplay = item.retailer ? (RETAILER_DISPLAY[item.retailer] || item.retailer) : '';
-  const warrantyText = item.warrantyEligible ? 'WARRANTY' : '';
   const dateStr = item.completedAt.toISOString().split('T')[0];
 
   const w = widthDots || 406; // default 2" at 203 DPI
   const h = heightDots || 305; // default 1.5" at 203 DPI
-  const sx = w / 406;
-  const sy = h / 305;
 
-  // Grade badge - prominent box with grade letter
-  const gradeBadge = `
-^FO${Math.round(350*sx)},${Math.round(10*sy)}^GB${Math.round(50*sx)},${Math.round(50*sy)},${Math.round(50*sx)},B^FS
-^FO${Math.round(350*sx)},${Math.round(10*sy)}^FR^A0N,${Math.round(44*sy)},${Math.round(44*sx)}^FW1^FD${item.finalGrade}^FS
-  `.trim();
-
-  // Warranty badge if eligible
-  const warrantyBadge = item.warrantyEligible ? `
-^FO${Math.round(350*sx)},${Math.round(70*sy)}^GB${Math.round(50*sx)},${Math.round(20*sy)},2,B^FS
-^FO${Math.round(352*sx)},${Math.round(72*sy)}^A0N,${Math.round(14*sy)},${Math.round(14*sx)}^FDWARRANTY^FS
-  `.trim() : '';
-
-  // ZPL for label at given size (default 2" x 1.5" at 203 DPI) with QR code
   // QR code links to item lookup URL
   const qrData = item.certificationId
     ? `${process.env.PUBLIC_URL || 'https://quickrefurbz.com'}/verify/${item.certificationId}`
@@ -305,15 +362,58 @@ export function generateRefurbZPL(item: RefurbLabelData, widthDots?: number, hei
 
   return `
 ^XA
-^FO${Math.round(20*sx)},${Math.round(10*sy)}^A0N,${Math.round(24*sy)},${Math.round(24*sx)}^FDREFURBISHED^FS
-${gradeBadge}
-${warrantyBadge}
-^FO${Math.round(20*sx)},${Math.round(40*sy)}^BY2,3.0^BCN,${Math.round(50*sy)},Y,N,N^FD${item.qsku}^FS
-^FO${Math.round(20*sx)},${Math.round(105*sy)}^A0N,${Math.round(18*sy)},${Math.round(18*sx)}^FD${(item.manufacturer + ' ' + item.model).slice(0, 30)}^FS
-^FO${Math.round(20*sx)},${Math.round(128*sy)}^A0N,${Math.round(14*sy)},${Math.round(14*sx)}^FD${categoryDisplay}${retailerDisplay ? ` | ${retailerDisplay}` : ''}^FS
-^FO${Math.round(20*sx)},${Math.round(150*sy)}^A0N,${Math.round(12*sy)},${Math.round(12*sx)}^FD${dateStr}${item.serialNumber ? ` | S/N: ${item.serialNumber}` : ''}^FS
-^FO${Math.round(20*sx)},${Math.round(170*sy)}^A0N,${Math.round(10*sy)},${Math.round(10*sx)}^FDGrade ${gradeDisplay} | ${item.certificationId || 'Pending Cert'}^FS
-^FO${Math.round(300*sx)},${Math.round(100*sy)}^BQN,2,3^FDLA,${qrData}^FS
+^CI28
+^PW${w}
+^LL${h}
+^FO20,10^A0N,24,24^FDREFURBISHED^FS
+^FO340,10^GB56,56,56,B^FS
+^FO348,14^FR^A0N,44,44^FD${item.finalGrade}^FS
+${item.warrantyEligible ? `^FO340,72^GB56,22,2,B^FS\n^FO342,74^A0N,14,14^FDWARRANTY^FS` : ''}
+^FO20,40^BY2,3.0^BCN,50,Y,N,N^FD${item.qsku}^FS
+^FO20,105^A0N,18,18^FD${(item.manufacturer + ' ' + item.model).slice(0, 30)}^FS
+^FO20,128^A0N,14,14^FD${categoryDisplay}${retailerDisplay ? ` | ${retailerDisplay}` : ''}^FS
+^FO20,150^A0N,12,12^FD${dateStr}${item.serialNumber ? ` | S/N: ${item.serialNumber}` : ''}^FS
+^FO20,170^A0N,10,10^FDGrade ${gradeDisplay} | ${item.certificationId || 'Pending Cert'}^FS
+^FO300,100^BQN,2,3^FDLA,${qrData}^FS
+^XZ
+`.trim();
+}
+
+/**
+ * Generate ZPL for 4" x 6" refurbished item label at 203 DPI (812 x 1218 dots)
+ * Designed for warehouse thermal printers with larger text and barcode
+ */
+export function generateRefurbZPL4x6(item: RefurbLabelData): string {
+  const gradeDisplay = GRADE_DISPLAY[item.finalGrade] || item.finalGrade;
+  const categoryDisplay = CATEGORY_DISPLAY[item.category] || item.category;
+  const retailerDisplay = item.retailer ? (RETAILER_DISPLAY[item.retailer] || item.retailer) : '';
+  const dateStr = item.completedAt.toISOString().split('T')[0];
+
+  const qrData = item.certificationId
+    ? `${process.env.PUBLIC_URL || 'https://quickrefurbz.com'}/verify/${item.certificationId}`
+    : item.qsku;
+
+  // 4" x 6" at 203 DPI = 812 x 1218 dots
+  return `
+^XA
+^CI28
+^PW812
+^LL1218
+^FO30,30^A0N,48,48^FDREFURBISHED^FS
+^FO650,20^GB130,130,130,B^FS
+^FO670,30^FR^A0N,100,100^FD${item.finalGrade}^FS
+${item.warrantyEligible ? `^FO640,160^GB150,40,2,B^FS\n^FO650,168^A0N,24,24^FDWARRANTY^FS` : ''}
+^FO30,100^GB752,3,3,B^FS
+^FO40,130^BY3,3.0^BCN,200,Y,N,N^FD${item.qsku}^FS
+^FO30,380^GB752,3,3,B^FS
+^FO30,410^A0N,44,44^FD${(item.manufacturer + ' ' + item.model).slice(0, 40)}^FS
+^FO30,470^A0N,36,36^FD${categoryDisplay}${retailerDisplay ? ` | ${retailerDisplay}` : ''}^FS
+^FO30,530^A0N,32,32^FDGrade: ${gradeDisplay}^FS
+^FO30,580^A0N,28,28^FD${dateStr}${item.serialNumber ? ` | S/N: ${item.serialNumber}` : ''}^FS
+^FO30,630^A0N,24,24^FD${item.certificationId || 'Pending Certification'}^FS
+^FO550,410^BQN,2,6^FDLA,${qrData}^FS
+^FO30,700^GB752,3,3,B^FS
+^FO30,730^A0N,24,24^FDQuickRefurbz Certified^FS
 ^XZ
 `.trim();
 }
