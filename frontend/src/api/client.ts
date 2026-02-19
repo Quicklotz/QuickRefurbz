@@ -33,26 +33,50 @@ async function sendZplToPrinterLocal(printerIp: string, zpl: string): Promise<vo
 }
 
 /**
- * Open a label PNG in a print popup for browser-based printing.
- * The user selects their Zebra printer in the system print dialog.
- * @param imgUrl - blob URL or data URL of the label image
- * @param widthIn - label width in inches
- * @param heightIn - label height in inches
+ * Open a print popup with a fully composed label for browser-based printing.
+ * Uses the barcode PNG from the server + text rendered in HTML.
  */
-function printLabelViaBrowser(imgUrl: string, widthIn: number, heightIn: number): void {
-  const popup = window.open('', '_blank', `width=500,height=400`);
+function printLabelViaBrowser(opts: {
+  barcodeImgUrl: string;
+  widthIn: number;
+  heightIn: number;
+  lines: string[];      // text lines below barcode
+  title?: string;       // window title
+}): void {
+  const { barcodeImgUrl, widthIn, heightIn, lines, title } = opts;
+  const popup = window.open('', '_blank', 'width=600,height=400');
   if (!popup) {
     throw new Error('Pop-up blocked. Please allow pop-ups for this site to print labels.');
   }
+
+  const linesHtml = lines
+    .map((l, i) => `<div style="font-size:${i === 0 ? 14 : 11}px;font-weight:${i === 0 ? 'bold' : 'normal'};margin-top:2px;">${l}</div>`)
+    .join('\n');
+
   popup.document.write(`<!DOCTYPE html>
-<html><head><title>Print Label</title>
+<html><head><title>${title || 'Print Label'}</title>
 <style>
   @page { size: ${widthIn}in ${heightIn}in; margin: 0; }
-  * { margin: 0; padding: 0; }
-  body { width: ${widthIn}in; height: ${heightIn}in; }
-  img { width: 100%; height: auto; display: block; }
+  @media print { body { -webkit-print-color-adjust: exact; } }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: ${widthIn}in; height: ${heightIn}in;
+    font-family: 'Courier New', Courier, monospace;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 4px;
+  }
+  img { max-width: 95%; height: auto; display: block; }
+  .text { text-align: center; width: 100%; }
 </style></head>
-<body><img src="${imgUrl}" onload="window.print();window.close();" /></body></html>`);
+<body>
+  <img id="bc" src="${barcodeImgUrl}" />
+  <div class="text">${linesHtml}</div>
+  <script>
+    var img = document.getElementById('bc');
+    if (img.complete) { window.print(); window.close(); }
+    else { img.onload = function() { window.print(); window.close(); }; }
+  </script>
+</body></html>`);
   popup.document.close();
 }
 
@@ -1392,7 +1416,7 @@ class ApiClient {
 
   /**
    * Print pallet label to a Zebra printer.
-   * Electron: sends ZPL via raw TCP. Browser: opens print dialog with PNG.
+   * Electron: sends ZPL via raw TCP. Browser: opens print dialog with label.
    */
   async printZplLabel(
     printerIp: string,
@@ -1406,7 +1430,13 @@ class ApiClient {
     } else {
       const pngUrl = await this.getPalletLabel(palletId, 'png', labelSize);
       const [w, h] = labelSize === '4x6' ? [4, 6] : [2, 1];
-      printLabelViaBrowser(pngUrl, w, h);
+      printLabelViaBrowser({
+        barcodeImgUrl: pngUrl,
+        widthIn: w,
+        heightIn: h,
+        lines: [palletId],
+        title: `Pallet ${palletId}`,
+      });
     }
     return { success: true };
   }
@@ -1440,7 +1470,7 @@ class ApiClient {
 
   /**
    * Print refurb label to a Zebra printer.
-   * Electron: sends ZPL via raw TCP. Browser: opens print dialog with PNG.
+   * Electron: sends ZPL via raw TCP (port 9100). Browser: opens print dialog.
    */
   async printRefurbLabel(
     printerIp: string,
@@ -1457,7 +1487,18 @@ class ApiClient {
         '1x3': [3, 1], '2x1.5': [2, 1.5], '4x6': [4, 6],
       };
       const [w, h] = dims[labelSize] || [2, 1.5];
-      printLabelViaBrowser(pngUrl, w, h);
+      // For 1x3 intake labels, show PalletID-QLID and QLID
+      // For other sizes, show the QSKU
+      const lines = labelSize === '1x3'
+        ? [qlid]
+        : [`RFB-${qlid}`, qlid];
+      printLabelViaBrowser({
+        barcodeImgUrl: pngUrl,
+        widthIn: w,
+        heightIn: h,
+        lines,
+        title: `Label ${qlid}`,
+      });
     }
     return { success: true, qsku: `RFB-${qlid}` };
   }
