@@ -134,20 +134,23 @@ export async function lookupPalletsByOrderId(orderId: string): Promise<SourcingP
 export async function lookupLineItems(palletId: string): Promise<SourcingLineItem[]> {
   const pool = getSourcingPool();
 
+  // tl_line_items doesn't have pallet_id directly — join via tl_pallets
   const result = await pool.query<{
     id: number;
     order_id: string;
     pallet_id: string;
     title: string | null;
-    brand: string | null;
+    brands: string | null;
     condition: string | null;
-    quantity: number | null;
-    unit_price: number | null;
+    item_count: number | null;
+    lot_price: number | null;
   }>(
-    `SELECT id, order_id, pallet_id, title, brand, condition, quantity, unit_price
-     FROM tl_line_items
-     WHERE UPPER(pallet_id) = UPPER($1)
-     ORDER BY id`,
+    `SELECT li.id, li.order_id, p.pallet_id,
+            li.title, li.brands, li.condition, li.item_count, li.lot_price
+     FROM tl_line_items li
+     JOIN tl_pallets p ON p.line_item_id = li.id
+     WHERE UPPER(p.pallet_id) = UPPER($1)
+     ORDER BY li.id`,
     [palletId]
   );
 
@@ -156,10 +159,10 @@ export async function lookupLineItems(palletId: string): Promise<SourcingLineIte
     orderId: row.order_id,
     palletId: row.pallet_id,
     title: row.title,
-    brand: row.brand,
+    brand: row.brands,
     condition: row.condition,
-    quantity: row.quantity,
-    unitPrice: row.unit_price,
+    quantity: row.item_count,
+    unitPrice: row.lot_price,
   }));
 }
 
