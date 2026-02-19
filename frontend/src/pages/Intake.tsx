@@ -476,19 +476,29 @@ export function Intake() {
 
           {/* Printer config */}
           <div className="mt-6 pt-4 border-t border-zinc-800">
-            <div className="flex items-center gap-3">
-              <Printer size={14} className="text-zinc-600" />
-              <Input
-                value={printerIp}
-                onChange={e => {
-                  setPrinterIp(e.target.value);
-                  localStorage.setItem('qr_printer_ip', e.target.value);
-                }}
-                placeholder="Printer IP (e.g. 192.168.1.100)"
-                className="text-sm flex-1"
-              />
-            </div>
-            <p className="text-[11px] text-zinc-600 mt-1 ml-7">Zebra thermal printer IP for auto-printing labels</p>
+            <button
+              onClick={() => {
+                const next = printerIp ? '' : 'enabled';
+                setPrinterIp(next);
+                localStorage.setItem('qr_printer_ip', next);
+              }}
+              className={`flex items-center gap-3 w-full text-left py-2 px-3 rounded-lg border transition-colors ${
+                printerIp
+                  ? 'border-green-800 bg-green-500/10 text-green-400'
+                  : 'border-zinc-800 text-zinc-500 hover:border-zinc-600'
+              }`}
+            >
+              <Printer size={16} />
+              <span className="text-sm font-medium">{printerIp ? 'Label Printing ON' : 'Label Printing OFF'}</span>
+              <span className={`ml-auto text-xs ${printerIp ? 'text-green-500' : 'text-zinc-600'}`}>
+                {printerIp ? 'Tap to disable' : 'Tap to enable'}
+              </span>
+            </button>
+            <p className="text-[11px] text-zinc-600 mt-1 ml-1">
+              {(window as any).electronAPI?.sendZpl
+                ? 'Sends ZPL directly to Zebra printer via TCP'
+                : 'Opens browser print dialog — select your Zebra printer'}
+            </p>
           </div>
         </Card>
       )}

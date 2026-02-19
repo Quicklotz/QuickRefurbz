@@ -22,47 +22,38 @@ export interface TechnicianStats {
 }
 
 /**
- * Send ZPL directly from the client to a Zebra printer.
- * Uses multiple methods in order of preference:
- * 1. Electron IPC (if running in Electron with raw TCP support)
- * 2. HTTP POST to printer's built-in web server (port 9100 via /pstprnt or raw)
+ * Send ZPL directly to a Zebra printer from the client.
+ * Electron: raw TCP via IPC (port 9100) — most reliable.
  */
 async function sendZplToPrinterLocal(printerIp: string, zpl: string): Promise<void> {
-  // Method 1: Electron IPC — main process can do raw TCP
   if (typeof window !== 'undefined' && (window as any).electronAPI?.sendZpl) {
     return (window as any).electronAPI.sendZpl(printerIp, zpl);
   }
+  throw new Error('Direct ZPL printing requires the Electron desktop app');
+}
 
-  // Method 2: HTTP POST to Zebra printer's built-in web server
-  // Most Zebra printers accept ZPL via POST to /pstprnt on port 9100
-  // Try port 9100 first (raw print), then port 80 (web interface)
-  const targets = [
-    `http://${printerIp}:9100/`,
-    `http://${printerIp}/pstprnt`,
-  ];
-
-  let lastError: Error | null = null;
-  for (const url of targets) {
-    try {
-      await fetch(url, {
-        method: 'POST',
-        mode: 'no-cors',
-        body: zpl,
-        headers: { 'Content-Type': 'text/plain' },
-      });
-      // no-cors means we can't read the response, but if fetch didn't throw,
-      // the request was sent successfully
-      return;
-    } catch (err) {
-      lastError = err as Error;
-    }
+/**
+ * Open a label PNG in a print popup for browser-based printing.
+ * The user selects their Zebra printer in the system print dialog.
+ * @param imgUrl - blob URL or data URL of the label image
+ * @param widthIn - label width in inches
+ * @param heightIn - label height in inches
+ */
+function printLabelViaBrowser(imgUrl: string, widthIn: number, heightIn: number): void {
+  const popup = window.open('', '_blank', `width=500,height=400`);
+  if (!popup) {
+    throw new Error('Pop-up blocked. Please allow pop-ups for this site to print labels.');
   }
-
-  throw new Error(
-    `Could not reach printer at ${printerIp}. ` +
-    `Make sure the printer is on and connected to the same network. ` +
-    (lastError ? lastError.message : '')
-  );
+  popup.document.write(`<!DOCTYPE html>
+<html><head><title>Print Label</title>
+<style>
+  @page { size: ${widthIn}in ${heightIn}in; margin: 0; }
+  * { margin: 0; padding: 0; }
+  body { width: ${widthIn}in; height: ${heightIn}in; }
+  img { width: 100%; height: auto; display: block; }
+</style></head>
+<body><img src="${imgUrl}" onload="window.print();window.close();" /></body></html>`);
+  popup.document.close();
 }
 
 class ApiClient {
@@ -1400,17 +1391,23 @@ class ApiClient {
   }
 
   /**
-   * Print pallet label via ZPL to a Zebra printer.
-   * Fetches ZPL from server, then sends it directly to the printer
-   * from the client (avoids cloud-server-to-local-printer networking issues).
+   * Print pallet label to a Zebra printer.
+   * Electron: sends ZPL via raw TCP. Browser: opens print dialog with PNG.
    */
   async printZplLabel(
     printerIp: string,
     palletId: string,
     labelSize: '4x6' | '2x1' = '4x6'
   ): Promise<{ success: boolean }> {
-    const zpl = await this.getPalletLabel(palletId, 'zpl', labelSize);
-    await sendZplToPrinterLocal(printerIp, zpl);
+    const isElectron = !!(window as any).electronAPI?.sendZpl;
+    if (isElectron) {
+      const zpl = await this.getPalletLabel(palletId, 'zpl', labelSize);
+      await sendZplToPrinterLocal(printerIp, zpl);
+    } else {
+      const pngUrl = await this.getPalletLabel(palletId, 'png', labelSize);
+      const [w, h] = labelSize === '4x6' ? [4, 6] : [2, 1];
+      printLabelViaBrowser(pngUrl, w, h);
+    }
     return { success: true };
   }
 
@@ -1442,17 +1439,26 @@ class ApiClient {
   }
 
   /**
-   * Print refurb label via ZPL to a Zebra printer.
-   * Fetches ZPL from server, then sends it directly to the printer
-   * from the client (avoids cloud-server-to-local-printer networking issues).
+   * Print refurb label to a Zebra printer.
+   * Electron: sends ZPL via raw TCP. Browser: opens print dialog with PNG.
    */
   async printRefurbLabel(
     printerIp: string,
     qlid: string,
     labelSize: '1x3' | '2x1.5' | '4x6' = '2x1.5'
   ): Promise<{ success: boolean; qsku: string }> {
-    const zpl = await this.getRefurbLabel(qlid, 'zpl', labelSize);
-    await sendZplToPrinterLocal(printerIp, zpl);
+    const isElectron = !!(window as any).electronAPI?.sendZpl;
+    if (isElectron) {
+      const zpl = await this.getRefurbLabel(qlid, 'zpl', labelSize);
+      await sendZplToPrinterLocal(printerIp, zpl);
+    } else {
+      const pngUrl = await this.getRefurbLabel(qlid, 'png', labelSize);
+      const dims: Record<string, [number, number]> = {
+        '1x3': [3, 1], '2x1.5': [2, 1.5], '4x6': [4, 6],
+      };
+      const [w, h] = dims[labelSize] || [2, 1.5];
+      printLabelViaBrowser(pngUrl, w, h);
+    }
     return { success: true, qsku: `RFB-${qlid}` };
   }
 
