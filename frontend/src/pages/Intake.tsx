@@ -170,10 +170,10 @@ export function Intake() {
       setActivePallet(pallet);
       setItemCount(0);
 
-      // Auto-print pallet label if printer is configured
-      if (printerIp) {
+      // Auto-print pallet label if auto-print is on
+      if (autoPrint) {
         try {
-          await api.printZplLabel(printerIp, pallet.palletId, '4x6');
+          await api.printZplLabel(printerIp || 'browser', pallet.palletId, '4x6');
         } catch {
           // Non-critical - label can be reprinted
         }
@@ -200,9 +200,9 @@ export function Intake() {
       setQlidPrinted(false);
 
       // Auto-print QLID label on 1x3" if enabled
-      if (printerIp && autoPrint) {
+      if (autoPrint) {
         try {
-          await api.printRefurbLabel(printerIp, reserved.qlid, '1x3');
+          await api.printRefurbLabel(printerIp || 'browser', reserved.qlid, '1x3');
           setQlidPrinted(true);
         } catch {
           // Non-critical - can reprint
@@ -376,21 +376,21 @@ export function Intake() {
   };
 
   const handleReprintPalletLabel = async () => {
-    if (!activePallet || !printerIp) return;
+    if (!activePallet) return;
     try {
-      await api.printZplLabel(printerIp, activePallet.palletId, '4x6');
-    } catch {
-      setError('Failed to reprint pallet label');
+      await api.printZplLabel(printerIp || 'browser', activePallet.palletId, '4x6');
+    } catch (err: any) {
+      setError(err.message || 'Failed to print pallet label');
     }
   };
 
   const handleReprintQlidLabel = async () => {
-    if (!currentQlid || !printerIp) return;
+    if (!currentQlid) return;
     try {
-      await api.printRefurbLabel(printerIp, currentQlid, '1x3');
+      await api.printRefurbLabel(printerIp || 'browser', currentQlid, '1x3');
       setQlidPrinted(true);
-    } catch {
-      setError('Failed to reprint QLID label');
+    } catch (err: any) {
+      setError(err.message || 'Failed to print QLID label');
     }
   };
 
@@ -408,27 +408,25 @@ export function Intake() {
             <span className="text-zinc-400 text-sm">{itemCount} items</span>
           </div>
           <div className="flex items-center gap-2">
-            {/* Auto-print toggle */}
-            {printerIp && (
-              <button
-                onClick={toggleAutoPrint}
-                className={`text-xs px-2 py-1 rounded border transition-colors flex items-center gap-1 ${
-                  autoPrint
-                    ? 'text-green-400 border-green-800 bg-green-500/10 hover:bg-green-500/20'
-                    : 'text-zinc-500 border-zinc-800 hover:border-zinc-600'
-                }`}
-                title={autoPrint ? 'Auto-print ON' : 'Auto-print OFF'}
-              >
-                <Printer size={12} />
-                Auto
-              </button>
-            )}
-            {/* Print Label button */}
-            {printerIp && currentQlid && (
+            {/* Auto-print toggle — always visible */}
+            <button
+              onClick={toggleAutoPrint}
+              className={`text-xs px-2 py-1 rounded border transition-colors flex items-center gap-1 ${
+                autoPrint
+                  ? 'text-green-400 border-green-800 bg-green-500/10 hover:bg-green-500/20'
+                  : 'text-zinc-500 border-zinc-800 hover:border-zinc-600'
+              }`}
+              title={autoPrint ? 'Auto-print ON' : 'Auto-print OFF'}
+            >
+              <Printer size={12} />
+              {autoPrint ? 'Auto-Print ON' : 'Auto-Print OFF'}
+            </button>
+            {/* Print Label button — always visible when QLID exists */}
+            {currentQlid && (
               <button
                 onClick={handleReprintQlidLabel}
                 className="text-xs text-[#d4a800] hover:text-white px-2 py-1 rounded border border-[#d4a800]/40 hover:border-[#d4a800] bg-[#d4a800]/10 hover:bg-[#d4a800]/20 transition-colors flex items-center gap-1"
-                title="Print QLID label"
+                title={`Print label for ${currentQlid}`}
               >
                 <Printer size={12} />
                 Print Label
