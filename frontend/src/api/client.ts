@@ -275,6 +275,20 @@ class ApiClient {
     });
   }
 
+  async reserveQlid(palletId: string): Promise<{ qlid: string; tick: number; barcodeValue: string }> {
+    return this.request<{ qlid: string; tick: number; barcodeValue: string }>('/qlid/reserve', {
+      method: 'POST',
+      body: JSON.stringify({ palletId }),
+    });
+  }
+
+  async updateItemByQlid(qlid: string, data: any): Promise<any> {
+    return this.request<any>(`/items/${qlid}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
   async advanceItem(id: string, data?: any) {
     return this.request<any>(`/items/${id}/advance`, {
       method: 'POST',

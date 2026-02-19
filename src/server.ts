@@ -864,7 +864,7 @@ app.get('/api/dashboard', authMiddleware, async (_req: Request, res: Response) =
 
 // ==================== PALLETS ====================
 
-import { generateRfbPalletId, generateRfbQlid, isValidRfbPalletId, isValidRfbQlid } from './rfbIdGenerator.js';
+import { generateRfbPalletId, generateRfbQlid, isValidRfbPalletId, isValidRfbQlid, buildRfbBarcode } from './rfbIdGenerator.js';
 
 // Generate a new RFB Pallet ID (QuickIntakez-compatible: P1BBY format)
 app.post('/api/pallets/generate-rfb-id', authMiddleware, async (req: Request, res: Response) => {
@@ -1213,6 +1213,51 @@ app.post('/api/intake/identify/product-photo', authMiddleware, photoUpload.singl
   }
 });
 
+// ==================== QLID RESERVATION ====================
+
+// Reserve a QLID before product identification (for pre-printing labels)
+app.post('/api/qlid/reserve', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const { palletId } = req.body;
+    if (!palletId || (!isValidRfbPalletId(palletId))) {
+      res.status(400).json({ error: 'Valid palletId required (e.g., P1BBY)' });
+      return;
+    }
+
+    const db = getPool();
+    const { tick, qlid } = await generateRfbQlid();
+    const barcodeValue = buildRfbBarcode(palletId, qlid);
+    const id = generateUUID();
+    const employeeId = req.user?.id || 'system';
+
+    await db.query(`
+      INSERT INTO refurb_items (
+        id, qlid_tick, qlid, pallet_id, barcode_value,
+        intake_employee_id, warehouse_id,
+        manufacturer, model, category,
+        current_stage
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    `, [
+      id,
+      tick.toString(),
+      qlid,
+      palletId,
+      barcodeValue,
+      employeeId,
+      'WH-001',
+      '__RESERVED__',
+      '__RESERVED__',
+      'UNCATEGORIZED',
+      'RESERVED'
+    ]);
+
+    res.status(201).json({ qlid, tick: Number(tick), barcodeValue });
+  } catch (error: any) {
+    console.error('Reserve QLID error:', error);
+    res.status(500).json({ error: 'Failed to reserve QLID' });
+  }
+});
+
 // ==================== ITEMS ====================
 
 app.get('/api/items', authMiddleware, async (req: Request, res: Response) => {
@@ -1353,6 +1398,72 @@ app.delete('/api/items/:id', authMiddleware, adminMiddleware, async (req: Reques
   } catch (error) {
     console.error('Delete item error:', error);
     res.status(500).json({ error: 'Failed to delete item' });
+  }
+});
+
+// Update item by QLID (used after QLID reservation to fill in product details)
+app.put('/api/items/:qlid', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const qlid = req.params.qlid as string;
+    const {
+      manufacturer, model, category, upc, serialNumber,
+      msrp, manifestMatch, identificationMethod
+    } = req.body;
+
+    const db = getPool();
+
+    // Look up by qlid field
+    const existing = await db.query<{ id: string; manufacturer: string }>(
+      'SELECT id, manufacturer FROM refurb_items WHERE qlid = $1',
+      [qlid]
+    );
+
+    if (!existing.rows.length) {
+      res.status(404).json({ error: 'Item not found for QLID' });
+      return;
+    }
+
+    const setClauses: string[] = [];
+    const values: any[] = [];
+    let paramIndex = 1;
+
+    if (manufacturer !== undefined) { setClauses.push(`manufacturer = $${paramIndex++}`); values.push(manufacturer); }
+    if (model !== undefined) { setClauses.push(`model = $${paramIndex++}`); values.push(model); }
+    if (category !== undefined) { setClauses.push(`category = $${paramIndex++}`); values.push(category); }
+    if (upc !== undefined) { setClauses.push(`upc = $${paramIndex++}`); values.push(upc); }
+    if (serialNumber !== undefined) { setClauses.push(`serial_number = $${paramIndex++}`); values.push(serialNumber); }
+    if (msrp !== undefined) { setClauses.push(`msrp = $${paramIndex++}`); values.push(msrp); }
+    if (manifestMatch !== undefined) { setClauses.push(`manifest_match = $${paramIndex++}`); values.push(manifestMatch); }
+    if (identificationMethod !== undefined) { setClauses.push(`identification_method = $${paramIndex++}`); values.push(identificationMethod); }
+
+    if (setClauses.length === 0) {
+      res.status(400).json({ error: 'No fields to update' });
+      return;
+    }
+
+    // If item was reserved and is now being identified, move stage to INTAKE
+    if (existing.rows[0].manufacturer === '__RESERVED__' && manufacturer && manufacturer !== '__RESERVED__') {
+      setClauses.push(`current_stage = $${paramIndex++}`);
+      values.push('INTAKE');
+    }
+
+    setClauses.push(`updated_at = now()`);
+    values.push(qlid);
+
+    const result = await db.query(
+      `UPDATE refurb_items SET ${setClauses.join(', ')} WHERE qlid = $${paramIndex} RETURNING *`,
+      values
+    );
+
+    if (!result.rows.length) {
+      res.status(500).json({ error: 'Failed to update item' });
+      return;
+    }
+
+    res.json(result.rows[0]);
+  } catch (error: any) {
+    console.error('Update item by QLID error:', error);
+    res.status(500).json({ error: 'Failed to update item' });
   }
 });
 
