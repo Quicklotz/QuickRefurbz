@@ -17,5 +17,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => { ipcRenderer.removeListener('update-downloaded', listener); };
   },
   installUpdate: () => ipcRenderer.send('install-update'),
+  sendZpl: (printerIp: string, zpl: string) => ipcRenderer.invoke('send-zpl', printerIp, zpl),
   isElectron: true,
 });

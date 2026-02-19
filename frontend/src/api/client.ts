@@ -21,6 +21,50 @@ export interface TechnicianStats {
   }>;
 }
 
+/**
+ * Send ZPL directly from the client to a Zebra printer.
+ * Uses multiple methods in order of preference:
+ * 1. Electron IPC (if running in Electron with raw TCP support)
+ * 2. HTTP POST to printer's built-in web server (port 9100 via /pstprnt or raw)
+ */
+async function sendZplToPrinterLocal(printerIp: string, zpl: string): Promise<void> {
+  // Method 1: Electron IPC — main process can do raw TCP
+  if (typeof window !== 'undefined' && (window as any).electronAPI?.sendZpl) {
+    return (window as any).electronAPI.sendZpl(printerIp, zpl);
+  }
+
+  // Method 2: HTTP POST to Zebra printer's built-in web server
+  // Most Zebra printers accept ZPL via POST to /pstprnt on port 9100
+  // Try port 9100 first (raw print), then port 80 (web interface)
+  const targets = [
+    `http://${printerIp}:9100/`,
+    `http://${printerIp}/pstprnt`,
+  ];
+
+  let lastError: Error | null = null;
+  for (const url of targets) {
+    try {
+      await fetch(url, {
+        method: 'POST',
+        mode: 'no-cors',
+        body: zpl,
+        headers: { 'Content-Type': 'text/plain' },
+      });
+      // no-cors means we can't read the response, but if fetch didn't throw,
+      // the request was sent successfully
+      return;
+    } catch (err) {
+      lastError = err as Error;
+    }
+  }
+
+  throw new Error(
+    `Could not reach printer at ${printerIp}. ` +
+    `Make sure the printer is on and connected to the same network. ` +
+    (lastError ? lastError.message : '')
+  );
+}
+
 class ApiClient {
   private token: string | null = null;
   private _autoLoginPromise: Promise<void> | null = null;
@@ -1356,18 +1400,18 @@ class ApiClient {
   }
 
   /**
-   * Print pallet label via ZPL to a Zebra printer
-   * @param labelSize - '4x6' (default, warehouse thermal) or '2x1' (small)
+   * Print pallet label via ZPL to a Zebra printer.
+   * Fetches ZPL from server, then sends it directly to the printer
+   * from the client (avoids cloud-server-to-local-printer networking issues).
    */
   async printZplLabel(
     printerIp: string,
     palletId: string,
     labelSize: '4x6' | '2x1' = '4x6'
   ): Promise<{ success: boolean }> {
-    return this.request<{ success: boolean }>('/labels/print-zpl', {
-      method: 'POST',
-      body: JSON.stringify({ printerIp, palletId, labelSize }),
-    });
+    const zpl = await this.getPalletLabel(palletId, 'zpl', labelSize);
+    await sendZplToPrinterLocal(printerIp, zpl);
+    return { success: true };
   }
 
   // ==================== REFURB LABELS API (RFB-QLID format) ====================
@@ -1398,18 +1442,18 @@ class ApiClient {
   }
 
   /**
-   * Print refurb label via ZPL to a Zebra printer
-   * @param labelSize - '1x3' (intake QLID), '2x1.5' (default), or '4x6' (warehouse thermal)
+   * Print refurb label via ZPL to a Zebra printer.
+   * Fetches ZPL from server, then sends it directly to the printer
+   * from the client (avoids cloud-server-to-local-printer networking issues).
    */
   async printRefurbLabel(
     printerIp: string,
     qlid: string,
     labelSize: '1x3' | '2x1.5' | '4x6' = '2x1.5'
   ): Promise<{ success: boolean; qsku: string }> {
-    return this.request<{ success: boolean; qsku: string }>('/labels/refurb/print-zpl', {
-      method: 'POST',
-      body: JSON.stringify({ printerIp, qlid, labelSize }),
-    });
+    const zpl = await this.getRefurbLabel(qlid, 'zpl', labelSize);
+    await sendZplToPrinterLocal(printerIp, zpl);
+    return { success: true, qsku: `RFB-${qlid}` };
   }
 
   // ==================== DATA WIPE CERTIFICATES API ====================

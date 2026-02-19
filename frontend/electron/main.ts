@@ -2,6 +2,7 @@ import { app, BrowserWindow, shell, ipcMain, globalShortcut } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as net from 'net';
 
 interface StationConfig {
   stationId: string;
@@ -190,6 +191,23 @@ ipcMain.handle('unlock-kiosk', (_event, pin: string) => {
 
 ipcMain.on('install-update', () => {
   autoUpdater.quitAndInstall();
+});
+
+// Raw TCP ZPL printing — sends ZPL directly to Zebra printer on port 9100
+ipcMain.handle('send-zpl', (_event, printerIp: string, zpl: string) => {
+  return new Promise<boolean>((resolve, reject) => {
+    const socket = new net.Socket();
+    socket.connect(9100, printerIp, () => {
+      socket.write(zpl);
+      socket.end();
+    });
+    socket.on('close', () => resolve(true));
+    socket.on('error', (err) => reject(err.message));
+    socket.setTimeout(10000, () => {
+      socket.destroy();
+      reject('Printer connection timeout');
+    });
+  });
 });
 
 // Auto-updater events
