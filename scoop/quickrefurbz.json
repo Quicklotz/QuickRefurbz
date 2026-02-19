@@ -1,12 +1,12 @@
 {
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "Refurbishment tracking system for liquidation electronics",
   "homepage": "https://quickrefurbz.com",
   "license": "Proprietary",
   "architecture": {
     "64bit": {
-      "url": "https://quickrefurbz.com/downloads/QuickRefurbz%20Setup%201.3.0.exe",
-      "hash": "085bd7978349ac158a070c9ec47256439162b47936eb4e9f0ec398f1a6dc6548"
+      "url": "https://quickrefurbz.com/downloads/QuickRefurbz%20Setup%201.3.1.exe",
+      "hash": "046f2026c3dc263641961a86c57e4a4297c4a6440d7e7daf0159667ebfad3931"
     }
   },
   "installer": {
