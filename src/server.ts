@@ -2877,7 +2877,7 @@ app.post('/api/labels/print-zpl', authMiddleware, async (req: AuthRequest, res: 
 // ==================== REFURBISHED ITEM LABELS ====================
 
 // Generate refurbished item label (RFB-QLID format)
-// Query params: format=png|zpl, labelSize=2x1.5|4x6 (default: 2x1.5)
+// Query params: format=png|zpl, labelSize=1x3|2x1.5|4x6 (default: 2x1.5)
 app.get('/api/labels/refurb/:qlid', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const qlid = req.params.qlid as string;
@@ -2885,8 +2885,8 @@ app.get('/api/labels/refurb/:qlid', authMiddleware, async (req: AuthRequest, res
     const labelSize = (queryString(req.query.labelSize) || '2x1.5') as labelGenerator.RefurbLabelSize;
 
     // Validate labelSize
-    if (labelSize !== '2x1.5' && labelSize !== '4x6') {
-      res.status(400).json({ error: 'Invalid labelSize. Use "2x1.5" or "4x6"' });
+    if (labelSize !== '1x3' && labelSize !== '2x1.5' && labelSize !== '4x6') {
+      res.status(400).json({ error: 'Invalid labelSize. Use "1x3", "2x1.5", or "4x6"' });
       return;
     }
 
@@ -2897,8 +2897,8 @@ app.get('/api/labels/refurb/:qlid', authMiddleware, async (req: AuthRequest, res
       return;
     }
 
-    // Check if item is complete
-    if (item.currentStage !== 'COMPLETE') {
+    // 1x3 labels are for intake identification and don't require completion
+    if (labelSize !== '1x3' && item.currentStage !== 'COMPLETE') {
       res.status(400).json({ error: 'Item has not completed refurbishment' });
       return;
     }
@@ -2913,6 +2913,7 @@ app.get('/api/labels/refurb/:qlid', authMiddleware, async (req: AuthRequest, res
     const labelData: RefurbLabelData = {
       qsku,
       qlid: item.qlid,
+      palletId: item.palletId,
       manufacturer: item.manufacturer,
       model: item.model,
       category: item.category,
@@ -2950,8 +2951,8 @@ app.post('/api/labels/refurb/print-zpl', authMiddleware, async (req: AuthRequest
       return;
     }
 
-    if (labelSize !== '2x1.5' && labelSize !== '4x6') {
-      res.status(400).json({ error: 'Invalid labelSize. Use "2x1.5" or "4x6"' });
+    if (labelSize !== '1x3' && labelSize !== '2x1.5' && labelSize !== '4x6') {
+      res.status(400).json({ error: 'Invalid labelSize. Use "1x3", "2x1.5", or "4x6"' });
       return;
     }
 
@@ -2962,8 +2963,8 @@ app.post('/api/labels/refurb/print-zpl', authMiddleware, async (req: AuthRequest
       return;
     }
 
-    // Check if item is complete
-    if (item.currentStage !== 'COMPLETE') {
+    // 1x3 labels are for intake identification and don't require completion
+    if (labelSize !== '1x3' && item.currentStage !== 'COMPLETE') {
       res.status(400).json({ error: 'Item has not completed refurbishment' });
       return;
     }
@@ -2975,6 +2976,7 @@ app.post('/api/labels/refurb/print-zpl', authMiddleware, async (req: AuthRequest
     const labelData: RefurbLabelData = {
       qsku,
       qlid: item.qlid,
+      palletId: item.palletId,
       manufacturer: item.manufacturer,
       model: item.model,
       category: item.category,

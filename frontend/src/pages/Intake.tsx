@@ -67,19 +67,29 @@ export function Intake() {
   // Last saved item
   const [lastItem, setLastItem] = useState<any>(null);
 
-  // Printer IP from settings
+  // Printer IP and auto-print toggle
   const [printerIp, setPrinterIp] = useState<string>('');
+  const [autoPrint, setAutoPrint] = useState(true);
 
   const palletInputRef = useRef<HTMLInputElement>(null);
   const orderInputRef = useRef<HTMLInputElement>(null);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // Load saved printer from localStorage
+  // Load saved printer + auto-print preference from localStorage
   useEffect(() => {
     const saved = localStorage.getItem('qr_printer_ip');
     if (saved) setPrinterIp(saved);
+    const ap = localStorage.getItem('qr_auto_print');
+    if (ap !== null) setAutoPrint(ap === 'true');
   }, []);
+
+  const toggleAutoPrint = () => {
+    setAutoPrint(prev => {
+      localStorage.setItem('qr_auto_print', String(!prev));
+      return !prev;
+    });
+  };
 
   // Auto-focus inputs based on step
   useEffect(() => {
@@ -189,10 +199,10 @@ export function Intake() {
       setCurrentQlid(reserved.qlid);
       setQlidPrinted(false);
 
-      // Auto-print QLID label
-      if (printerIp) {
+      // Auto-print QLID label on 1x3" if enabled
+      if (printerIp && autoPrint) {
         try {
-          await api.printRefurbLabel(printerIp, reserved.qlid, '2x1.5');
+          await api.printRefurbLabel(printerIp, reserved.qlid, '1x3');
           setQlidPrinted(true);
         } catch {
           // Non-critical - can reprint
@@ -376,7 +386,7 @@ export function Intake() {
   const handleReprintQlidLabel = async () => {
     if (!currentQlid || !printerIp) return;
     try {
-      await api.printRefurbLabel(printerIp, currentQlid, '2x1.5');
+      await api.printRefurbLabel(printerIp, currentQlid, '1x3');
       setQlidPrinted(true);
     } catch {
       setError('Failed to reprint QLID label');
@@ -397,9 +407,30 @@ export function Intake() {
             <span className="text-zinc-400 text-sm">{itemCount} items</span>
           </div>
           <div className="flex items-center gap-2">
+            {/* Auto-print toggle */}
             {printerIp && (
-              <button onClick={handleReprintPalletLabel} className="text-xs text-zinc-500 hover:text-white px-2 py-1 rounded border border-zinc-800 hover:border-zinc-600 transition-colors" title="Reprint pallet label">
-                <Printer size={14} />
+              <button
+                onClick={toggleAutoPrint}
+                className={`text-xs px-2 py-1 rounded border transition-colors flex items-center gap-1 ${
+                  autoPrint
+                    ? 'text-green-400 border-green-800 bg-green-500/10 hover:bg-green-500/20'
+                    : 'text-zinc-500 border-zinc-800 hover:border-zinc-600'
+                }`}
+                title={autoPrint ? 'Auto-print ON' : 'Auto-print OFF'}
+              >
+                <Printer size={12} />
+                Auto
+              </button>
+            )}
+            {/* Print Label button */}
+            {printerIp && currentQlid && (
+              <button
+                onClick={handleReprintQlidLabel}
+                className="text-xs text-[#d4a800] hover:text-white px-2 py-1 rounded border border-[#d4a800]/40 hover:border-[#d4a800] bg-[#d4a800]/10 hover:bg-[#d4a800]/20 transition-colors flex items-center gap-1"
+                title="Print QLID label"
+              >
+                <Printer size={12} />
+                Print Label
               </button>
             )}
             <button onClick={handleEndSession} className="text-xs text-zinc-500 hover:text-red-400 px-3 py-1 rounded border border-zinc-800 hover:border-red-800 transition-colors">

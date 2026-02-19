@@ -477,6 +477,7 @@ export interface LabelData {
 export interface RefurbLabelData {
   qsku: string;                        // RFB-QLID000000001 (barcode value)
   qlid: string;                        // QLID000000001
+  palletId?: string;                   // P8BBY - needed for 1x3 intake labels
   manufacturer: string;
   model: string;
   category: ProductCategory;

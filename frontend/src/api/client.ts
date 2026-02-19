@@ -1374,12 +1374,12 @@ class ApiClient {
 
   /**
    * Get refurb label as PNG blob URL or ZPL text
-   * @param labelSize - '2x1.5' (default) or '4x6' (warehouse thermal)
+   * @param labelSize - '1x3' (intake QLID), '2x1.5' (default), or '4x6' (warehouse thermal)
    */
   async getRefurbLabel(
     qlid: string,
     format: 'png' | 'zpl' = 'png',
-    labelSize: '2x1.5' | '4x6' = '2x1.5'
+    labelSize: '1x3' | '2x1.5' | '4x6' = '2x1.5'
   ): Promise<string> {
     const params = new URLSearchParams({ format, labelSize });
     const response = await fetch(`${API_BASE}/labels/refurb/${qlid}?${params}`, {
@@ -1399,12 +1399,12 @@ class ApiClient {
 
   /**
    * Print refurb label via ZPL to a Zebra printer
-   * @param labelSize - '2x1.5' (default) or '4x6' (warehouse thermal)
+   * @param labelSize - '1x3' (intake QLID), '2x1.5' (default), or '4x6' (warehouse thermal)
    */
   async printRefurbLabel(
     printerIp: string,
     qlid: string,
-    labelSize: '2x1.5' | '4x6' = '2x1.5'
+    labelSize: '1x3' | '2x1.5' | '4x6' = '2x1.5'
   ): Promise<{ success: boolean; qsku: string }> {
     return this.request<{ success: boolean; qsku: string }>('/labels/refurb/print-zpl', {
       method: 'POST',

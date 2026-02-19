@@ -13,6 +13,7 @@ import { getRetailerFromPalletId, RETAILER_DISPLAY, GRADE_DISPLAY, CATEGORY_DISP
 export const LABEL_PRESETS: Record<string, { widthMm: number; heightMm: number; dpi: number; name: string }> = {
   '2x1':   { widthMm: 50.8, heightMm: 25.4, dpi: 203, name: '2" x 1"' },
   '2x1.5': { widthMm: 50.8, heightMm: 38.1, dpi: 203, name: '2" x 1.5"' },
+  '1x3':   { widthMm: 25.4, heightMm: 76.2, dpi: 203, name: '1" x 3"' },
   '4x2':   { widthMm: 101.6, heightMm: 50.8, dpi: 203, name: '4" x 2"' },
   '4x6':   { widthMm: 101.6, heightMm: 152.4, dpi: 203, name: '4" x 6"' },
 };
@@ -309,37 +310,71 @@ export async function sendZplToPrinter(printerIp: string, zpl: string): Promise<
 
 // ==================== REFURBISHED ITEM LABELS ====================
 
-export type RefurbLabelSize = '2x1.5' | '4x6';
+export type RefurbLabelSize = '1x3' | '2x1.5' | '4x6';
 
 /**
  * Generate a refurbished item label (RFB-QLID format)
  * Used when an item completes refurbishment and is certified
- * @param labelSize - '2x1.5' for small labels, '4x6' for warehouse thermal labels
+ * @param labelSize - '1x3' for intake QLID labels, '2x1.5' for small labels, '4x6' for warehouse thermal labels
  */
 export async function generateRefurbLabel(
   item: RefurbLabelData,
   labelSize: RefurbLabelSize = '2x1.5'
 ): Promise<{ png: Buffer; zpl: string }> {
   const is4x6 = labelSize === '4x6';
+  const is1x3 = labelSize === '1x3';
 
-  // Generate Code128 barcode with QSKU (RFB-QLID format)
+  // For 1x3 intake labels, barcode is PalletID-QLID; otherwise QSKU (RFB-QLID)
+  const barcodeText = is1x3 && item.palletId
+    ? `${item.palletId}-${item.qlid}`
+    : item.qsku;
+
+  // Generate Code128 barcode
   const png = await bwipjs.toBuffer({
     bcid: 'code128',
-    text: item.qsku,
-    scale: is4x6 ? 6 : 4,
-    height: is4x6 ? 25 : 12,
+    text: barcodeText,
+    scale: is4x6 ? 6 : is1x3 ? 3 : 4,
+    height: is4x6 ? 25 : is1x3 ? 8 : 12,
     includetext: true,
     textxalign: 'center',
-    textsize: is4x6 ? 14 : 10,
-    paddingwidth: is4x6 ? 8 : 4,
-    paddingheight: is4x6 ? 8 : 4,
+    textsize: is4x6 ? 14 : is1x3 ? 8 : 10,
+    paddingwidth: is4x6 ? 8 : is1x3 ? 2 : 4,
+    paddingheight: is4x6 ? 8 : is1x3 ? 2 : 4,
   });
 
-  const zpl = labelSize === '4x6'
-    ? generateRefurbZPL4x6(item)
-    : generateRefurbZPL(item);
+  const zpl = is1x3
+    ? generateRefurbZPL1x3(item)
+    : labelSize === '4x6'
+      ? generateRefurbZPL4x6(item)
+      : generateRefurbZPL(item);
 
   return { png, zpl };
+}
+
+/**
+ * Generate ZPL for 1" x 3" QLID intake label at 203 DPI (609 x 203 dots)
+ * Simple label for intake identification: barcode + PalletID-QLID text + QLID text
+ * No grade badges, QR codes, or warranty info.
+ */
+export function generateRefurbZPL1x3(item: RefurbLabelData): string {
+  // 1" tall x 3" wide at 203 DPI = 203 dots tall x 609 dots wide
+  const W = 609;
+  const H = 203;
+
+  const barcodeValue = item.palletId
+    ? `${item.palletId}-${item.qlid}`
+    : item.qlid;
+
+  return `
+^XA
+^CI28
+^PW${W}
+^LL${H}
+^FO15,10^BY2,3.0^BCN,100,N,N,N^FD${barcodeValue}^FS
+^FO15,120^A0N,28,28^FD${barcodeValue}^FS
+^FO15,155^A0N,24,24^FD${item.qlid}^FS
+^XZ
+`.trim();
 }
 
 /**
