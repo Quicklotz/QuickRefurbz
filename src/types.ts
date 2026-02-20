@@ -723,13 +723,16 @@ export interface WorkflowStep {
   code: string;                    // PHONE_FACTORY_RESET, LAPTOP_BIOS_RESET
   name: string;                    // Human-readable name
   type: StepType;
-  prompt: string;                  // Main prompt text
-  helpText?: string;               // SOP instructions
+  prompt: string;                  // Main prompt text (English)
+  promptEs?: string;               // Spanish prompt text
+  helpText?: string;               // SOP instructions (English)
+  helpTextEs?: string;             // Spanish SOP instructions
   required: boolean;
   order: number;                   // Order within the state
 
   // Type-specific configuration
   checklistItems?: string[];       // For CHECKLIST type
+  checklistItemsEs?: string[];     // Spanish checklist items
   inputSchema?: Record<string, unknown>;  // JSON Schema for INPUT/MEASUREMENT types
   photoConfig?: {
     required: boolean;

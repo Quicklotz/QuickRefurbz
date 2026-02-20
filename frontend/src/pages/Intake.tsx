@@ -482,7 +482,10 @@ export function Intake() {
   const populateReview = (data: any) => {
     setBrand(data.brand || data.manufacturer || '');
     setModel(data.model || data.modelNumber || '');
-    setCategory(data.category || 'OTHER');
+    // Use repeat-mode category preference if active, otherwise use identified category
+    const repeatMode = localStorage.getItem('rfb_repeat_mode') === 'true';
+    const preferredCat = localStorage.getItem('rfb_preferred_category');
+    setCategory(repeatMode && preferredCat ? preferredCat : (data.category || 'OTHER'));
     setUpc(data.upc || '');
     setSerialNumber(data.serialNumber || '');
     setMsrp(data.msrp || data.regularPrice || data.price || 0);
@@ -493,7 +496,9 @@ export function Intake() {
   const handleSkipIdentification = () => {
     setBrand('');
     setModel('');
-    setCategory('OTHER');
+    const repeatMode = localStorage.getItem('rfb_repeat_mode') === 'true';
+    const preferredCat = localStorage.getItem('rfb_preferred_category');
+    setCategory(repeatMode && preferredCat ? preferredCat : 'OTHER');
     setUpc('');
     setSerialNumber('');
     setMsrp(0);

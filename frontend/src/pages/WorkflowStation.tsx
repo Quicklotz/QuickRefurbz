@@ -16,6 +16,19 @@ import {
   Camera,
   Upload,
   Trash2,
+  Grid3X3,
+  Repeat,
+  Smartphone,
+  Tablet,
+  Laptop,
+  Monitor,
+  Tv,
+  Speaker,
+  Thermometer,
+  Wind,
+  Gamepad2,
+  Watch,
+  Package,
 } from 'lucide-react';
 import { api } from '@/api/client';
 import { ProgressIndicator } from '@/components/workflow/ProgressIndicator';
@@ -66,6 +79,23 @@ interface Prompt {
   canRetry: boolean;
 }
 
+const CATEGORY_CONFIG: { key: string; label: string; icon: any }[] = [
+  { key: 'PHONE', label: 'Phone', icon: Smartphone },
+  { key: 'TABLET', label: 'Tablet', icon: Tablet },
+  { key: 'LAPTOP', label: 'Laptop', icon: Laptop },
+  { key: 'DESKTOP', label: 'Desktop', icon: Monitor },
+  { key: 'TV', label: 'TV', icon: Tv },
+  { key: 'MONITOR', label: 'Monitor', icon: Monitor },
+  { key: 'AUDIO', label: 'Audio', icon: Speaker },
+  { key: 'APPLIANCE_SMALL', label: 'Small Appliance', icon: Thermometer },
+  { key: 'APPLIANCE_LARGE', label: 'Large Appliance', icon: Package },
+  { key: 'ICE_MAKER', label: 'Ice Maker', icon: Thermometer },
+  { key: 'VACUUM', label: 'Vacuum', icon: Wind },
+  { key: 'GAMING', label: 'Gaming', icon: Gamepad2 },
+  { key: 'WEARABLE', label: 'Wearable', icon: Watch },
+  { key: 'OTHER', label: 'Other', icon: Package },
+];
+
 export function WorkflowStation() {
   const [scanInput, setScanInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -80,6 +110,25 @@ export function WorkflowStation() {
   const [photoPreviewUrls, setPhotoPreviewUrls] = useState<string[]>([]);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
   const [showRefurbLabelModal, setShowRefurbLabelModal] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<string>(() => {
+    return localStorage.getItem('rfb_preferred_category') || '';
+  });
+  const [repeatMode, setRepeatMode] = useState<boolean>(() => {
+    return localStorage.getItem('rfb_repeat_mode') === 'true';
+  });
+
+  const handleCategorySelect = (cat: string) => {
+    setSelectedCategory(cat);
+    localStorage.setItem('rfb_preferred_category', cat);
+  };
+
+  const toggleRepeatMode = () => {
+    setRepeatMode(prev => {
+      const next = !prev;
+      localStorage.setItem('rfb_repeat_mode', String(next));
+      return next;
+    });
+  };
 
   const loadPrompt = useCallback(async (qlid: string) => {
     setLoading(true);
@@ -111,7 +160,7 @@ export function WorkflowStation() {
         // Job doesn't exist, try to create it
       }
 
-      await api.createJob({ qlid: scanInput.trim() });
+      await api.createJob({ qlid: scanInput.trim(), category: selectedCategory || undefined });
       await loadPrompt(scanInput.trim());
       setScanInput('');
     } catch (err: any) {
@@ -246,6 +295,10 @@ export function WorkflowStation() {
     setPrompt(null);
     setError(null);
     setScanInput('');
+    if (!repeatMode) {
+      setSelectedCategory('');
+      localStorage.removeItem('rfb_preferred_category');
+    }
   };
 
   const renderJobHeader = () => {
@@ -264,6 +317,12 @@ export function WorkflowStation() {
                   {prompt.job.qlid}
                 </span>
                 <PriorityBadge priority={prompt.job.priority.toLowerCase() as 'urgent' | 'high' | 'normal' | 'low'} />
+                {selectedCategory && repeatMode && (
+                  <span className="px-2 py-0.5 text-xs rounded-md bg-ql-yellow/10 text-ql-yellow border border-ql-yellow/30 flex items-center gap-1">
+                    <Repeat size={10} />
+                    {selectedCategory}
+                  </span>
+                )}
               </div>
             </div>
 
@@ -504,6 +563,53 @@ export function WorkflowStation() {
                 </div>
               </form>
             </Spotlight>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Category Selector */}
+      <AnimatePresence>
+        {!prompt && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+          >
+            <div className="mb-2 flex items-center justify-between">
+              <h3 className="text-sm font-medium text-zinc-400 flex items-center gap-2">
+                <Grid3X3 size={14} />
+                Select Category
+              </h3>
+              <button
+                onClick={toggleRepeatMode}
+                className={cn(
+                  "flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md border transition-colors",
+                  repeatMode
+                    ? "border-ql-yellow/50 bg-ql-yellow/10 text-ql-yellow"
+                    : "border-border text-zinc-500 hover:text-zinc-300 hover:border-zinc-600"
+                )}
+              >
+                <Repeat size={12} />
+                Repeat {repeatMode ? 'ON' : 'OFF'}
+              </button>
+            </div>
+            <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
+              {CATEGORY_CONFIG.map(({ key, label, icon: Icon }) => (
+                <button
+                  key={key}
+                  onClick={() => handleCategorySelect(key)}
+                  className={cn(
+                    "flex flex-col items-center gap-1.5 p-3 rounded-lg border text-xs font-medium transition-all",
+                    selectedCategory === key
+                      ? "border-ql-yellow bg-ql-yellow/10 text-ql-yellow"
+                      : "border-border bg-dark-card text-zinc-400 hover:text-white hover:border-zinc-600"
+                  )}
+                >
+                  <Icon size={20} />
+                  {label}
+                </button>
+              ))}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
