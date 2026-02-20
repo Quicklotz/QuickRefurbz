@@ -7,6 +7,7 @@ import {
   CheckCircle, XCircle, MinusCircle, ChevronRight, ClipboardList,
 } from 'lucide-react';
 import { api } from '@/api/client';
+import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/aceternity/button';
 import { Input } from '@/components/aceternity/input';
 import { Label } from '@/components/aceternity/label';
@@ -195,6 +196,8 @@ const GRADE_COLORS: Record<string, string> = {
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export function Intake() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [step, setStep] = useState<Step>('scan-pallet');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -380,7 +383,8 @@ export function Intake() {
       await generateNextQlid(pallet.palletId);
       setStep('working');
     } catch (err: any) {
-      setError(err.message || 'Failed to create pallet');
+      const msg = err.message || 'Failed to create pallet';
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -830,7 +834,7 @@ export function Intake() {
               >
                 <span className="font-mono text-[#d4a800] font-medium">{p.palletId || p.pallet_id}</span>
                 <span className="text-zinc-500 ml-3">{p.estimatedItems || p.estimated_items || '?'} {t('common.items')}</span>
-                {(p.estimatedCogs || p.estimated_cogs) && (
+                {isAdmin && (p.estimatedCogs || p.estimated_cogs) && (
                   <span className="text-zinc-600 ml-2">${Number(p.estimatedCogs || p.estimated_cogs).toLocaleString()}</span>
                 )}
               </button>
@@ -854,7 +858,7 @@ export function Intake() {
             <Row label={t('pallet.supplierId')} value={sourcingPallet.palletId || sourcingPallet.pallet_id} mono yellow />
             <Row label={t('pallet.orderId')} value={sourcingPallet.orderId || sourcingPallet.order_id} mono />
             <Row label={t('pallet.estItems')} value={sourcingPallet.estimatedItems || sourcingPallet.estimated_items || '—'} />
-            <Row label={t('pallet.estCogs')} value={`$${Number(sourcingPallet.estimatedCogs || sourcingPallet.estimated_cogs || 0).toLocaleString()}`} />
+            {isAdmin && <Row label={t('pallet.estCogs')} value={`$${Number(sourcingPallet.estimatedCogs || sourcingPallet.estimated_cogs || 0).toLocaleString()}`} />}
           </div>
 
           <p className="text-sm text-zinc-400 mb-4">

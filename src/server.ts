@@ -1083,6 +1083,16 @@ app.post('/api/pallets/from-sourcing', authMiddleware, async (req: AuthRequest, 
       return res.status(404).json({ error: 'Sourcing pallet not found', sourcingPalletId });
     }
 
+    // Check if this SUPID has already been used to create an internal pallet
+    const existingPallet = await palletManager.getPalletBySourceId(sourcingPallet.palletId);
+    if (existingPallet) {
+      return res.status(409).json({
+        error: 'This supplier pallet has already been received',
+        existingPalletId: existingPallet.palletId,
+        sourcePalletId: sourcingPallet.palletId,
+      });
+    }
+
     // Derive retailer from sourcing data
     const retailer = sourcingLookup.deriveRetailer(sourcingPallet) as Retailer;
 

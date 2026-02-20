@@ -68,9 +68,26 @@ export async function createPallet(options: CreatePalletOptions): Promise<Pallet
 export async function getPalletById(palletId: string): Promise<Pallet | null> {
   const db = getPool();
   const result = await db.query(`
-    SELECT * FROM refurb_pallets
-    WHERE pallet_id = $1 OR source_pallet_id = $1 OR id::text = $1
+    SELECT rp.*,
+      (SELECT COUNT(*) FROM refurb_items WHERE qr_pallet_id = rp.pallet_id) AS actual_received_items
+    FROM refurb_pallets rp
+    WHERE rp.pallet_id = $1 OR rp.source_pallet_id = $1 OR rp.id::text = $1
   `, [palletId]);
+
+  if (result.rows.length === 0) return null;
+  const row = result.rows[0] as Record<string, unknown>;
+  const pallet = rowToPallet(row);
+  pallet.receivedItems = parseInt(row.actual_received_items as string) || 0;
+  return pallet;
+}
+
+export async function getPalletBySourceId(sourcePalletId: string): Promise<Pallet | null> {
+  const db = getPool();
+  const result = await db.query(`
+    SELECT * FROM refurb_pallets
+    WHERE source_pallet_id = $1
+    LIMIT 1
+  `, [sourcePalletId]);
 
   if (result.rows.length === 0) return null;
   return rowToPallet(result.rows[0]);
@@ -110,12 +127,21 @@ export async function listPallets(options: ListPalletsOptions = {}): Promise<Pal
     params.push(options.warehouseId);
   }
 
-  let query = 'SELECT * FROM refurb_pallets';
+  let query = `
+    SELECT rp.*,
+      COALESCE(item_counts.actual_received, 0) AS actual_received_items
+    FROM refurb_pallets rp
+    LEFT JOIN (
+      SELECT qr_pallet_id, COUNT(*) AS actual_received
+      FROM refurb_items
+      GROUP BY qr_pallet_id
+    ) item_counts ON item_counts.qr_pallet_id = rp.pallet_id
+  `;
   if (conditions.length > 0) {
     query += ' WHERE ' + conditions.join(' AND ');
   }
 
-  query += ' ORDER BY created_at DESC';
+  query += ' ORDER BY rp.created_at DESC';
 
   if (options.limit) {
     query += ` LIMIT $${paramIndex}`;
@@ -123,7 +149,12 @@ export async function listPallets(options: ListPalletsOptions = {}): Promise<Pal
   }
 
   const result = await db.query(query, params);
-  return result.rows.map(rowToPallet);
+  return result.rows.map((row: Record<string, unknown>) => {
+    const pallet = rowToPallet(row);
+    // Override static received_items with actual dynamic count
+    pallet.receivedItems = parseInt(row.actual_received_items as string) || 0;
+    return pallet;
+  });
 }
 
 export async function getActivePallets(): Promise<Pallet[]> {

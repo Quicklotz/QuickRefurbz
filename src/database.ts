@@ -446,6 +446,13 @@ async function initializePostgres(db: DatabaseAdapter): Promise<void> {
     )
   `);
 
+  // Unique constraint on source_pallet_id (prevents duplicate SUPID)
+  await db.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_refurb_pallets_source_pallet_id
+    ON refurb_pallets (source_pallet_id)
+    WHERE source_pallet_id IS NOT NULL
+  `);
+
   // Create refurb_items table
   await db.query(`
     CREATE TABLE IF NOT EXISTS refurb_items (

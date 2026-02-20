@@ -3,6 +3,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Search, Package, ChevronRight, Check, AlertTriangle, ArrowLeft } from 'lucide-react';
 import { api } from '@/api/client';
+import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/aceternity/button';
 import { Input } from '@/components/aceternity/input';
 import { Label } from '@/components/aceternity/label';
@@ -29,6 +30,8 @@ interface SourcingPalletFlowProps {
 
 export function SourcingPalletFlow({ onPalletCreated, onCancel }: SourcingPalletFlowProps) {
   const { t } = useTranslation();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [step, setStep] = useState<Step>('scan-pallet');
   const [palletInput, setPalletInput] = useState('');
   const [orderInput, setOrderInput] = useState('');
@@ -333,10 +336,12 @@ export function SourcingPalletFlow({ onPalletCreated, onCancel }: SourcingPallet
                 <span className="text-zinc-500">{t('palletScan.estimatedItems')}</span>
                 <span className="text-white">{selectedPallet.estimatedItems || selectedPallet.estimated_items || '—'}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-zinc-500">{t('palletScan.estimatedCogs')}</span>
-                <span className="text-white">${(selectedPallet.estimatedCogs || selectedPallet.estimated_cogs || 0).toLocaleString()}</span>
-              </div>
+              {isAdmin && (
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">{t('palletScan.estimatedCogs')}</span>
+                  <span className="text-white">${(selectedPallet.estimatedCogs || selectedPallet.estimated_cogs || 0).toLocaleString()}</span>
+                </div>
+              )}
               {selectedPallet.retailer && (
                 <div className="flex justify-between">
                   <span className="text-zinc-500">{t('palletScan.retailer')}</span>

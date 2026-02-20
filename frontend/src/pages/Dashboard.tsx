@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from 'react';
 import { api } from '@/api/client';
+import { useAuth } from '@/hooks/useAuth';
 import { Badge, StageBadge } from '@/components/shared/Badge';
 import { Loader } from '@/components/aceternity/loader';
 import {
@@ -106,6 +107,8 @@ function StatsCard({ title, value, icon, trend, color = 'default' }: StatsCardPr
 }
 
 export function Dashboard() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [data, setData] = useState<DashboardData | null>(null);
   const [certStats, setCertStats] = useState<CertificationStats | null>(null);
   const [recentCerts, setRecentCerts] = useState<RecentCertification[]>([]);
@@ -369,12 +372,14 @@ export function Dashboard() {
                 </tbody>
               </table>
             </div>
-            <div className="mt-4 pt-4 border-t border-[var(--color-border)]/30 flex justify-between items-center">
-              <span className="text-sm text-zinc-500">Total COGS</span>
-              <span className="text-2xl font-semibold text-[var(--color-ql-yellow)]">
-                ${data.pallets.totalCogs.toLocaleString()}
-              </span>
-            </div>
+            {isAdmin && (
+              <div className="mt-4 pt-4 border-t border-[var(--color-border)]/30 flex justify-between items-center">
+                <span className="text-sm text-zinc-500">Total COGS</span>
+                <span className="text-2xl font-semibold text-[var(--color-ql-yellow)]">
+                  ${data.pallets.totalCogs.toLocaleString()}
+                </span>
+              </div>
+            )}
           </div>
         </div>
       </div>

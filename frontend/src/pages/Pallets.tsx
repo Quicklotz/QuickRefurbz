@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../api/client';
+import { useAuth } from '@/hooks/useAuth';
 import { RefreshCw, Plus, Eye } from 'lucide-react';
 
 const RETAILERS = [
@@ -25,6 +26,8 @@ const SOURCES = [
 ];
 
 export function Pallets() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [pallets, setPallets] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -111,7 +114,7 @@ export function Pallets() {
                 <th>Source Pallet</th>
                 <th>Status</th>
                 <th>Items</th>
-                <th>COGS</th>
+                {isAdmin && <th>COGS</th>}
                 <th>Actions</th>
               </tr>
             </thead>
@@ -128,7 +131,7 @@ export function Pallets() {
                     </span>
                   </td>
                   <td>{pallet.receivedItems} / {pallet.expectedItems || '?'}</td>
-                  <td>${pallet.totalCogs.toLocaleString()}</td>
+                  {isAdmin && <td>${pallet.totalCogs.toLocaleString()}</td>}
                   <td>
                     <button
                       className="btn btn-secondary"
@@ -212,17 +215,19 @@ export function Pallets() {
                 />
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                <div className="form-group">
-                  <label className="form-label">Total COGS ($)</label>
-                  <input
-                    type="number"
-                    className="form-input"
-                    placeholder="0.00"
-                    value={formData.totalCogs}
-                    onChange={(e) => setFormData({ ...formData, totalCogs: e.target.value })}
-                  />
-                </div>
+              <div style={{ display: 'grid', gridTemplateColumns: isAdmin ? '1fr 1fr' : '1fr', gap: '1rem' }}>
+                {isAdmin && (
+                  <div className="form-group">
+                    <label className="form-label">Total COGS ($)</label>
+                    <input
+                      type="number"
+                      className="form-input"
+                      placeholder="0.00"
+                      value={formData.totalCogs}
+                      onChange={(e) => setFormData({ ...formData, totalCogs: e.target.value })}
+                    />
+                  </div>
+                )}
                 <div className="form-group">
                   <label className="form-label">Expected Items</label>
                   <input
@@ -280,10 +285,12 @@ export function Pallets() {
                 <div style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Status</div>
                 <div>{selectedPallet.status.replace('_', ' ')}</div>
               </div>
-              <div>
-                <div style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>COGS</div>
-                <div>${selectedPallet.totalCogs.toLocaleString()}</div>
-              </div>
+              {isAdmin && (
+                <div>
+                  <div style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>COGS</div>
+                  <div>${selectedPallet.totalCogs.toLocaleString()}</div>
+                </div>
+              )}
               <div>
                 <div style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Items Received</div>
                 <div>{selectedPallet.receivedItems}</div>
