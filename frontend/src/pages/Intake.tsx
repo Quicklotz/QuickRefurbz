@@ -3,6 +3,7 @@ import { useState, useRef, useEffect } from 'react';
 import {
   Search, Printer, Check, AlertTriangle, ArrowRight,
   Barcode, Edit3, Camera, Image, X,
+  CheckCircle, XCircle, MinusCircle, ChevronRight, ClipboardList,
 } from 'lucide-react';
 import { api } from '@/api/client';
 import { Button } from '@/components/aceternity/button';
@@ -19,7 +20,8 @@ type Step =
   | 'confirm-start'    // 2. Show pallet info, confirm to begin
   | 'working'          // 3. QLID printed, identify product
   | 'review'           // 4. Review identified data
-  | 'grading';         // 5. Assign condition grade
+  | 'grading'          // 5. Assign condition grade
+  | 'refurbish';       // 6. Category-specific refurb checklist
 
 const CATEGORIES = [
   'PHONE', 'TABLET', 'LAPTOP', 'DESKTOP', 'MONITOR', 'TV',
@@ -74,6 +76,112 @@ const CONDITION_GRADES = [
   },
 ] as const;
 
+// ─── Refurbishment Checklists (category-specific) ────────────────────────────
+
+type CheckResult = 'PASS' | 'FAIL' | 'N/A' | null;
+
+interface RefurbCheckItem {
+  code: string;
+  name: string;
+  group: string;
+}
+
+interface RefurbCheckResult {
+  code: string;
+  name: string;
+  group: string;
+  result: CheckResult;
+  notes: string;
+}
+
+// Categories that have refurb checklists
+const REFURB_CATEGORIES = ['VACUUM', 'APPLIANCE_SMALL', 'ICE_MAKER'] as const;
+type RefurbCategory = typeof REFURB_CATEGORIES[number];
+
+const REFURB_CATEGORY_DISPLAY: Record<RefurbCategory, string> = {
+  VACUUM: 'Vacuum',
+  APPLIANCE_SMALL: 'Small Appliance',
+  ICE_MAKER: 'Ice Maker',
+};
+
+const REFURB_CHECKLISTS: Record<RefurbCategory, RefurbCheckItem[]> = {
+  VACUUM: [
+    // External Inspection
+    { code: 'EXT_BODY', name: 'Body/Housing Condition', group: 'External Inspection' },
+    { code: 'EXT_CORD', name: 'Power Cord Integrity', group: 'External Inspection' },
+    { code: 'EXT_WHEELS', name: 'Wheels/Casters', group: 'External Inspection' },
+    { code: 'EXT_HANDLE', name: 'Handle/Grip', group: 'External Inspection' },
+    // Power Test
+    { code: 'PWR_ON', name: 'Powers On', group: 'Power Test' },
+    { code: 'PWR_SUCTION', name: 'Suction Works', group: 'Power Test' },
+    { code: 'PWR_MOTOR', name: 'Motor Sounds Normal', group: 'Power Test' },
+    // Components
+    { code: 'CMP_FILTER', name: 'Filter Present & Clean', group: 'Components' },
+    { code: 'CMP_BELT', name: 'Belt Condition', group: 'Components' },
+    { code: 'CMP_BRUSH', name: 'Brush Roll', group: 'Components' },
+    { code: 'CMP_BAG', name: 'Bag/Canister', group: 'Components' },
+    { code: 'CMP_HOSE', name: 'Hose/Wand', group: 'Components' },
+    // Attachments
+    { code: 'ATT_PRESENT', name: 'All Attachments Present', group: 'Attachments' },
+    { code: 'ATT_FUNCTION', name: 'Attachments Functional', group: 'Attachments' },
+    // Cleaning
+    { code: 'CLN_EXT', name: 'Exterior Cleaned', group: 'Cleaning' },
+    { code: 'CLN_INT', name: 'Interior Cleaned/Emptied', group: 'Cleaning' },
+  ],
+  APPLIANCE_SMALL: [
+    // External Inspection
+    { code: 'EXT_BODY', name: 'Body/Housing Condition', group: 'External Inspection' },
+    { code: 'EXT_CORD', name: 'Power Cord Integrity', group: 'External Inspection' },
+    { code: 'EXT_CONTROLS', name: 'Controls/Buttons', group: 'External Inspection' },
+    { code: 'EXT_LID', name: 'Lid/Cover', group: 'External Inspection' },
+    // Power Test
+    { code: 'PWR_ON', name: 'Powers On', group: 'Power Test' },
+    { code: 'PWR_SETTINGS', name: 'All Settings Work', group: 'Power Test' },
+    { code: 'PWR_DISPLAY', name: 'Display Works', group: 'Power Test' },
+    // Function Test
+    { code: 'FN_PRIMARY', name: 'Primary Function Works', group: 'Function Test' },
+    { code: 'FN_TIMER', name: 'Timer Works', group: 'Function Test' },
+    { code: 'FN_TEMP', name: 'Temperature Control', group: 'Function Test' },
+    // Safety
+    { code: 'SAF_CORD', name: 'Cord Not Frayed', group: 'Safety' },
+    { code: 'SAF_WIRING', name: 'No Exposed Wiring', group: 'Safety' },
+    { code: 'SAF_BASE', name: 'Base Stable', group: 'Safety' },
+    // Cleaning
+    { code: 'CLN_EXT', name: 'Exterior Cleaned', group: 'Cleaning' },
+    { code: 'CLN_INT', name: 'Interior Cleaned/Sanitized', group: 'Cleaning' },
+    { code: 'CLN_PARTS', name: 'Removable Parts Cleaned', group: 'Cleaning' },
+  ],
+  ICE_MAKER: [
+    // External Inspection
+    { code: 'EXT_BODY', name: 'Body/Housing Condition', group: 'External Inspection' },
+    { code: 'EXT_CORD', name: 'Power Cord Integrity', group: 'External Inspection' },
+    { code: 'EXT_RESERVOIR', name: 'Water Reservoir', group: 'External Inspection' },
+    { code: 'EXT_BASKET', name: 'Ice Basket', group: 'External Inspection' },
+    // Power Test
+    { code: 'PWR_ON', name: 'Powers On', group: 'Power Test' },
+    { code: 'PWR_COMPRESSOR', name: 'Compressor Runs', group: 'Power Test' },
+    { code: 'PWR_DISPLAY', name: 'Display/Controls Work', group: 'Power Test' },
+    // Function Test
+    { code: 'FN_ICE', name: 'Makes Ice (expected time)', group: 'Function Test' },
+    { code: 'FN_QUALITY', name: 'Ice Quality Acceptable', group: 'Function Test' },
+    { code: 'FN_DRAIN', name: 'Water Drainage Works', group: 'Function Test' },
+    // Components
+    { code: 'CMP_PUMP', name: 'Water Pump', group: 'Components' },
+    { code: 'CMP_DRAIN', name: 'Drain Plug', group: 'Components' },
+    { code: 'CMP_SCOOP', name: 'Ice Scoop Present', group: 'Components' },
+    // Cleaning
+    { code: 'CLN_EXT', name: 'Exterior Cleaned', group: 'Cleaning' },
+    { code: 'CLN_INT', name: 'Interior Sanitized', group: 'Cleaning' },
+    { code: 'CLN_WATER', name: 'Water System Flushed', group: 'Cleaning' },
+  ],
+};
+
+const CHECK_RESULT_STYLES: Record<string, string> = {
+  PASS: 'border-green-600 bg-green-500/20 text-green-400',
+  FAIL: 'border-red-600 bg-red-500/20 text-red-400',
+  'N/A': 'border-zinc-600 bg-zinc-500/10 text-zinc-400',
+};
+
 const GRADE_COLORS: Record<string, string> = {
   emerald: 'border-emerald-600 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400',
   green: 'border-green-600 bg-green-500/10 hover:bg-green-500/20 text-green-400',
@@ -122,6 +230,10 @@ export function Intake() {
 
   // Grading
   const [conditionGrade, setConditionGrade] = useState<string | null>(null);
+
+  // Refurbishment checklist
+  const [refurbCategory, setRefurbCategory] = useState<RefurbCategory | null>(null);
+  const [refurbChecks, setRefurbChecks] = useState<RefurbCheckResult[]>([]);
 
   // Last saved item
   const [lastItem, setLastItem] = useState<any>(null);
@@ -379,14 +491,54 @@ export function Intake() {
     setStep('grading');
   };
 
-  // ── Save Item (after grading) ─────────────────────────────────────────────
+  // ── Grading → Refurbish or Save ────────────────────────────────────────────
 
-  const handleSaveItem = async (grade: string) => {
+  const handleGradeSelected = (grade: string) => {
+    setConditionGrade(grade);
+
+    // Check if this category has a refurb checklist
+    const cat = category as RefurbCategory;
+    if (REFURB_CHECKLISTS[cat]) {
+      // Initialize checklist for this category
+      setRefurbCategory(cat);
+      setRefurbChecks(
+        REFURB_CHECKLISTS[cat].map(item => ({
+          ...item,
+          result: null,
+          notes: '',
+        }))
+      );
+      setStep('refurbish');
+    } else {
+      // No checklist — save directly
+      handleSaveItem(grade, null);
+    }
+  };
+
+  // ── Refurb checklist helpers ────────────────────────────────────────────────
+
+  const handleCheckResult = (code: string, result: CheckResult) => {
+    setRefurbChecks(prev =>
+      prev.map(c => c.code === code ? { ...c, result } : c)
+    );
+  };
+
+  const handleCheckNotes = (code: string, notes: string) => {
+    setRefurbChecks(prev =>
+      prev.map(c => c.code === code ? { ...c, notes } : c)
+    );
+  };
+
+  const refurbComplete = refurbChecks.length > 0 && refurbChecks.every(c => c.result !== null);
+
+  // ── Save Item (after grading + optional refurb) ─────────────────────────────
+
+  const handleSaveItem = async (grade: string, checklist: RefurbCheckResult[] | null) => {
     if (!currentQlid || !activePallet) return;
     setLoading(true);
     setError(null);
     try {
-      const updated = await api.updateItemByQlid(currentQlid, {
+      const payload: any = {
         manufacturer: brand || 'Unknown',
         model: model || 'Unknown',
         category,
@@ -396,7 +548,23 @@ export function Intake() {
         manifestMatch: identifiedData?.source === 'manifest' || identifiedData?.source === 'bestbuy',
         identificationMethod: identifiedData?.identificationMethod || 'manual',
         conditionGrade: grade,
-      });
+      };
+
+      if (checklist) {
+        payload.refurbChecklist = {
+          category: refurbCategory,
+          completedAt: new Date().toISOString(),
+          checks: checklist.map(c => ({
+            code: c.code,
+            name: c.name,
+            group: c.group,
+            result: c.result,
+            notes: c.notes || undefined,
+          })),
+        };
+      }
+
+      const updated = await api.updateItemByQlid(currentQlid, payload);
 
       setLastItem({ ...updated, conditionGrade: grade });
       setItemCount(c => c + 1);
@@ -424,6 +592,8 @@ export function Intake() {
     setSerialNumber('');
     setMsrp(0);
     setConditionGrade(null);
+    setRefurbCategory(null);
+    setRefurbChecks([]);
     setError(null);
   };
 
@@ -924,10 +1094,7 @@ export function Intake() {
             {CONDITION_GRADES.map((grade) => (
               <button
                 key={grade.value}
-                onClick={() => {
-                  setConditionGrade(grade.value);
-                  handleSaveItem(grade.value);
-                }}
+                onClick={() => handleGradeSelected(grade.value)}
                 disabled={loading}
                 className={`w-full text-left p-4 rounded-lg border-2 transition-all ${GRADE_COLORS[grade.color]} ${
                   conditionGrade === grade.value ? 'ring-2 ring-white/30' : ''
@@ -953,6 +1120,159 @@ export function Intake() {
           >
             &larr; Back to review
           </button>
+        </Card>
+      )}
+
+      {/* ── STEP 6: Refurbishment Checklist ──────────────────────────────── */}
+      {step === 'refurbish' && refurbCategory && (
+        <Card>
+          <div className="flex items-center gap-3 mb-1">
+            <ClipboardList size={20} className="text-[#d4a800]" />
+            <h2 className="text-lg font-semibold text-white">Refurbishment Checklist</h2>
+          </div>
+          <p className="text-sm text-zinc-500 mb-1">
+            <span className="font-mono text-[#d4a800]">{currentBarcodeValue || currentQlid}</span>
+            {brand && <span className="text-zinc-400 ml-2">— {brand} {model}</span>}
+          </p>
+          <div className="flex items-center gap-2 mb-5">
+            <span className="text-xs px-2 py-0.5 rounded bg-[#d4a800]/20 text-[#d4a800] font-medium">
+              {REFURB_CATEGORY_DISPLAY[refurbCategory]}
+            </span>
+            <span className="text-xs text-zinc-600">
+              {refurbChecks.filter(c => c.result !== null).length} / {refurbChecks.length} completed
+            </span>
+            {conditionGrade && (
+              <span className="text-xs px-2 py-0.5 rounded bg-zinc-800 text-zinc-400">
+                Grade {conditionGrade}
+              </span>
+            )}
+          </div>
+
+          {/* Checklist grouped by section */}
+          <div className="space-y-4">
+            {(() => {
+              const groups: string[] = [];
+              refurbChecks.forEach(c => {
+                if (!groups.includes(c.group)) groups.push(c.group);
+              });
+              return groups.map(group => (
+                <div key={group}>
+                  <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                    <ChevronRight size={12} />
+                    {group}
+                    <span className="text-zinc-600 font-normal">
+                      ({refurbChecks.filter(c => c.group === group && c.result !== null).length}/
+                      {refurbChecks.filter(c => c.group === group).length})
+                    </span>
+                  </h3>
+                  <div className="space-y-1.5">
+                    {refurbChecks
+                      .filter(c => c.group === group)
+                      .map(check => (
+                        <div
+                          key={check.code}
+                          className={`rounded-lg border p-3 transition-all ${
+                            check.result
+                              ? CHECK_RESULT_STYLES[check.result]
+                              : 'border-zinc-800 bg-zinc-900/50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm flex-1 font-medium">{check.name}</span>
+                            <div className="flex gap-1">
+                              <button
+                                onClick={() => handleCheckResult(check.code, 'PASS')}
+                                className={`p-1.5 rounded-md transition-all ${
+                                  check.result === 'PASS'
+                                    ? 'bg-green-500 text-black'
+                                    : 'text-zinc-600 hover:text-green-400 hover:bg-green-500/10'
+                                }`}
+                                title="Pass"
+                              >
+                                <CheckCircle size={18} />
+                              </button>
+                              <button
+                                onClick={() => handleCheckResult(check.code, 'FAIL')}
+                                className={`p-1.5 rounded-md transition-all ${
+                                  check.result === 'FAIL'
+                                    ? 'bg-red-500 text-black'
+                                    : 'text-zinc-600 hover:text-red-400 hover:bg-red-500/10'
+                                }`}
+                                title="Fail"
+                              >
+                                <XCircle size={18} />
+                              </button>
+                              <button
+                                onClick={() => handleCheckResult(check.code, 'N/A')}
+                                className={`p-1.5 rounded-md transition-all ${
+                                  check.result === 'N/A'
+                                    ? 'bg-zinc-500 text-black'
+                                    : 'text-zinc-600 hover:text-zinc-400 hover:bg-zinc-500/10'
+                                }`}
+                                title="N/A"
+                              >
+                                <MinusCircle size={18} />
+                              </button>
+                            </div>
+                          </div>
+                          {check.result === 'FAIL' && (
+                            <input
+                              type="text"
+                              value={check.notes}
+                              onChange={e => handleCheckNotes(check.code, e.target.value)}
+                              placeholder="Describe the issue..."
+                              className="mt-2 w-full bg-black/50 border border-red-800/50 rounded px-2 py-1.5 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-red-600"
+                            />
+                          )}
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              ));
+            })()}
+          </div>
+
+          {/* Summary bar */}
+          {refurbComplete && (
+            <div className="mt-4 p-3 rounded-lg bg-zinc-900 border border-zinc-800">
+              <div className="flex items-center gap-4 text-xs">
+                <span className="text-green-400 font-medium">
+                  {refurbChecks.filter(c => c.result === 'PASS').length} Pass
+                </span>
+                <span className="text-red-400 font-medium">
+                  {refurbChecks.filter(c => c.result === 'FAIL').length} Fail
+                </span>
+                <span className="text-zinc-400 font-medium">
+                  {refurbChecks.filter(c => c.result === 'N/A').length} N/A
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex gap-3 mt-5">
+            <button
+              onClick={() => {
+                setRefurbCategory(null);
+                setRefurbChecks([]);
+                setStep('grading');
+              }}
+              className="text-sm text-zinc-500 hover:text-white transition-colors"
+            >
+              &larr; Back to grading
+            </button>
+            <div className="flex-1" />
+            <Button
+              variant="primary"
+              onClick={() => handleSaveItem(conditionGrade!, refurbChecks)}
+              disabled={!refurbComplete || loading}
+              loading={loading}
+              className="px-6"
+            >
+              <Check size={18} />
+              Save & Next Item
+            </Button>
+          </div>
         </Card>
       )}
     </div>
