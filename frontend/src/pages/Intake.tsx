@@ -1,5 +1,6 @@
 "use client";
 import { useState, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Search, Printer, Check, AlertTriangle, ArrowRight,
   Barcode, Edit3, Camera, Image, X,
@@ -242,6 +243,18 @@ export function Intake() {
   const [printerIp, setPrinterIp] = useState<string>('');
   const [autoPrint, setAutoPrint] = useState(true);
   const [availablePrinters, setAvailablePrinters] = useState<Array<{ name: string; isDefault: boolean }>>([]);
+
+  const { t } = useTranslation();
+
+  const GROUP_I18N: Record<string, string> = {
+    'External Inspection': 'refurb.group_external',
+    'Power Test': 'refurb.group_power',
+    'Components': 'refurb.group_components',
+    'Attachments': 'refurb.group_attachments',
+    'Cleaning': 'refurb.group_cleaning',
+    'Function Test': 'refurb.group_function',
+    'Safety': 'refurb.group_safety',
+  };
 
   const palletInputRef = useRef<HTMLInputElement>(null);
   const orderInputRef = useRef<HTMLInputElement>(null);
@@ -634,7 +647,7 @@ export function Intake() {
             <div className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse" />
             <span className="font-mono text-lg font-bold text-[#d4a800]">{activePallet.palletId}</span>
             <span className="text-zinc-500 text-sm">|</span>
-            <span className="text-zinc-400 text-sm">{itemCount} items</span>
+            <span className="text-zinc-400 text-sm">{itemCount} {t('common.items')}</span>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -644,10 +657,10 @@ export function Intake() {
                   ? 'text-green-400 border-green-800 bg-green-500/10 hover:bg-green-500/20'
                   : 'text-zinc-500 border-zinc-800 hover:border-zinc-600'
               }`}
-              title={autoPrint ? 'Auto-print ON' : 'Auto-print OFF'}
+              title={autoPrint ? t('pallet.autoPrintOn') : t('pallet.autoPrintOff')}
             >
               <Printer size={12} />
-              {autoPrint ? 'Auto-Print ON' : 'Auto-Print OFF'}
+              {autoPrint ? t('pallet.autoPrintOn') : t('pallet.autoPrintOff')}
             </button>
             {currentQlid && (
               <button
@@ -655,11 +668,11 @@ export function Intake() {
                 className="text-xs text-[#d4a800] hover:text-white px-2 py-1 rounded border border-[#d4a800]/40 hover:border-[#d4a800] bg-[#d4a800]/10 hover:bg-[#d4a800]/20 transition-colors flex items-center gap-1"
               >
                 <Printer size={12} />
-                Print Label
+                {t('pallet.printLabel')}
               </button>
             )}
             <button onClick={handleEndSession} className="text-xs text-zinc-500 hover:text-red-400 px-3 py-1 rounded border border-zinc-800 hover:border-red-800 transition-colors">
-              End Session
+              {t('pallet.endSession')}
             </button>
           </div>
         </div>
@@ -677,21 +690,21 @@ export function Intake() {
       {/* ── STEP 1: Scan Supplier Pallet ID ─────────────────────────────── */}
       {step === 'scan-pallet' && (
         <Card>
-          <h2 className="text-xl font-semibold text-white mb-1">Scan Pallet</h2>
-          <p className="text-sm text-zinc-500 mb-6">Scan or type the supplier pallet ID (e.g. PTRF67589)</p>
+          <h2 className="text-xl font-semibold text-white mb-1">{t('pallet.scanPallet')}</h2>
+          <p className="text-sm text-zinc-500 mb-6">{t('pallet.scanPalletDesc')}</p>
           <div className="flex gap-3">
             <Input
               ref={palletInputRef}
               value={palletInput}
               onChange={e => setPalletInput(e.target.value.toUpperCase())}
               onKeyDown={e => e.key === 'Enter' && handlePalletScan()}
-              placeholder="PTRF00000"
+              placeholder={t('palletScan.step1Placeholder')}
               className="font-mono text-lg flex-1"
               autoFocus
             />
             <Button variant="primary" onClick={handlePalletScan} loading={loading}>
               <Search size={18} />
-              Lookup
+              {t('pallet.lookup')}
             </Button>
           </div>
           <p className="text-xs text-zinc-600 mt-4">
@@ -713,7 +726,7 @@ export function Intake() {
                       }}
                       className="text-sm flex-1 font-mono bg-zinc-900 text-white border border-zinc-700 rounded px-2 py-2"
                     >
-                      <option value="">-- Select Printer --</option>
+                      <option value="">{t('pallet.selectPrinter')}</option>
                       {availablePrinters.map(p => (
                         <option key={p.name} value={p.name}>
                           {p.name}{p.isDefault ? ' (default)' : ''}
@@ -744,13 +757,13 @@ export function Intake() {
                     }}
                     className="text-xs text-[#d4a800] hover:text-white px-3 py-2 rounded border border-[#d4a800]/40 hover:border-[#d4a800] bg-[#d4a800]/10 transition-colors whitespace-nowrap"
                   >
-                    Test Print
+                    {t('pallet.testPrint')}
                   </button>
                 </div>
                 <p className="text-[11px] text-zinc-600 mt-1 ml-7">
                   {/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(printerIp)
-                    ? 'Network printer — sends ZPL via TCP port 9100.'
-                    : 'USB printer — sends ZPL via Windows raw print API.'}
+                    ? t('pallet.networkPrinter')
+                    : t('pallet.usbPrinter')}
                 </p>
               </>
             ) : (
@@ -767,7 +780,7 @@ export function Intake() {
                 }`}
               >
                 <Printer size={16} />
-                <span className="text-sm font-medium">{printerIp ? 'Label Printing ON' : 'Label Printing OFF'}</span>
+                <span className="text-sm font-medium">{printerIp ? t('pallet.labelPrintingOn') : t('pallet.labelPrintingOff')}</span>
                 <span className={`ml-auto text-xs ${printerIp ? 'text-green-500' : 'text-zinc-600'}`}>
                   {printerIp ? 'Tap to disable' : 'Tap to enable'}
                 </span>
@@ -780,25 +793,25 @@ export function Intake() {
       {/* ── STEP 1b: Enter Order/Shipment ID ────────────────────────────── */}
       {step === 'scan-order' && (
         <Card>
-          <h2 className="text-xl font-semibold text-white mb-1">Pallet Not Found</h2>
-          <p className="text-sm text-zinc-500 mb-6">Enter the Order ID or Shipment ID to find pallets</p>
+          <h2 className="text-xl font-semibold text-white mb-1">{t('pallet.palletNotFoundTitle')}</h2>
+          <p className="text-sm text-zinc-500 mb-6">{t('pallet.palletNotFoundDesc')}</p>
           <div className="flex gap-3">
             <Input
               ref={orderInputRef}
               value={orderInput}
               onChange={e => setOrderInput(e.target.value.toUpperCase())}
               onKeyDown={e => e.key === 'Enter' && handleOrderScan()}
-              placeholder="Order or Shipment ID"
+              placeholder={t('palletScan.step2Placeholder')}
               className="font-mono text-lg flex-1"
               autoFocus
             />
             <Button variant="primary" onClick={handleOrderScan} loading={loading}>
               <Search size={18} />
-              Lookup
+              {t('pallet.lookup')}
             </Button>
           </div>
           <button onClick={() => { setError(null); setStep('scan-pallet'); }} className="text-sm text-zinc-500 hover:text-white mt-4 transition-colors">
-            &larr; Back to pallet scan
+            &larr; {t('pallet.backToPallet')}
           </button>
         </Card>
       )}
@@ -806,8 +819,8 @@ export function Intake() {
       {/* ── STEP 1c: Select Pallet from Order ──────────────────────────── */}
       {step === 'select-pallet' && (
         <Card>
-          <h2 className="text-xl font-semibold text-white mb-1">Select Pallet</h2>
-          <p className="text-sm text-zinc-500 mb-4">Multiple pallets found for this order. Select one:</p>
+          <h2 className="text-xl font-semibold text-white mb-1">{t('pallet.selectPallet')}</h2>
+          <p className="text-sm text-zinc-500 mb-4">{t('pallet.selectPalletDesc')}</p>
           <div className="space-y-2">
             {orderPallets.map((p, i) => (
               <button
@@ -816,7 +829,7 @@ export function Intake() {
                 className="w-full text-left p-4 rounded-lg border border-zinc-800 hover:border-[#d4a800]/50 bg-zinc-900/50 hover:bg-zinc-900 transition-all"
               >
                 <span className="font-mono text-[#d4a800] font-medium">{p.palletId || p.pallet_id}</span>
-                <span className="text-zinc-500 ml-3">{p.estimatedItems || p.estimated_items || '?'} items</span>
+                <span className="text-zinc-500 ml-3">{p.estimatedItems || p.estimated_items || '?'} {t('common.items')}</span>
                 {(p.estimatedCogs || p.estimated_cogs) && (
                   <span className="text-zinc-600 ml-2">${Number(p.estimatedCogs || p.estimated_cogs).toLocaleString()}</span>
                 )}
@@ -834,27 +847,27 @@ export function Intake() {
         <Card>
           <div className="flex items-center gap-2 mb-4">
             <Check size={18} className="text-green-500" />
-            <h2 className="text-xl font-semibold text-white">Pallet Found</h2>
+            <h2 className="text-xl font-semibold text-white">{t('pallet.palletFound')}</h2>
           </div>
 
           <div className="rounded-lg bg-zinc-900/70 border border-zinc-800 p-4 space-y-3 mb-6">
-            <Row label="Supplier Pallet" value={sourcingPallet.palletId || sourcingPallet.pallet_id} mono yellow />
-            <Row label="Order ID" value={sourcingPallet.orderId || sourcingPallet.order_id} mono />
-            <Row label="Est. Items" value={sourcingPallet.estimatedItems || sourcingPallet.estimated_items || '—'} />
-            <Row label="Est. COGS" value={`$${Number(sourcingPallet.estimatedCogs || sourcingPallet.estimated_cogs || 0).toLocaleString()}`} />
+            <Row label={t('pallet.supplierId')} value={sourcingPallet.palletId || sourcingPallet.pallet_id} mono yellow />
+            <Row label={t('pallet.orderId')} value={sourcingPallet.orderId || sourcingPallet.order_id} mono />
+            <Row label={t('pallet.estItems')} value={sourcingPallet.estimatedItems || sourcingPallet.estimated_items || '—'} />
+            <Row label={t('pallet.estCogs')} value={`$${Number(sourcingPallet.estimatedCogs || sourcingPallet.estimated_cogs || 0).toLocaleString()}`} />
           </div>
 
           <p className="text-sm text-zinc-400 mb-4">
-            A unique Pallet ID with retailer code will be generated and printed. Ready to begin?
+            {t('pallet.readyToBegin')}
           </p>
 
           <div className="flex gap-3">
             <Button variant="secondary" onClick={() => { setSourcingPallet(null); setStep('scan-pallet'); }} className="flex-1">
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button variant="primary" onClick={handleConfirmStart} loading={loading} className="flex-1">
               <ArrowRight size={18} />
-              Start Pallet
+              {t('pallet.startPallet')}
             </Button>
           </div>
         </Card>
@@ -868,7 +881,7 @@ export function Intake() {
             <div className="mb-4 flex items-center gap-3 p-3 rounded-lg bg-green-500/10 border border-green-500/30">
               <Check size={16} className="text-green-500" />
               <span className="text-sm text-green-400">
-                Saved: {lastItem.manufacturer || lastItem.brand} {lastItem.model}
+                {t('pallet.saved')}: {lastItem.manufacturer || lastItem.brand} {lastItem.model}
               </span>
               <span className="font-mono text-xs text-zinc-500 ml-auto">
                 {lastItem.conditionGrade && <span className="text-zinc-400 mr-2">Grade {lastItem.conditionGrade}</span>}
@@ -881,7 +894,7 @@ export function Intake() {
           <Card className="mb-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Current Item</p>
+                <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">{t('pallet.currentItem')}</p>
                 <p className="font-mono text-xl font-bold text-[#d4a800]">{currentBarcodeValue || currentQlid || '...'}</p>
                 {currentBarcodeValue && currentQlid && currentBarcodeValue !== currentQlid && (
                   <p className="font-mono text-xs text-zinc-500 mt-0.5">{currentQlid}</p>
@@ -889,9 +902,9 @@ export function Intake() {
               </div>
               <div className="flex items-center gap-2">
                 {qlidPrinted ? (
-                  <span className="text-xs text-green-500 flex items-center gap-1"><Check size={12} /> Printed</span>
+                  <span className="text-xs text-green-500 flex items-center gap-1"><Check size={12} /> {t('pallet.printed')}</span>
                 ) : (
-                  <span className="text-xs text-zinc-500">Not printed</span>
+                  <span className="text-xs text-zinc-500">{t('pallet.notPrinted')}</span>
                 )}
                 {printerIp && (
                   <button onClick={handleReprintQlidLabel} className="text-xs text-zinc-500 hover:text-white px-2 py-1 rounded border border-zinc-800 hover:border-zinc-600 transition-colors">
@@ -900,15 +913,15 @@ export function Intake() {
                 )}
               </div>
             </div>
-            <p className="text-xs text-zinc-600 mt-2">Place this label on the product, then identify it below.</p>
+            <p className="text-xs text-zinc-600 mt-2">{t('pallet.placeLabel')}</p>
           </Card>
 
           {/* Identification methods */}
           <Card>
             <div className="flex gap-1 mb-4 bg-zinc-900 rounded-lg p-1">
               {([
-                { key: 'barcode' as IdMethod, icon: Barcode, label: 'Barcode' },
-                { key: 'manual' as IdMethod, icon: Edit3, label: 'Search' },
+                { key: 'barcode' as IdMethod, icon: Barcode, label: t('identify.barcode') },
+                { key: 'manual' as IdMethod, icon: Edit3, label: t('common.search') },
                 { key: 'label-photo' as IdMethod, icon: Camera, label: 'Label' },
                 { key: 'product-photo' as IdMethod, icon: Image, label: 'Photo' },
               ]).map(({ key, icon: Icon, label }) => (
@@ -935,7 +948,7 @@ export function Intake() {
                   value={barcodeInput}
                   onChange={e => setBarcodeInput(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && handleBarcodeScan()}
-                  placeholder="Scan or type UPC / GTIN / ASIN"
+                  placeholder={t('identify.scanPlaceholder')}
                   className="font-mono text-lg flex-1"
                   autoFocus
                 />
@@ -954,7 +967,7 @@ export function Intake() {
                     value={searchInput}
                     onChange={e => setSearchInput(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && handleManualSearch()}
-                    placeholder="Search by brand, model, or product name"
+                    placeholder={t('identify.manualPlaceholder')}
                     className="flex-1"
                     autoFocus
                   />
@@ -1015,7 +1028,7 @@ export function Intake() {
 
             {/* Skip identification */}
             <button onClick={handleSkipIdentification} className="text-xs text-zinc-600 hover:text-zinc-400 mt-4 transition-colors block">
-              Skip identification — enter details manually &rarr;
+              {t('pallet.skipIdentification')} &rarr;
             </button>
           </Card>
         </>
@@ -1024,7 +1037,7 @@ export function Intake() {
       {/* ── STEP 4: Review & Confirm ─────────────────────────────────────── */}
       {step === 'review' && (
         <Card>
-          <h2 className="text-lg font-semibold text-white mb-1">Confirm Product Details</h2>
+          <h2 className="text-lg font-semibold text-white mb-1">{t('pallet.confirmDetails')}</h2>
           <p className="text-sm text-zinc-500 mb-4">
             <span className="font-mono text-[#d4a800]">{currentBarcodeValue || currentQlid}</span>
           </p>
@@ -1032,37 +1045,37 @@ export function Intake() {
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label className="text-xs text-zinc-500 mb-1 block">Brand / Manufacturer</Label>
+                <Label className="text-xs text-zinc-500 mb-1 block">{t('identify.brand')}</Label>
                 <Input value={brand} onChange={e => setBrand(e.target.value)} placeholder="Brand" />
               </div>
               <div>
-                <Label className="text-xs text-zinc-500 mb-1 block">Model</Label>
+                <Label className="text-xs text-zinc-500 mb-1 block">{t('identify.model')}</Label>
                 <Input value={model} onChange={e => setModel(e.target.value)} placeholder="Model" />
               </div>
             </div>
 
             <div>
-              <Label className="text-xs text-zinc-500 mb-1 block">Category</Label>
+              <Label className="text-xs text-zinc-500 mb-1 block">{t('review.category')}</Label>
               <select
                 className="w-full bg-black border border-zinc-800 rounded-lg px-3 py-2 text-white text-sm focus:border-[#d4a800] focus:outline-none transition-colors"
                 value={category}
                 onChange={e => setCategory(e.target.value)}
               >
-                {CATEGORIES.map(c => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
+                {CATEGORIES.map(c => <option key={c} value={c}>{t('categories.' + c)}</option>)}
               </select>
             </div>
 
             <div className="grid grid-cols-3 gap-3">
               <div>
-                <Label className="text-xs text-zinc-500 mb-1 block">UPC</Label>
+                <Label className="text-xs text-zinc-500 mb-1 block">{t('identify.upc')}</Label>
                 <Input value={upc} onChange={e => setUpc(e.target.value)} placeholder="UPC" className="font-mono text-sm" />
               </div>
               <div>
-                <Label className="text-xs text-zinc-500 mb-1 block">Serial #</Label>
+                <Label className="text-xs text-zinc-500 mb-1 block">{t('identify.serialNumber')}</Label>
                 <Input value={serialNumber} onChange={e => setSerialNumber(e.target.value)} placeholder="Serial" className="font-mono text-sm" />
               </div>
               <div>
-                <Label className="text-xs text-zinc-500 mb-1 block">MSRP ($)</Label>
+                <Label className="text-xs text-zinc-500 mb-1 block">{t('identify.msrp')} ($)</Label>
                 <Input type="number" min={0} step={0.01} value={msrp} onChange={e => setMsrp(parseFloat(e.target.value) || 0)} className="text-sm" />
               </div>
             </div>
@@ -1070,11 +1083,11 @@ export function Intake() {
 
           <div className="flex gap-3 mt-6">
             <Button variant="secondary" onClick={() => { setStep('working'); resetIdentification(); }} className="flex-1">
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button variant="primary" onClick={handleConfirmReview} className="flex-1">
               <ArrowRight size={18} />
-              Next: Grade Condition
+              {t('pallet.nextGrade')}
             </Button>
           </div>
         </Card>
@@ -1083,12 +1096,12 @@ export function Intake() {
       {/* ── STEP 5: Condition Grading ────────────────────────────────────── */}
       {step === 'grading' && (
         <Card>
-          <h2 className="text-lg font-semibold text-white mb-1">Grade Condition</h2>
+          <h2 className="text-lg font-semibold text-white mb-1">{t('grading.title')}</h2>
           <p className="text-sm text-zinc-500 mb-2">
             <span className="font-mono text-[#d4a800]">{currentBarcodeValue || currentQlid}</span>
             {brand && <span className="text-zinc-400 ml-2">— {brand} {model}</span>}
           </p>
-          <p className="text-xs text-zinc-600 mb-5">Select the condition that best describes this item:</p>
+          <p className="text-xs text-zinc-600 mb-5">{t('grading.subtitle')}</p>
 
           <div className="space-y-2">
             {CONDITION_GRADES.map((grade) => (
@@ -1103,8 +1116,8 @@ export function Intake() {
                 <div className="flex items-center gap-3">
                   <span className="text-2xl font-black font-mono w-8 text-center">{grade.letter}</span>
                   <div className="flex-1">
-                    <span className="font-semibold text-sm">{grade.label}</span>
-                    <p className="text-xs opacity-70 mt-0.5 leading-relaxed">{grade.description}</p>
+                    <span className="font-semibold text-sm">{t('grading.grade_' + grade.value, grade.label)}</span>
+                    <p className="text-xs opacity-70 mt-0.5 leading-relaxed">{t('grading.grade_' + grade.value + '_desc', grade.description)}</p>
                   </div>
                   {loading && conditionGrade === grade.value && (
                     <Loader size="sm" variant="spinner" />
@@ -1118,7 +1131,7 @@ export function Intake() {
             onClick={() => setStep('review')}
             className="text-sm text-zinc-500 hover:text-white mt-4 transition-colors"
           >
-            &larr; Back to review
+            &larr; {t('grading.backToReview')}
           </button>
         </Card>
       )}
@@ -1128,7 +1141,7 @@ export function Intake() {
         <Card>
           <div className="flex items-center gap-3 mb-1">
             <ClipboardList size={20} className="text-[#d4a800]" />
-            <h2 className="text-lg font-semibold text-white">Refurbishment Checklist</h2>
+            <h2 className="text-lg font-semibold text-white">{t('refurb.title')}</h2>
           </div>
           <p className="text-sm text-zinc-500 mb-1">
             <span className="font-mono text-[#d4a800]">{currentBarcodeValue || currentQlid}</span>
@@ -1136,10 +1149,10 @@ export function Intake() {
           </p>
           <div className="flex items-center gap-2 mb-5">
             <span className="text-xs px-2 py-0.5 rounded bg-[#d4a800]/20 text-[#d4a800] font-medium">
-              {REFURB_CATEGORY_DISPLAY[refurbCategory]}
+              {t('refurb.category_' + refurbCategory, REFURB_CATEGORY_DISPLAY[refurbCategory])}
             </span>
             <span className="text-xs text-zinc-600">
-              {refurbChecks.filter(c => c.result !== null).length} / {refurbChecks.length} completed
+              {refurbChecks.filter(c => c.result !== null).length} / {refurbChecks.length} {t('refurb.completed')}
             </span>
             {conditionGrade && (
               <span className="text-xs px-2 py-0.5 rounded bg-zinc-800 text-zinc-400">
@@ -1159,7 +1172,7 @@ export function Intake() {
                 <div key={group}>
                   <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2 flex items-center gap-2">
                     <ChevronRight size={12} />
-                    {group}
+                    {t(GROUP_I18N[group] || group)}
                     <span className="text-zinc-600 font-normal">
                       ({refurbChecks.filter(c => c.group === group && c.result !== null).length}/
                       {refurbChecks.filter(c => c.group === group).length})
@@ -1178,7 +1191,7 @@ export function Intake() {
                           }`}
                         >
                           <div className="flex items-center gap-2">
-                            <span className="text-sm flex-1 font-medium">{check.name}</span>
+                            <span className="text-sm flex-1 font-medium">{t('refurb.check_' + check.code, check.name)}</span>
                             <div className="flex gap-1">
                               <button
                                 onClick={() => handleCheckResult(check.code, 'PASS')}
@@ -1187,7 +1200,7 @@ export function Intake() {
                                     ? 'bg-green-500 text-black'
                                     : 'text-zinc-600 hover:text-green-400 hover:bg-green-500/10'
                                 }`}
-                                title="Pass"
+                                title={t('refurb.pass')}
                               >
                                 <CheckCircle size={18} />
                               </button>
@@ -1198,7 +1211,7 @@ export function Intake() {
                                     ? 'bg-red-500 text-black'
                                     : 'text-zinc-600 hover:text-red-400 hover:bg-red-500/10'
                                 }`}
-                                title="Fail"
+                                title={t('refurb.fail')}
                               >
                                 <XCircle size={18} />
                               </button>
@@ -1209,7 +1222,7 @@ export function Intake() {
                                     ? 'bg-zinc-500 text-black'
                                     : 'text-zinc-600 hover:text-zinc-400 hover:bg-zinc-500/10'
                                 }`}
-                                title="N/A"
+                                title={t('refurb.na')}
                               >
                                 <MinusCircle size={18} />
                               </button>
@@ -1220,7 +1233,7 @@ export function Intake() {
                               type="text"
                               value={check.notes}
                               onChange={e => handleCheckNotes(check.code, e.target.value)}
-                              placeholder="Describe the issue..."
+                              placeholder={t('refurb.describeIssue')}
                               className="mt-2 w-full bg-black/50 border border-red-800/50 rounded px-2 py-1.5 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-red-600"
                             />
                           )}
@@ -1237,13 +1250,13 @@ export function Intake() {
             <div className="mt-4 p-3 rounded-lg bg-zinc-900 border border-zinc-800">
               <div className="flex items-center gap-4 text-xs">
                 <span className="text-green-400 font-medium">
-                  {refurbChecks.filter(c => c.result === 'PASS').length} Pass
+                  {refurbChecks.filter(c => c.result === 'PASS').length} {t('refurb.pass')}
                 </span>
                 <span className="text-red-400 font-medium">
-                  {refurbChecks.filter(c => c.result === 'FAIL').length} Fail
+                  {refurbChecks.filter(c => c.result === 'FAIL').length} {t('refurb.fail')}
                 </span>
                 <span className="text-zinc-400 font-medium">
-                  {refurbChecks.filter(c => c.result === 'N/A').length} N/A
+                  {refurbChecks.filter(c => c.result === 'N/A').length} {t('refurb.na')}
                 </span>
               </div>
             </div>
@@ -1259,7 +1272,7 @@ export function Intake() {
               }}
               className="text-sm text-zinc-500 hover:text-white transition-colors"
             >
-              &larr; Back to grading
+              &larr; {t('refurb.backToGrading')}
             </button>
             <div className="flex-1" />
             <Button
@@ -1270,7 +1283,7 @@ export function Intake() {
               className="px-6"
             >
               <Check size={18} />
-              Save & Next Item
+              {t('refurb.saveNext')}
             </Button>
           </div>
         </Card>

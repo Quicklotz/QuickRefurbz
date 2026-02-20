@@ -165,6 +165,8 @@ function SidebarNav() {
             </SidebarSection>
           ))}
 
+          <LanguageToggle />
+
           {user?.role === 'admin' && (
             <>
               <SidebarDivider />
@@ -200,8 +202,6 @@ function SidebarNav() {
             />
           )}
 
-          <SidebarDivider />
-          <LanguageToggle />
         </SidebarContent>
 
         <SidebarFooter>

@@ -243,11 +243,15 @@ ipcMain.handle('send-zpl', async (_event, printerTarget: string, zpl: string) =>
 
   return new Promise<boolean>((resolve, reject) => {
     // Write ZPL to temp file
-    const tmpFile = path.join(os.tmpdir(), `qr-label-${Date.now()}.zpl`);
-    fs.writeFileSync(tmpFile, zpl, 'utf-8');
+    const tmpZpl = path.join(os.tmpdir(), `qr-label-${Date.now()}.zpl`);
+    const tmpPs1 = path.join(os.tmpdir(), `qr-print-${Date.now()}.ps1`);
+    fs.writeFileSync(tmpZpl, zpl, 'utf-8');
 
-    const psScript = `
-Add-Type -TypeDefinition @"
+    // Escape paths for PowerShell (double backslashes)
+    const zplPath = tmpZpl.replace(/\\/g, '\\\\');
+    const safePrinter = printerTarget.replace(/'/g, "''");
+
+    const psScript = `Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 public class RawPrint {
@@ -286,16 +290,20 @@ public class RawPrint {
         return w == bytes.Length;
     }
 }
-"@
-\\$zpl = Get-Content -Raw '${tmpFile.replace(/\\/g, '\\\\')}'
-\\$result = [RawPrint]::Send('${printerTarget.replace(/'/g, "''")}', \\$zpl)
-Remove-Item '${tmpFile.replace(/\\/g, '\\\\')}' -ErrorAction SilentlyContinue
-if (\\$result) { Write-Output 'OK' } else { Write-Error 'Failed to send to printer'; exit 1 }
+'@
+$zpl = Get-Content -Raw '${zplPath}'
+$result = [RawPrint]::Send('${safePrinter}', $zpl)
+Remove-Item '${zplPath}' -ErrorAction SilentlyContinue
+if ($result) { Write-Output 'OK' } else { Write-Error 'Failed to send to printer'; exit 1 }
 `;
 
-    execFile('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', psScript], { timeout: 15000 }, (err, stdout, stderr) => {
-      // Clean up temp file just in case
-      try { fs.unlinkSync(tmpFile); } catch {}
+    // Write PS1 to temp file to avoid command-line escaping issues
+    fs.writeFileSync(tmpPs1, psScript, 'utf-8');
+
+    execFile('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', tmpPs1], { timeout: 15000 }, (err, stdout, stderr) => {
+      // Clean up temp files
+      try { fs.unlinkSync(tmpZpl); } catch {}
+      try { fs.unlinkSync(tmpPs1); } catch {}
 
       if (err) {
         reject(new Error(`Print failed: ${stderr || err.message}`));

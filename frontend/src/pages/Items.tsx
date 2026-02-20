@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   RefreshCw,
@@ -26,33 +27,6 @@ const GRADE_VARIANTS: Record<string, 'success' | 'warning' | 'danger'> = {
   SALVAGE: 'danger',
 };
 
-const GRADES = [
-  { value: '', label: 'All Grades' },
-  { value: 'NEW', label: 'New' },
-  { value: 'A', label: 'Like New' },
-  { value: 'B', label: 'Very Good' },
-  { value: 'C', label: 'Good' },
-  { value: 'D', label: 'Acceptable' },
-  { value: 'SALVAGE', label: 'Salvage' },
-];
-
-const CATEGORIES = [
-  { value: '', label: 'All Categories' },
-  { value: 'VACUUM', label: 'Vacuum' },
-  { value: 'APPLIANCE_SMALL', label: 'Small Appliance' },
-  { value: 'ICE_MAKER', label: 'Ice Maker' },
-  { value: 'APPLIANCE_LARGE', label: 'Large Appliance' },
-  { value: 'TV', label: 'TV' },
-  { value: 'MONITOR', label: 'Monitor' },
-  { value: 'LAPTOP', label: 'Laptop' },
-  { value: 'DESKTOP', label: 'Desktop' },
-  { value: 'PHONE', label: 'Phone' },
-  { value: 'TABLET', label: 'Tablet' },
-  { value: 'AUDIO', label: 'Audio' },
-  { value: 'GAMING', label: 'Gaming' },
-  { value: 'WEARABLE', label: 'Wearable' },
-  { value: 'OTHER', label: 'Other' },
-];
 
 export function Items() {
   const [items, setItems] = useState<any[]>([]);
@@ -61,6 +35,7 @@ export function Items() {
   const [selectedItem, setSelectedItem] = useState<any>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const toast = useToast();
+  const { t } = useTranslation();
 
   // Track request ID to prevent race conditions
   const requestIdRef = useRef(0);
@@ -123,16 +98,16 @@ export function Items() {
         className="flex justify-between items-center"
       >
         <div>
-          <h1 className="text-3xl font-bold text-white mb-2">Items</h1>
+          <h1 className="text-3xl font-bold text-white mb-2">{t('items.title')}</h1>
           <TextGenerateEffect
-            words="Track and manage all items in the system"
+            words={t('items.subtitle')}
             className="text-zinc-400 text-sm"
             duration={0.3}
           />
         </div>
         <Button variant="secondary" onClick={loadItems} disabled={loading}>
           <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
-          Refresh
+          {t('common.refresh')}
         </Button>
       </motion.div>
 
@@ -146,7 +121,7 @@ export function Items() {
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2 text-zinc-400">
               <Filter size={18} />
-              <span className="text-sm font-medium">Filters</span>
+              <span className="text-sm font-medium">{t('items.filters')}</span>
             </div>
             <div className="flex gap-4 flex-1">
               <div className="flex-1">
@@ -157,8 +132,16 @@ export function Items() {
                   value={filter.grade}
                   onChange={(e) => setFilter({ ...filter, grade: e.target.value })}
                 >
-                  {GRADES.map((g) => (
-                    <option key={g.value} value={g.value}>{g.label}</option>
+                  <option value="">{t('items.allGrades')}</option>
+                  {[
+                    { value: 'NEW', key: 'grading.grade_NEW' },
+                    { value: 'A', key: 'grading.grade_A' },
+                    { value: 'B', key: 'grading.grade_B' },
+                    { value: 'C', key: 'grading.grade_C' },
+                    { value: 'D', key: 'grading.grade_D' },
+                    { value: 'SALVAGE', key: 'grading.grade_SALVAGE' },
+                  ].map((g) => (
+                    <option key={g.value} value={g.value}>{t(g.key)}</option>
                   ))}
                 </select>
               </div>
@@ -170,8 +153,9 @@ export function Items() {
                   value={filter.category}
                   onChange={(e) => setFilter({ ...filter, category: e.target.value })}
                 >
-                  {CATEGORIES.map((cat) => (
-                    <option key={cat.value} value={cat.value}>{cat.label}</option>
+                  <option value="">{t('items.allCategories')}</option>
+                  {['VACUUM','APPLIANCE_SMALL','ICE_MAKER','APPLIANCE_LARGE','TV','MONITOR','LAPTOP','DESKTOP','PHONE','TABLET','AUDIO','GAMING','WEARABLE','OTHER'].map((c) => (
+                    <option key={c} value={c}>{t('categories.' + c)}</option>
                   ))}
                 </select>
               </div>
@@ -192,11 +176,11 @@ export function Items() {
               <thead>
                 <tr className="border-b border-border">
                   <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">QLID</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Product</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Category</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Pallet</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Grade</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">MSRP</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">{t('items.product')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">{t('items.category')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">{t('items.pallet')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">{t('items.grade')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">{t('items.msrp')}</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider"></th>
                 </tr>
               </thead>
@@ -207,7 +191,7 @@ export function Items() {
                       <td colSpan={7} className="px-4 py-12 text-center text-zinc-500">
                         <div className="flex flex-col items-center gap-2">
                           <Package className="w-8 h-8 text-zinc-600" />
-                          <span>No items found</span>
+                          <span>{t('items.noItems')}</span>
                         </div>
                       </td>
                     </tr>
@@ -227,7 +211,7 @@ export function Items() {
                         <td className="px-4 py-3 text-white">
                           {item.manufacturer} {item.model}
                         </td>
-                        <td className="px-4 py-3 text-zinc-300">{item.category}</td>
+                        <td className="px-4 py-3 text-zinc-300">{String(t('categories.' + item.category, item.category))}</td>
                         <td className="px-4 py-3">
                           <span className="font-mono text-zinc-400">{item.palletId}</span>
                         </td>
@@ -287,27 +271,27 @@ export function Items() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <span className="text-xs text-zinc-500 uppercase tracking-wide">Category</span>
-                <p className="text-white">{(selectedItem.category || '').replace(/_/g, ' ')}</p>
+                <span className="text-xs text-zinc-500 uppercase tracking-wide">{t('items.category')}</span>
+                <p className="text-white">{String(t('categories.' + selectedItem.category, selectedItem.category))}</p>
               </div>
               <div>
-                <span className="text-xs text-zinc-500 uppercase tracking-wide">Pallet</span>
+                <span className="text-xs text-zinc-500 uppercase tracking-wide">{t('items.pallet')}</span>
                 <p className="font-mono text-white">{selectedItem.palletId || selectedItem.pallet_id}</p>
               </div>
               <div>
-                <span className="text-xs text-zinc-500 uppercase tracking-wide">UPC</span>
+                <span className="text-xs text-zinc-500 uppercase tracking-wide">{t('items.upc')}</span>
                 <p className="font-mono text-white">{selectedItem.upc || '—'}</p>
               </div>
               <div>
-                <span className="text-xs text-zinc-500 uppercase tracking-wide">Serial Number</span>
+                <span className="text-xs text-zinc-500 uppercase tracking-wide">{t('items.serialNumber')}</span>
                 <p className="font-mono text-white">{selectedItem.serialNumber || selectedItem.serial_number || '—'}</p>
               </div>
               <div>
-                <span className="text-xs text-zinc-500 uppercase tracking-wide">MSRP</span>
+                <span className="text-xs text-zinc-500 uppercase tracking-wide">{t('items.msrp')}</span>
                 <p className="text-white">{(selectedItem.msrp && Number(selectedItem.msrp) > 0) ? `$${Number(selectedItem.msrp).toLocaleString()}` : '—'}</p>
               </div>
               <div>
-                <span className="text-xs text-zinc-500 uppercase tracking-wide">Intake</span>
+                <span className="text-xs text-zinc-500 uppercase tracking-wide">{t('items.intake')}</span>
                 <p className="text-white text-sm">{selectedItem.intake_ts ? new Date(selectedItem.intake_ts).toLocaleDateString() : '—'}</p>
               </div>
             </div>
@@ -322,12 +306,12 @@ export function Items() {
               return (
                 <div>
                   <h4 className="text-sm font-semibold text-zinc-400 uppercase tracking-wide mb-3">
-                    Refurb Checklist — {(checklist.category || '').replace(/_/g, ' ')}
+                    {String(t('items.refurbChecklist'))} — {String(t('refurb.category_' + checklist.category, (checklist.category || '').replace(/_/g, ' ')))}
                   </h4>
                   <div className="flex gap-4 text-sm mb-3">
-                    <span className="text-green-400">{pass} Pass</span>
-                    <span className="text-red-400">{fail} Fail</span>
-                    <span className="text-zinc-400">{na} N/A</span>
+                    <span className="text-green-400">{pass} {t('refurb.pass')}</span>
+                    <span className="text-red-400">{fail} {t('refurb.fail')}</span>
+                    <span className="text-zinc-400">{na} {t('refurb.na')}</span>
                   </div>
                   {fail > 0 && (
                     <div className="space-y-1">
@@ -345,7 +329,7 @@ export function Items() {
 
             <div className="flex justify-end">
               <Button variant="secondary" onClick={() => setShowDetailModal(false)}>
-                Close
+                {t('common.close')}
               </Button>
             </div>
           </div>
