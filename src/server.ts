@@ -1267,6 +1267,7 @@ app.get('/api/items', authMiddleware, async (req: Request, res: Response) => {
     const palletId = queryString(req.query.palletId);
     const stage = queryString(req.query.stage);
     const category = queryString(req.query.category);
+    const grade = queryString(req.query.grade);
     const technicianId = queryString(req.query.technicianId);
     const priority = queryString(req.query.priority);
     const limit = queryString(req.query.limit);
@@ -1274,6 +1275,7 @@ app.get('/api/items', authMiddleware, async (req: Request, res: Response) => {
     if (palletId) options.palletId = palletId;
     if (stage) options.stage = stage as RefurbStage;
     if (category) options.category = category as ProductCategory;
+    if (grade) options.grade = grade;
     if (technicianId) options.technicianId = technicianId;
     if (priority) options.priority = priority as JobPriority;
     if (limit) {

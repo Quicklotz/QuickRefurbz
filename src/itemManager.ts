@@ -316,6 +316,7 @@ export interface ListItemsOptions {
   palletId?: string;
   stage?: RefurbStage;
   category?: ProductCategory;
+  grade?: string;
   technicianId?: string;
   priority?: JobPriority;
   warehouseId?: string;
@@ -341,6 +342,11 @@ export async function listItems(options: ListItemsOptions = {}): Promise<RefurbI
   if (options.category) {
     conditions.push(`category = $${paramIndex++}`);
     params.push(options.category);
+  }
+
+  if (options.grade) {
+    conditions.push(`final_grade = $${paramIndex++}`);
+    params.push(options.grade);
   }
 
   if (options.technicianId) {

@@ -27,15 +27,10 @@ import {
   IconLayoutDashboard,
   IconPackage,
   IconPackageImport,
-  IconScan,
   IconLogout,
-  IconBinaryTree,
   IconSettings,
-  IconShieldCheck,
   IconClock,
   IconUsers,
-  IconStethoscope,
-  IconCertificate,
   IconDeviceDesktop,
   IconHelp,
 } from '@tabler/icons-react';
@@ -43,25 +38,10 @@ import {
 // Simplified navigation — intake-first workflow
 const navSections = [
   {
-    title: 'Daily',
+    title: '',
     items: [
       { to: '/', icon: <IconPackageImport size={20} />, label: 'Intake', end: true },
-      { to: '/scan', icon: <IconScan size={20} />, label: 'Scan' },
       { to: '/items', icon: <IconPackage size={20} />, label: 'Items' },
-      { to: '/workflow', icon: <IconBinaryTree size={20} />, label: 'Workflow' },
-    ],
-  },
-  {
-    title: 'Quality',
-    items: [
-      { to: '/diagnostics', icon: <IconStethoscope size={20} />, label: 'Diagnostics' },
-      { to: '/datawipe', icon: <IconShieldCheck size={20} />, label: 'Data Wipe' },
-      { to: '/certifications', icon: <IconCertificate size={20} />, label: 'Certs' },
-    ],
-  },
-  {
-    title: 'Overview',
-    items: [
       { to: '/dashboard', icon: <IconLayoutDashboard size={20} />, label: 'Dashboard' },
     ],
   },

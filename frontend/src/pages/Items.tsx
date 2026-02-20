@@ -3,12 +3,9 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   RefreshCw,
-  ChevronRight,
   Eye,
   Package,
   Filter,
-  Clock,
-  ArrowRight
 } from 'lucide-react';
 import { api } from '@/api/client';
 import { SpotlightCard } from '@/components/aceternity/spotlight';
@@ -18,35 +15,39 @@ import { AnimatedModal } from '@/components/aceternity/animated-modal';
 import { TextGenerateEffect } from '@/components/aceternity/text-generate-effect';
 import { Loader } from '@/components/aceternity/loader';
 import { useToast } from '@/components/aceternity/toast';
-import { Badge, PriorityBadge } from '@/components/shared/Badge';
+import { Badge } from '@/components/shared/Badge';
 
-const STAGE_VARIANTS: Record<string, 'info' | 'warning' | 'success' | 'danger'> = {
-  INTAKE: 'info',
-  TESTING: 'warning',
-  REPAIR: 'warning',
-  CLEANING: 'warning',
-  FINAL_QC: 'info',
-  COMPLETE: 'success',
+const GRADE_VARIANTS: Record<string, 'success' | 'warning' | 'danger'> = {
+  NEW: 'success',
+  A: 'success',
+  B: 'warning',
+  C: 'warning',
+  D: 'danger',
+  SALVAGE: 'danger',
 };
 
-const STAGES = [
-  { value: '', label: 'All Stages' },
-  { value: 'INTAKE', label: 'Intake' },
-  { value: 'TESTING', label: 'Testing' },
-  { value: 'REPAIR', label: 'Repair' },
-  { value: 'CLEANING', label: 'Cleaning' },
-  { value: 'FINAL_QC', label: 'Final QC' },
-  { value: 'COMPLETE', label: 'Complete' },
+const GRADES = [
+  { value: '', label: 'All Grades' },
+  { value: 'NEW', label: 'New' },
+  { value: 'A', label: 'Like New' },
+  { value: 'B', label: 'Very Good' },
+  { value: 'C', label: 'Good' },
+  { value: 'D', label: 'Acceptable' },
+  { value: 'SALVAGE', label: 'Salvage' },
 ];
 
 const CATEGORIES = [
   { value: '', label: 'All Categories' },
-  { value: 'PHONE', label: 'Phone' },
-  { value: 'TABLET', label: 'Tablet' },
-  { value: 'LAPTOP', label: 'Laptop' },
-  { value: 'DESKTOP', label: 'Desktop' },
+  { value: 'VACUUM', label: 'Vacuum' },
+  { value: 'APPLIANCE_SMALL', label: 'Small Appliance' },
+  { value: 'ICE_MAKER', label: 'Ice Maker' },
+  { value: 'APPLIANCE_LARGE', label: 'Large Appliance' },
   { value: 'TV', label: 'TV' },
   { value: 'MONITOR', label: 'Monitor' },
+  { value: 'LAPTOP', label: 'Laptop' },
+  { value: 'DESKTOP', label: 'Desktop' },
+  { value: 'PHONE', label: 'Phone' },
+  { value: 'TABLET', label: 'Tablet' },
   { value: 'AUDIO', label: 'Audio' },
   { value: 'GAMING', label: 'Gaming' },
   { value: 'WEARABLE', label: 'Wearable' },
@@ -56,9 +57,8 @@ const CATEGORIES = [
 export function Items() {
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState({ stage: '', category: '' });
+  const [filter, setFilter] = useState({ grade: '', category: '' });
   const [selectedItem, setSelectedItem] = useState<any>(null);
-  const [advancing, setAdvancing] = useState<string | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const toast = useToast();
 
@@ -70,7 +70,7 @@ export function Items() {
     setLoading(true);
 
     const params: Record<string, string> = {};
-    if (filter.stage) params.stage = filter.stage;
+    if (filter.grade) params.grade = filter.grade;
     if (filter.category) params.category = filter.category;
 
     try {
@@ -94,19 +94,6 @@ export function Items() {
   useEffect(() => {
     loadItems();
   }, [loadItems]);
-
-  const handleAdvance = async (item: any) => {
-    setAdvancing(item.qlid);
-    try {
-      await api.advanceItem(item.qlid);
-      toast.success('Item Advanced', `${item.qlid} moved to next stage`);
-      loadItems();
-    } catch (error: any) {
-      toast.error('Failed to advance item', error.message);
-    } finally {
-      setAdvancing(null);
-    }
-  };
 
   const viewItem = async (qlid: string) => {
     try {
@@ -163,15 +150,15 @@ export function Items() {
             </div>
             <div className="flex gap-4 flex-1">
               <div className="flex-1">
-                <Label htmlFor="stageFilter" className="sr-only">Stage</Label>
+                <Label htmlFor="gradeFilter" className="sr-only">Grade</Label>
                 <select
-                  id="stageFilter"
+                  id="gradeFilter"
                   className="w-full bg-dark-tertiary border border-border rounded-lg px-4 py-2 text-white focus:border-ql-yellow focus:outline-none text-sm"
-                  value={filter.stage}
-                  onChange={(e) => setFilter({ ...filter, stage: e.target.value })}
+                  value={filter.grade}
+                  onChange={(e) => setFilter({ ...filter, grade: e.target.value })}
                 >
-                  {STAGES.map((stage) => (
-                    <option key={stage.value} value={stage.value}>{stage.label}</option>
+                  {GRADES.map((g) => (
+                    <option key={g.value} value={g.value}>{g.label}</option>
                   ))}
                 </select>
               </div>
@@ -208,9 +195,9 @@ export function Items() {
                   <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Product</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Category</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Pallet</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Stage</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Priority</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Actions</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Grade</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">MSRP</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider"></th>
                 </tr>
               </thead>
               <tbody>
@@ -245,35 +232,26 @@ export function Items() {
                           <span className="font-mono text-zinc-400">{item.palletId}</span>
                         </td>
                         <td className="px-4 py-3">
-                          <Badge variant={STAGE_VARIANTS[item.currentStage] || 'info'} size="sm">
-                            {item.currentStage.replace('_', ' ')}
-                          </Badge>
+                          {(item.final_grade || item.finalGrade) ? (
+                            <Badge variant={GRADE_VARIANTS[item.final_grade || item.finalGrade] || 'info'} size="sm">
+                              {item.final_grade || item.finalGrade}
+                            </Badge>
+                          ) : (
+                            <span className="text-zinc-600 text-sm">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-zinc-300 text-sm">
+                          {(item.msrp && Number(item.msrp) > 0) ? `$${Number(item.msrp).toLocaleString()}` : '—'}
                         </td>
                         <td className="px-4 py-3">
-                          <PriorityBadge priority={item.priority.toLowerCase() as 'urgent' | 'high' | 'normal' | 'low'} />
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => viewItem(item.qlid)}
-                              title="View Details"
-                            >
-                              <Eye size={16} />
-                            </Button>
-                            {item.currentStage !== 'COMPLETE' && (
-                              <Button
-                                variant="primary"
-                                size="sm"
-                                onClick={() => handleAdvance(item)}
-                                loading={advancing === item.qlid}
-                                title="Advance Stage"
-                              >
-                                <ChevronRight size={16} />
-                              </Button>
-                            )}
-                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => viewItem(item.qlid)}
+                            title="View Details"
+                          >
+                            <Eye size={16} />
+                          </Button>
                         </td>
                       </motion.tr>
                     ))
@@ -297,69 +275,73 @@ export function Items() {
               <p className="text-lg text-white font-medium">
                 {selectedItem.manufacturer} {selectedItem.model}
               </p>
-              <Badge
-                variant={STAGE_VARIANTS[selectedItem.currentStage] || 'info'}
-                className="mt-2"
-              >
-                {selectedItem.currentStage.replace('_', ' ')}
-              </Badge>
+              {(selectedItem.final_grade || selectedItem.finalGrade) && (
+                <Badge
+                  variant={GRADE_VARIANTS[selectedItem.final_grade || selectedItem.finalGrade] || 'info'}
+                  className="mt-2"
+                >
+                  Grade {selectedItem.final_grade || selectedItem.finalGrade}
+                </Badge>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <span className="text-xs text-zinc-500 uppercase tracking-wide">Category</span>
-                <p className="text-white">{selectedItem.category}</p>
+                <p className="text-white">{(selectedItem.category || '').replace(/_/g, ' ')}</p>
               </div>
               <div>
                 <span className="text-xs text-zinc-500 uppercase tracking-wide">Pallet</span>
-                <p className="font-mono text-white">{selectedItem.palletId}</p>
+                <p className="font-mono text-white">{selectedItem.palletId || selectedItem.pallet_id}</p>
+              </div>
+              <div>
+                <span className="text-xs text-zinc-500 uppercase tracking-wide">UPC</span>
+                <p className="font-mono text-white">{selectedItem.upc || '—'}</p>
               </div>
               <div>
                 <span className="text-xs text-zinc-500 uppercase tracking-wide">Serial Number</span>
-                <p className="text-white">{selectedItem.serialNumber || 'N/A'}</p>
+                <p className="font-mono text-white">{selectedItem.serialNumber || selectedItem.serial_number || '—'}</p>
               </div>
               <div>
-                <span className="text-xs text-zinc-500 uppercase tracking-wide">Priority</span>
-                <p className="text-white">{selectedItem.priority}</p>
+                <span className="text-xs text-zinc-500 uppercase tracking-wide">MSRP</span>
+                <p className="text-white">{(selectedItem.msrp && Number(selectedItem.msrp) > 0) ? `$${Number(selectedItem.msrp).toLocaleString()}` : '—'}</p>
+              </div>
+              <div>
+                <span className="text-xs text-zinc-500 uppercase tracking-wide">Intake</span>
+                <p className="text-white text-sm">{selectedItem.intake_ts ? new Date(selectedItem.intake_ts).toLocaleDateString() : '—'}</p>
               </div>
             </div>
 
-            {/* Stage History */}
-            {selectedItem.history && selectedItem.history.length > 0 && (
-              <div>
-                <h4 className="text-sm font-semibold text-zinc-400 uppercase tracking-wide mb-3 flex items-center gap-2">
-                  <Clock size={14} />
-                  Stage History
-                </h4>
-                <div className="space-y-2 max-h-[200px] overflow-y-auto">
-                  {selectedItem.history.map((h: any, i: number) => (
-                    <motion.div
-                      key={i}
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: i * 0.05 }}
-                      className="bg-dark-primary rounded-lg p-3 text-sm"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2 text-white">
-                          <span>{h.fromStage || 'NEW'}</span>
-                          <ArrowRight size={14} className="text-ql-yellow" />
-                          <span>{h.toStage}</span>
+            {/* Refurb Checklist Summary */}
+            {(selectedItem.refurb_checklist || selectedItem.refurbChecklist) && (() => {
+              const checklist = selectedItem.refurb_checklist || selectedItem.refurbChecklist;
+              const checks = checklist.checks || [];
+              const pass = checks.filter((c: any) => c.result === 'PASS').length;
+              const fail = checks.filter((c: any) => c.result === 'FAIL').length;
+              const na = checks.filter((c: any) => c.result === 'N/A').length;
+              return (
+                <div>
+                  <h4 className="text-sm font-semibold text-zinc-400 uppercase tracking-wide mb-3">
+                    Refurb Checklist — {(checklist.category || '').replace(/_/g, ' ')}
+                  </h4>
+                  <div className="flex gap-4 text-sm mb-3">
+                    <span className="text-green-400">{pass} Pass</span>
+                    <span className="text-red-400">{fail} Fail</span>
+                    <span className="text-zinc-400">{na} N/A</span>
+                  </div>
+                  {fail > 0 && (
+                    <div className="space-y-1">
+                      {checks.filter((c: any) => c.result === 'FAIL').map((c: any) => (
+                        <div key={c.code} className="flex items-center gap-2 text-sm text-red-400 bg-red-500/10 rounded px-3 py-1.5">
+                          <span className="font-medium">{c.name}</span>
+                          {c.notes && <span className="text-red-300/70 ml-auto text-xs">{c.notes}</span>}
                         </div>
-                        <span className="text-zinc-500 text-xs">
-                          {new Date(h.createdAt).toLocaleString()}
-                        </span>
-                      </div>
-                      {h.technicianName && (
-                        <p className="text-zinc-400 text-xs mt-1">
-                          By: {h.technicianName}
-                        </p>
-                      )}
-                    </motion.div>
-                  ))}
+                      ))}
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             <div className="flex justify-end">
               <Button variant="secondary" onClick={() => setShowDetailModal(false)}>
