@@ -1,6 +1,6 @@
 {
   "name": "quickrefurbz",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "Refurbishment tracking system for liquidation electronics",
   "type": "module",
   "main": "dist/index.js",

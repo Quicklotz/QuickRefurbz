@@ -27,7 +27,15 @@ export interface TechnicianStats {
  */
 async function sendZplToPrinterLocal(printerIp: string, zpl: string): Promise<void> {
   if (typeof window !== 'undefined' && (window as any).electronAPI?.sendZpl) {
-    return (window as any).electronAPI.sendZpl(printerIp, zpl);
+    try {
+      await (window as any).electronAPI.sendZpl(printerIp, zpl);
+    } catch (err: any) {
+      // Electron IPC wraps errors — extract the actual message
+      const msg = typeof err === 'string' ? err
+        : err?.message?.replace(/^Error invoking remote method 'send-zpl': /, '') || 'Print failed';
+      throw new Error(msg);
+    }
+    return;
   }
   throw new Error('Direct ZPL printing requires the Electron desktop app');
 }

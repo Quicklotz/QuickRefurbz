@@ -194,18 +194,31 @@ ipcMain.on('install-update', () => {
 });
 
 // Raw TCP ZPL printing — sends ZPL directly to Zebra printer on port 9100
-ipcMain.handle('send-zpl', (_event, printerIp: string, zpl: string) => {
+ipcMain.handle('send-zpl', async (_event, printerIp: string, zpl: string) => {
   return new Promise<boolean>((resolve, reject) => {
+    let settled = false;
+    const done = (ok: boolean, err?: string) => {
+      if (settled) return;
+      settled = true;
+      ok ? resolve(true) : reject(new Error(err || 'Print failed'));
+    };
+
     const socket = new net.Socket();
+
     socket.connect(9100, printerIp, () => {
-      socket.write(zpl);
-      socket.end();
+      socket.write(zpl, () => {
+        socket.end();
+      });
     });
-    socket.on('close', () => resolve(true));
-    socket.on('error', (err) => reject(err.message));
+
+    socket.on('close', () => done(true));
+    socket.on('error', (err) => {
+      socket.destroy();
+      done(false, `Cannot reach printer at ${printerIp}:9100 — ${err.message}`);
+    });
     socket.setTimeout(10000, () => {
       socket.destroy();
-      reject('Printer connection timeout');
+      done(false, `Printer at ${printerIp} did not respond (timeout)`);
     });
   });
 });
