@@ -14,11 +14,12 @@ import { Loader } from '@/components/aceternity/loader';
 
 type Step =
   | 'scan-pallet'      // 1. Scan supplier pallet ID
-  | 'scan-order'       // 2. Fallback: enter order/shipment ID
-  | 'select-pallet'    // 2b. Pick pallet from order results
-  | 'confirm-start'    // 3. Show pallet info, confirm to begin
-  | 'working'          // 4. Main loop: QLID generated, identify product
-  | 'review';          // 5. Review identified data, save
+  | 'scan-order'       // 1b. Fallback: enter order/shipment ID
+  | 'select-pallet'    // 1c. Pick pallet from order results
+  | 'confirm-start'    // 2. Show pallet info, confirm to begin
+  | 'working'          // 3. QLID printed, identify product
+  | 'review'           // 4. Review identified data
+  | 'grading';         // 5. Assign condition grade
 
 const CATEGORIES = [
   'PHONE', 'TABLET', 'LAPTOP', 'DESKTOP', 'MONITOR', 'TV',
@@ -27,6 +28,60 @@ const CATEGORIES = [
 ];
 
 type IdMethod = 'barcode' | 'manual' | 'label-photo' | 'product-photo';
+
+const CONDITION_GRADES = [
+  {
+    value: 'NEW',
+    label: 'New',
+    letter: 'S',
+    color: 'emerald',
+    description: 'Unused, unopened, pristine with original, intact packaging and manufacturer warranty.',
+  },
+  {
+    value: 'A',
+    label: 'Like New / Open Box',
+    letter: 'A',
+    color: 'green',
+    description: 'Perfect working condition with no signs of wear. Packaging might be damaged or missing.',
+  },
+  {
+    value: 'B',
+    label: 'Very Good',
+    letter: 'B',
+    color: 'blue',
+    description: 'Minimal, limited signs of wear, fully functional, and well-maintained.',
+  },
+  {
+    value: 'C',
+    label: 'Good',
+    letter: 'C',
+    color: 'yellow',
+    description: 'Noticeable wear from regular use, good working condition. May have minor functional damage or missing accessories.',
+  },
+  {
+    value: 'D',
+    label: 'Acceptable',
+    letter: 'D',
+    color: 'orange',
+    description: 'Significant wear including scratches, dents, or missing non-essential parts, but still fully functional.',
+  },
+  {
+    value: 'SALVAGE',
+    label: 'Salvage',
+    letter: 'E',
+    color: 'red',
+    description: 'Non-functional or missing essential parts. For parts harvesting or recycling only.',
+  },
+] as const;
+
+const GRADE_COLORS: Record<string, string> = {
+  emerald: 'border-emerald-600 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400',
+  green: 'border-green-600 bg-green-500/10 hover:bg-green-500/20 text-green-400',
+  blue: 'border-blue-600 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400',
+  yellow: 'border-yellow-600 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400',
+  orange: 'border-orange-600 bg-orange-500/10 hover:bg-orange-500/20 text-orange-400',
+  red: 'border-red-600 bg-red-500/10 hover:bg-red-500/20 text-red-400',
+};
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -47,6 +102,7 @@ export function Intake() {
 
   // Current QLID (pre-generated for the next item)
   const [currentQlid, setCurrentQlid] = useState<string | null>(null);
+  const [currentBarcodeValue, setCurrentBarcodeValue] = useState<string | null>(null);
   const [qlidPrinted, setQlidPrinted] = useState(false);
 
   // Identification
@@ -63,6 +119,9 @@ export function Intake() {
   const [upc, setUpc] = useState('');
   const [serialNumber, setSerialNumber] = useState('');
   const [msrp, setMsrp] = useState(0);
+
+  // Grading
+  const [conditionGrade, setConditionGrade] = useState<string | null>(null);
 
   // Last saved item
   const [lastItem, setLastItem] = useState<any>(null);
@@ -88,7 +147,6 @@ export function Intake() {
     if ((window as any).electronAPI?.getPrinters) {
       (window as any).electronAPI.getPrinters().then((printers: Array<{ name: string; isDefault: boolean }>) => {
         setAvailablePrinters(printers);
-        // Auto-select Zebra if no printer saved yet
         if (!saved) {
           const zebra = printers.find(p => /zebra|zp\s*4/i.test(p.name));
           if (zebra) {
@@ -186,13 +244,11 @@ export function Intake() {
       setActivePallet(pallet);
       setItemCount(0);
 
-      // Auto-print pallet label if auto-print is on
+      // Auto-print pallet label (4x6)
       if (autoPrint) {
         try {
           await api.printZplLabel(printerIp || 'browser', pallet.palletId, '4x6');
-        } catch {
-          // Non-critical - label can be reprinted
-        }
+        } catch { /* Non-critical */ }
       }
 
       // Pre-generate first QLID
@@ -213,16 +269,15 @@ export function Intake() {
       if (!pid) throw new Error('No active pallet');
       const reserved = await api.reserveQlid(pid);
       setCurrentQlid(reserved.qlid);
+      setCurrentBarcodeValue(reserved.barcodeValue);
       setQlidPrinted(false);
 
-      // Auto-print QLID label on 1x3" if enabled
+      // Auto-print QLID label on 1x3"
       if (autoPrint) {
         try {
           await api.printRefurbLabel(printerIp || 'browser', reserved.qlid, '1x3');
           setQlidPrinted(true);
-        } catch {
-          // Non-critical - can reprint
-        }
+        } catch { /* Non-critical */ }
       }
     } catch (err: any) {
       setError('Failed to generate QLID: ' + (err.message || ''));
@@ -238,18 +293,13 @@ export function Intake() {
     setError(null);
     try {
       const data = await api.identifyByBarcode(code);
-      // Always proceed to review with whatever data we got — barcode is always saved
       populateReview({
         ...(data.found ? data : {}),
         upc: code,
         identificationMethod: 'barcode',
       });
     } catch {
-      // Even if lookup fails, still proceed with the barcode saved as UPC
-      populateReview({
-        upc: code,
-        identificationMethod: 'barcode',
-      });
+      populateReview({ upc: code, identificationMethod: 'barcode' });
     } finally {
       setLoading(false);
     }
@@ -277,10 +327,7 @@ export function Intake() {
   };
 
   const handleSelectSearchResult = (result: any) => {
-    populateReview({
-      ...result,
-      identificationMethod: 'manual',
-    });
+    populateReview({ ...result, identificationMethod: 'manual' });
     setSearchResults([]);
   };
 
@@ -292,10 +339,7 @@ export function Intake() {
         ? await api.identifyFromLabelPhoto(file)
         : await api.identifyFromProductPhoto(file);
       if (data.brand || data.model) {
-        populateReview({
-          ...data,
-          identificationMethod: method,
-        });
+        populateReview({ ...data, identificationMethod: method });
       } else {
         setError('Could not identify product from photo. Try another method.');
       }
@@ -318,7 +362,6 @@ export function Intake() {
   };
 
   const handleSkipIdentification = () => {
-    // Go to review with empty data - user will fill manually
     setBrand('');
     setModel('');
     setCategory('OTHER');
@@ -329,14 +372,20 @@ export function Intake() {
     setStep('review');
   };
 
-  // ── Save Item ────────────────────────────────────────────────────────────
+  // ── Review → Grading ──────────────────────────────────────────────────────
 
-  const handleSaveItem = async () => {
+  const handleConfirmReview = () => {
+    setConditionGrade(null);
+    setStep('grading');
+  };
+
+  // ── Save Item (after grading) ─────────────────────────────────────────────
+
+  const handleSaveItem = async (grade: string) => {
     if (!currentQlid || !activePallet) return;
     setLoading(true);
     setError(null);
     try {
-      // Update the reserved QLID with actual product data
       const updated = await api.updateItemByQlid(currentQlid, {
         manufacturer: brand || 'Unknown',
         model: model || 'Unknown',
@@ -346,9 +395,10 @@ export function Intake() {
         msrp: msrp || undefined,
         manifestMatch: identifiedData?.source === 'manifest' || identifiedData?.source === 'bestbuy',
         identificationMethod: identifiedData?.identificationMethod || 'manual',
+        conditionGrade: grade,
       });
 
-      setLastItem(updated);
+      setLastItem({ ...updated, conditionGrade: grade });
       setItemCount(c => c + 1);
 
       // Reset and generate next QLID
@@ -373,6 +423,7 @@ export function Intake() {
     setUpc('');
     setSerialNumber('');
     setMsrp(0);
+    setConditionGrade(null);
     setError(null);
   };
 
@@ -381,6 +432,7 @@ export function Intake() {
   const handleEndSession = () => {
     setActivePallet(null);
     setCurrentQlid(null);
+    setCurrentBarcodeValue(null);
     setLastItem(null);
     setItemCount(0);
     setPalletInput('');
@@ -390,8 +442,6 @@ export function Intake() {
     resetIdentification();
     setStep('scan-pallet');
   };
-
-
 
   const handleReprintQlidLabel = async () => {
     if (!currentQlid) return;
@@ -417,7 +467,6 @@ export function Intake() {
             <span className="text-zinc-400 text-sm">{itemCount} items</span>
           </div>
           <div className="flex items-center gap-2">
-            {/* Auto-print toggle — always visible */}
             <button
               onClick={toggleAutoPrint}
               className={`text-xs px-2 py-1 rounded border transition-colors flex items-center gap-1 ${
@@ -430,12 +479,10 @@ export function Intake() {
               <Printer size={12} />
               {autoPrint ? 'Auto-Print ON' : 'Auto-Print OFF'}
             </button>
-            {/* Print Label button — always visible when QLID exists */}
             {currentQlid && (
               <button
                 onClick={handleReprintQlidLabel}
                 className="text-xs text-[#d4a800] hover:text-white px-2 py-1 rounded border border-[#d4a800]/40 hover:border-[#d4a800] bg-[#d4a800]/10 hover:bg-[#d4a800]/20 transition-colors flex items-center gap-1"
-                title={`Print label for ${currentQlid}`}
               >
                 <Printer size={12} />
                 Print Label
@@ -484,7 +531,6 @@ export function Intake() {
           {/* Printer config */}
           <div className="mt-6 pt-4 border-t border-zinc-800">
             {(window as any).electronAPI?.sendZpl ? (
-              /* Electron: printer dropdown + test button */
               <>
                 <div className="flex items-center gap-2">
                   <Printer size={14} className="text-zinc-600" />
@@ -521,7 +567,6 @@ export function Intake() {
                       setError(null);
                       try {
                         await (window as any).electronAPI.sendZpl(printerIp, '^XA^FO50,30^A0N,30,30^FDQuickRefurbz^FS^FO50,70^A0N,25,25^FDTest Print OK^FS^XZ');
-                        setError(null);
                         alert('Test label sent! Check your printer.');
                       } catch (err: any) {
                         setError(`Print failed: ${err.message || err}`);
@@ -539,7 +584,6 @@ export function Intake() {
                 </p>
               </>
             ) : (
-              /* Browser: use system print dialog */
               <button
                 onClick={() => {
                   const next = printerIp ? '' : 'enabled';
@@ -563,7 +607,7 @@ export function Intake() {
         </Card>
       )}
 
-      {/* ── STEP 2: Enter Order/Shipment ID ─────────────────────────────── */}
+      {/* ── STEP 1b: Enter Order/Shipment ID ────────────────────────────── */}
       {step === 'scan-order' && (
         <Card>
           <h2 className="text-xl font-semibold text-white mb-1">Pallet Not Found</h2>
@@ -589,7 +633,7 @@ export function Intake() {
         </Card>
       )}
 
-      {/* ── STEP 2b: Select Pallet from Order ───────────────────────────── */}
+      {/* ── STEP 1c: Select Pallet from Order ──────────────────────────── */}
       {step === 'select-pallet' && (
         <Card>
           <h2 className="text-xl font-semibold text-white mb-1">Select Pallet</h2>
@@ -615,7 +659,7 @@ export function Intake() {
         </Card>
       )}
 
-      {/* ── STEP 3: Confirm & Start Working ─────────────────────────────── */}
+      {/* ── STEP 2: Confirm & Start Working ──────────────────────────────── */}
       {step === 'confirm-start' && sourcingPallet && (
         <Card>
           <div className="flex items-center gap-2 mb-4">
@@ -631,7 +675,7 @@ export function Intake() {
           </div>
 
           <p className="text-sm text-zinc-400 mb-4">
-            A unique Pallet ID will be generated and printed. Ready to begin?
+            A unique Pallet ID with retailer code will be generated and printed. Ready to begin?
           </p>
 
           <div className="flex gap-3">
@@ -646,7 +690,7 @@ export function Intake() {
         </Card>
       )}
 
-      {/* ── STEP 4: Working - Identify Products ─────────────────────────── */}
+      {/* ── STEP 3: Working - Identify Products ──────────────────────────── */}
       {step === 'working' && (
         <>
           {/* Last item success banner */}
@@ -654,9 +698,12 @@ export function Intake() {
             <div className="mb-4 flex items-center gap-3 p-3 rounded-lg bg-green-500/10 border border-green-500/30">
               <Check size={16} className="text-green-500" />
               <span className="text-sm text-green-400">
-                Saved: {lastItem.manufacturer} {lastItem.model}
+                Saved: {lastItem.manufacturer || lastItem.brand} {lastItem.model}
               </span>
-              <span className="font-mono text-xs text-zinc-500 ml-auto">{lastItem.qlid}</span>
+              <span className="font-mono text-xs text-zinc-500 ml-auto">
+                {lastItem.conditionGrade && <span className="text-zinc-400 mr-2">Grade {lastItem.conditionGrade}</span>}
+                {lastItem.qlid}
+              </span>
             </div>
           )}
 
@@ -664,8 +711,11 @@ export function Intake() {
           <Card className="mb-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Current QLID</p>
-                <p className="font-mono text-2xl font-bold text-[#d4a800]">{currentQlid || '...'}</p>
+                <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Current Item</p>
+                <p className="font-mono text-xl font-bold text-[#d4a800]">{currentBarcodeValue || currentQlid || '...'}</p>
+                {currentBarcodeValue && currentQlid && currentBarcodeValue !== currentQlid && (
+                  <p className="font-mono text-xs text-zinc-500 mt-0.5">{currentQlid}</p>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 {qlidPrinted ? (
@@ -709,21 +759,19 @@ export function Intake() {
 
             {/* Barcode scan */}
             {idMethod === 'barcode' && (
-              <div className="space-y-3">
-                <div className="flex gap-3">
-                  <Input
-                    ref={barcodeInputRef}
-                    value={barcodeInput}
-                    onChange={e => setBarcodeInput(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && handleBarcodeScan()}
-                    placeholder="Scan or type UPC/barcode"
-                    className="font-mono text-lg flex-1"
-                    autoFocus
-                  />
-                  <Button variant="primary" onClick={handleBarcodeScan} loading={loading}>
-                    <Search size={18} />
-                  </Button>
-                </div>
+              <div className="flex gap-3">
+                <Input
+                  ref={barcodeInputRef}
+                  value={barcodeInput}
+                  onChange={e => setBarcodeInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleBarcodeScan()}
+                  placeholder="Scan or type UPC / GTIN / ASIN"
+                  className="font-mono text-lg flex-1"
+                  autoFocus
+                />
+                <Button variant="primary" onClick={handleBarcodeScan} loading={loading}>
+                  <Search size={18} />
+                </Button>
               </div>
             )}
 
@@ -803,18 +851,18 @@ export function Intake() {
         </>
       )}
 
-      {/* ── STEP 5: Review & Save ───────────────────────────────────────── */}
+      {/* ── STEP 4: Review & Confirm ─────────────────────────────────────── */}
       {step === 'review' && (
         <Card>
           <h2 className="text-lg font-semibold text-white mb-1">Confirm Product Details</h2>
           <p className="text-sm text-zinc-500 mb-4">
-            QLID: <span className="font-mono text-[#d4a800]">{currentQlid}</span>
+            <span className="font-mono text-[#d4a800]">{currentBarcodeValue || currentQlid}</span>
           </p>
 
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label className="text-xs text-zinc-500 mb-1 block">Brand</Label>
+                <Label className="text-xs text-zinc-500 mb-1 block">Brand / Manufacturer</Label>
                 <Input value={brand} onChange={e => setBrand(e.target.value)} placeholder="Brand" />
               </div>
               <div>
@@ -854,11 +902,57 @@ export function Intake() {
             <Button variant="secondary" onClick={() => { setStep('working'); resetIdentification(); }} className="flex-1">
               Cancel
             </Button>
-            <Button variant="primary" onClick={handleSaveItem} loading={loading} className="flex-1">
-              <Check size={18} />
-              Save & Next
+            <Button variant="primary" onClick={handleConfirmReview} className="flex-1">
+              <ArrowRight size={18} />
+              Next: Grade Condition
             </Button>
           </div>
+        </Card>
+      )}
+
+      {/* ── STEP 5: Condition Grading ────────────────────────────────────── */}
+      {step === 'grading' && (
+        <Card>
+          <h2 className="text-lg font-semibold text-white mb-1">Grade Condition</h2>
+          <p className="text-sm text-zinc-500 mb-2">
+            <span className="font-mono text-[#d4a800]">{currentBarcodeValue || currentQlid}</span>
+            {brand && <span className="text-zinc-400 ml-2">— {brand} {model}</span>}
+          </p>
+          <p className="text-xs text-zinc-600 mb-5">Select the condition that best describes this item:</p>
+
+          <div className="space-y-2">
+            {CONDITION_GRADES.map((grade) => (
+              <button
+                key={grade.value}
+                onClick={() => {
+                  setConditionGrade(grade.value);
+                  handleSaveItem(grade.value);
+                }}
+                disabled={loading}
+                className={`w-full text-left p-4 rounded-lg border-2 transition-all ${GRADE_COLORS[grade.color]} ${
+                  conditionGrade === grade.value ? 'ring-2 ring-white/30' : ''
+                } ${loading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+              >
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl font-black font-mono w-8 text-center">{grade.letter}</span>
+                  <div className="flex-1">
+                    <span className="font-semibold text-sm">{grade.label}</span>
+                    <p className="text-xs opacity-70 mt-0.5 leading-relaxed">{grade.description}</p>
+                  </div>
+                  {loading && conditionGrade === grade.value && (
+                    <Loader size="sm" variant="spinner" />
+                  )}
+                </div>
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={() => setStep('review')}
+            className="text-sm text-zinc-500 hover:text-white mt-4 transition-colors"
+          >
+            &larr; Back to review
+          </button>
         </Card>
       )}
     </div>

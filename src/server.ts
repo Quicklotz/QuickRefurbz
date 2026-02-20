@@ -1407,7 +1407,7 @@ app.put('/api/items/:qlid', authMiddleware, async (req: AuthRequest, res: Respon
     const qlid = req.params.qlid as string;
     const {
       manufacturer, model, category, upc, serialNumber,
-      msrp, manifestMatch, identificationMethod
+      msrp, manifestMatch, identificationMethod, conditionGrade
     } = req.body;
 
     const db = getPool();
@@ -1435,6 +1435,7 @@ app.put('/api/items/:qlid', authMiddleware, async (req: AuthRequest, res: Respon
     if (msrp !== undefined) { setClauses.push(`msrp = $${paramIndex++}`); values.push(msrp); }
     if (manifestMatch !== undefined) { setClauses.push(`manifest_match = $${paramIndex++}`); values.push(manifestMatch); }
     if (identificationMethod !== undefined) { setClauses.push(`identification_method = $${paramIndex++}`); values.push(identificationMethod); }
+    if (conditionGrade !== undefined) { setClauses.push(`final_grade = $${paramIndex++}`); values.push(conditionGrade); }
 
     if (setClauses.length === 0) {
       res.status(400).json({ error: 'No fields to update' });

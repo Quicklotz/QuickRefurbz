@@ -197,15 +197,24 @@ export const SEVERITY_DISPLAY: Record<IssueSeverity, string> = {
 
 // ==================== FINAL GRADES ====================
 
-export type FinalGrade = 'A' | 'B' | 'C' | 'D' | 'F' | 'SALVAGE';
+export type FinalGrade = 'NEW' | 'A' | 'B' | 'C' | 'D' | 'SALVAGE';
 
 export const GRADE_DISPLAY: Record<FinalGrade, string> = {
-  A: 'A - Like New',
-  B: 'B - Excellent',
-  C: 'C - Good',
-  D: 'D - Fair',
-  F: 'F - Poor',
-  SALVAGE: 'Salvage - Parts Only'
+  NEW: 'New',
+  A: 'Like New / Open Box',
+  B: 'Very Good',
+  C: 'Good',
+  D: 'Acceptable',
+  SALVAGE: 'Salvage'
+};
+
+export const GRADE_DESCRIPTION: Record<FinalGrade, string> = {
+  NEW: 'Unused, unopened, and pristine with original, intact packaging and, if applicable, manufacturer warranty.',
+  A: 'Perfect working condition with no signs of wear, though packaging might be damaged or missing.',
+  B: 'Minimal, limited signs of wear, fully functional, and well-maintained.',
+  C: 'Noticeable wear from regular use, but in good working condition. May have minor functional damage or missing accessories.',
+  D: 'Significant, noticeable wear including scratches, dents, or missing non-essential parts, but still fully functional.',
+  SALVAGE: 'Non-functional or missing essential parts. For parts harvesting or recycling only.'
 };
 
 // ==================== PARTS ====================

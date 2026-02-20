@@ -40,7 +40,7 @@ export const CERT_TO_GRADE: Record<CertificationLevel, FinalGrade> = {
   EXCELLENT: 'A',
   GOOD: 'B',
   FAIR: 'C',
-  NOT_CERTIFIED: 'F'
+  NOT_CERTIFIED: 'SALVAGE'
 };
 
 // ==================== CERTIFICATION ====================
