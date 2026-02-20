@@ -22,13 +22,13 @@ export interface TechnicianStats {
 }
 
 /**
- * Send ZPL directly to a Zebra printer from the client.
- * Electron: raw TCP via IPC (port 9100) — most reliable.
+ * Send ZPL to a Zebra printer from the Electron app.
+ * Accepts either an IP address (TCP port 9100) or a printer name (Windows raw print API).
  */
-async function sendZplToPrinterLocal(printerIp: string, zpl: string): Promise<void> {
+async function sendZplToPrinterLocal(printerTarget: string, zpl: string): Promise<void> {
   if (typeof window !== 'undefined' && (window as any).electronAPI?.sendZpl) {
     try {
-      await (window as any).electronAPI.sendZpl(printerIp, zpl);
+      await (window as any).electronAPI.sendZpl(printerTarget, zpl);
     } catch (err: any) {
       // Electron IPC wraps errors — extract the actual message
       const msg = typeof err === 'string' ? err

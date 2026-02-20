@@ -1,8 +1,8 @@
 "use client";
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
-  Search, Package, Printer, Check, AlertTriangle, ArrowRight,
-  Barcode, Edit3, Camera, Image, RotateCcw, X, ChevronDown,
+  Search, Printer, Check, AlertTriangle, ArrowRight,
+  Barcode, Edit3, Camera, Image, X,
 } from 'lucide-react';
 import { api } from '@/api/client';
 import { Button } from '@/components/aceternity/button';
@@ -67,21 +67,37 @@ export function Intake() {
   // Last saved item
   const [lastItem, setLastItem] = useState<any>(null);
 
-  // Printer IP and auto-print toggle
+  // Printer selection and auto-print toggle
   const [printerIp, setPrinterIp] = useState<string>('');
   const [autoPrint, setAutoPrint] = useState(true);
+  const [availablePrinters, setAvailablePrinters] = useState<Array<{ name: string; isDefault: boolean }>>([]);
 
   const palletInputRef = useRef<HTMLInputElement>(null);
   const orderInputRef = useRef<HTMLInputElement>(null);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // Load saved printer + auto-print preference from localStorage
+  // Load saved printer + auto-print preference, detect available printers
   useEffect(() => {
     const saved = localStorage.getItem('qr_printer_ip');
     if (saved) setPrinterIp(saved);
     const ap = localStorage.getItem('qr_auto_print');
     if (ap !== null) setAutoPrint(ap === 'true');
+
+    // In Electron, fetch available printers and auto-select Zebra
+    if ((window as any).electronAPI?.getPrinters) {
+      (window as any).electronAPI.getPrinters().then((printers: Array<{ name: string; isDefault: boolean }>) => {
+        setAvailablePrinters(printers);
+        // Auto-select Zebra if no printer saved yet
+        if (!saved) {
+          const zebra = printers.find(p => /zebra|zp\s*4/i.test(p.name));
+          if (zebra) {
+            setPrinterIp(zebra.name);
+            localStorage.setItem('qr_printer_ip', zebra.name);
+          }
+        }
+      }).catch(() => {});
+    }
   }, []);
 
   const toggleAutoPrint = () => {
@@ -375,14 +391,7 @@ export function Intake() {
     setStep('scan-pallet');
   };
 
-  const handleReprintPalletLabel = async () => {
-    if (!activePallet) return;
-    try {
-      await api.printZplLabel(printerIp || 'browser', activePallet.palletId, '4x6');
-    } catch (err: any) {
-      setError(err.message || 'Failed to print pallet label');
-    }
-  };
+
 
   const handleReprintQlidLabel = async () => {
     if (!currentQlid) return;
@@ -475,29 +484,47 @@ export function Intake() {
           {/* Printer config */}
           <div className="mt-6 pt-4 border-t border-zinc-800">
             {(window as any).electronAPI?.sendZpl ? (
-              /* Electron: need IP address for raw TCP printing */
+              /* Electron: printer dropdown + test button */
               <>
                 <div className="flex items-center gap-2">
                   <Printer size={14} className="text-zinc-600" />
-                  <Input
-                    value={printerIp}
-                    onChange={e => {
-                      setPrinterIp(e.target.value);
-                      localStorage.setItem('qr_printer_ip', e.target.value);
-                    }}
-                    placeholder="Zebra Printer IP (e.g. 192.168.1.100)"
-                    className="text-sm flex-1 font-mono"
-                  />
+                  {availablePrinters.length > 0 ? (
+                    <select
+                      value={printerIp}
+                      onChange={e => {
+                        setPrinterIp(e.target.value);
+                        localStorage.setItem('qr_printer_ip', e.target.value);
+                      }}
+                      className="text-sm flex-1 font-mono bg-zinc-900 text-white border border-zinc-700 rounded px-2 py-2"
+                    >
+                      <option value="">-- Select Printer --</option>
+                      {availablePrinters.map(p => (
+                        <option key={p.name} value={p.name}>
+                          {p.name}{p.isDefault ? ' (default)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <Input
+                      value={printerIp}
+                      onChange={e => {
+                        setPrinterIp(e.target.value);
+                        localStorage.setItem('qr_printer_ip', e.target.value);
+                      }}
+                      placeholder="Printer name or IP (e.g. Zebra ZP 450-200 dpi)"
+                      className="text-sm flex-1 font-mono"
+                    />
+                  )}
                   <button
                     onClick={async () => {
-                      if (!printerIp) { setError('Enter printer IP first'); return; }
+                      if (!printerIp) { setError('Select a printer first'); return; }
                       setError(null);
                       try {
-                        await (window as any).electronAPI.sendZpl(printerIp, '^XA^FO50,50^A0N,40,40^FDQuickRefurbz Test^FS^XZ');
+                        await (window as any).electronAPI.sendZpl(printerIp, '^XA^FO50,30^A0N,30,30^FDQuickRefurbz^FS^FO50,70^A0N,25,25^FDTest Print OK^FS^XZ');
                         setError(null);
                         alert('Test label sent! Check your printer.');
                       } catch (err: any) {
-                        setError(`Printer not reachable at ${printerIp}:9100 — ${err.message || err}`);
+                        setError(`Print failed: ${err.message || err}`);
                       }
                     }}
                     className="text-xs text-[#d4a800] hover:text-white px-3 py-2 rounded border border-[#d4a800]/40 hover:border-[#d4a800] bg-[#d4a800]/10 transition-colors whitespace-nowrap"
@@ -506,7 +533,9 @@ export function Intake() {
                   </button>
                 </div>
                 <p className="text-[11px] text-zinc-600 mt-1 ml-7">
-                  Enter your Zebra printer's IP address. Sends ZPL directly via TCP port 9100.
+                  {/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(printerIp)
+                    ? 'Network printer — sends ZPL via TCP port 9100.'
+                    : 'USB printer — sends ZPL via Windows raw print API.'}
                 </p>
               </>
             ) : (

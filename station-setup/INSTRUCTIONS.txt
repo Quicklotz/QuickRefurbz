@@ -1,0 +1,20 @@
+QuickRefurbz Station Setup
+==========================
+
+FOR WAREHOUSE STAFF:
+
+1. Plug the Zebra ZP450 printer into the computer via USB
+2. Right-click "setup-station.bat" and select "Run as administrator"
+3. When it asks for a station number, type:
+     1  (for the first computer)
+     2  (for the second computer)
+     3  (for the third computer)
+     etc.
+4. Wait for it to finish (takes 2-3 minutes)
+5. It will show an IP address at the end - TEXT THIS TO CONNOR
+6. The computer will restart automatically
+
+After restart, QuickRefurbz is installed and ready to use.
+The Zebra printer should show up automatically.
+
+DO NOT close the window while it's running.
